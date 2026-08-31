@@ -81,6 +81,13 @@ warpbuster --version
 python -c "import warpbuster; print(warpbuster.__version__)"
 ```
 
+Чтение и инспекция FIT:
+
+```bash
+warpbuster inspect activity.fit
+warpbuster inspect activity.fit --json
+```
+
 Полный набор проверок:
 
 ```bash
@@ -90,5 +97,5 @@ python -m ruff format --check .
 python -m mypy src tests
 ```
 
-На этапе bootstrap команды чтения FIT, анализа GNSS и восстановления трека намеренно
-не реализованы. Они добавляются последовательно согласно `docs/MILESTONES.md`.
+На текущем этапе реализовано только чтение и инспекция FIT. Анализ GNSS и восстановление
+трека намеренно отложены до следующих milestones согласно `docs/MILESTONES.md`.

@@ -67,3 +67,25 @@ Map-based reconstruction не входит в v0.1.
 Реальные FIT пользователя не коммитить в public repo по умолчанию.
 
 Статус: Accepted.
+
+## ADR-012 — fitdecode for frame-preserving FIT decoding
+
+FIT decoding в v0.1 выполняется через пакет `fitdecode`.
+
+Причины:
+- поддержка FIT protocol v2, developer fields и compressed timestamp headers;
+- CRC validation;
+- последовательный доступ к header/definition/data/CRC frames;
+- сохранение offset и исходных bytes каждого frame;
+- неизвестные messages/fields не требуют преобразования через GPX или другую модель.
+
+Официальный `garmin-fit-sdk` используется в dev dependencies для генерации synthetic
+fixtures, но не как основной reader: текущий Python decoder не поддерживает compressed
+timestamp headers и не предоставляет столь же удобную 1:1 frame representation.
+
+Normalized model остаётся vendor-neutral и не импортирует decoder. Reader сохраняет
+исходные FIT bytes, порядок decoded messages, raw definition/data chunks и ссылку каждого
+`ActivityRecord` на исходный record. Стратегия записи/patching выбирается отдельно в
+Task 007; decoded objects не считаются lossless canonical representation.
+
+Статус: Accepted.
