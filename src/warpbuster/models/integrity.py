@@ -27,6 +27,14 @@ class TransitionReason(StrEnum):
     NON_POSITIVE_TIME_DELTA = "non_positive_time_delta"
 
 
+class IntervalReason(StrEnum):
+    """Stable evidence establishing a corrupted interval."""
+
+    IMPOSSIBLE_TRANSITION_IN = "impossible_transition_in"
+    IMPOSSIBLE_TRANSITION_OUT = "impossible_transition_out"
+    PLAUSIBLE_BRIDGE = "plausible_bridge"
+
+
 class IntegrityStatus(StrEnum):
     """Overall result of the detector stage currently available."""
 
@@ -71,6 +79,40 @@ class TransitionResult:
 
 
 @dataclass(frozen=True, slots=True)
+class BridgeResult:
+    """Direct physical reachability between trusted anchors around an interval."""
+
+    from_record_index: int
+    to_record_index: int
+    elapsed_seconds: float
+    distance_m: float
+    apparent_speed_mps: float
+    maximum_plausible_speed_mps: float
+
+
+@dataclass(frozen=True, slots=True)
+class CorruptedInterval:
+    """Inclusive record range bounded by strong local and bridge evidence."""
+
+    start_record_index: int
+    end_record_index: int
+    start_timestamp: datetime | None
+    end_timestamp: datetime | None
+    trusted_before_record_index: int
+    trusted_after_record_index: int
+    entry_transition: TransitionResult
+    exit_transition: TransitionResult
+    bridge: BridgeResult
+    confidence: IntegrityConfidence
+    reasons: tuple[IntervalReason, ...]
+
+    @property
+    def record_count(self) -> int:
+        """Return the number of records in the inclusive affected range."""
+        return self.end_record_index - self.start_record_index + 1
+
+
+@dataclass(frozen=True, slots=True)
 class IntegrityReport:
     """Deterministic report for local physical-transition analysis."""
 
@@ -81,6 +123,7 @@ class IntegrityReport:
     missing_position_record_count: int
     baseline: BaselineStats
     transitions: tuple[TransitionResult, ...]
+    corrupted_intervals: tuple[CorruptedInterval, ...]
     config: IntegrityConfig
 
     def count(self, classification: TransitionClassification) -> int:

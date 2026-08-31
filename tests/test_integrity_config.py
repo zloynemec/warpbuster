@@ -18,6 +18,11 @@ def test_integrity_thresholds_are_named_and_serializable() -> None:
         "relative_mad_multiplier": 10.0,
         "relative_suspicious_distance_m": 20.0,
         "minimum_baseline_samples": 5,
+        "island_search_max_elapsed_seconds": 3_600.0,
+        "island_search_max_exit_candidates": 64,
+        "bridge_max_speed_mps": None,
+        "bridge_speed_floor_mps": 5.0,
+        "bridge_baseline_multiplier": 3.0,
     }
 
 
@@ -27,6 +32,7 @@ def test_running_profile_has_an_explicit_physical_ceiling() -> None:
 
     assert config.profile is IntegrityProfile.RUNNING
     assert config.absolute_impossible_speed_mps == 25.0
+    assert config.bridge_max_speed_mps == 12.0
     assert IntegrityConfig.for_sport("RUNNING") == config
     assert IntegrityConfig.for_sport("cycling").profile is IntegrityProfile.GENERIC
     assert IntegrityConfig.for_sport(None).absolute_impossible_speed_mps is None
@@ -42,9 +48,20 @@ def test_running_profile_has_an_explicit_physical_ceiling() -> None:
         ("relative_mad_multiplier", 0.0),
         ("relative_suspicious_distance_m", 0.0),
         ("minimum_baseline_samples", 0),
+        ("island_search_max_elapsed_seconds", 0.0),
+        ("island_search_max_exit_candidates", 0),
+        ("bridge_max_speed_mps", 0.0),
+        ("bridge_speed_floor_mps", 0.0),
+        ("bridge_baseline_multiplier", 0.0),
     ],
 )
 def test_integrity_thresholds_reject_non_positive_values(name: str, value: float) -> None:
     """Invalid profiles fail at construction instead of changing classifications."""
     with pytest.raises(ValueError):
         IntegrityConfig(**{name: value})  # type: ignore[arg-type]
+
+
+def test_bridge_floor_cannot_exceed_bridge_ceiling() -> None:
+    """A contradictory bridge profile is rejected at construction."""
+    with pytest.raises(ValueError, match="bridge_speed_floor_mps"):
+        IntegrityConfig(bridge_max_speed_mps=4.0, bridge_speed_floor_mps=5.0)

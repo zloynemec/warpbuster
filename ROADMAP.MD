@@ -25,7 +25,7 @@ Roadmap следует порядку milestone из [`docs/MILESTONES.md`](docs
   - geodesic distance, apparent speed и централизованный `IntegrityConfig`;
   - `warpbuster analyze` без использования GPX course.
 
-- [ ] **M3 / Task 004 — Long Spoofing Islands + Bridge Plausibility**
+- [x] **M3 / Task 004 — Long Spoofing Islands + Bridge Plausibility**
   ([task](tasks/004-spoofing-islands.md))
   - поиск длительных ложных GNSS-островов;
   - bridge plausibility, corrupted intervals и confidence/reasons;

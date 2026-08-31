@@ -122,7 +122,32 @@ samples он дополнительно повышается до максиму
 report и могут быть переопределены явной конфигурацией.
 
 Course, recorded FIT speed и distance не используются как доказательство повреждения.
-Task 004 отдельно решит, какие локальные transitions ограничивают единый corrupted
-interval.
+
+Статус: Accepted.
+
+## ADR-014 — Bounded impossible-edge island search
+
+Task 004 ищет spoofing islands только от локальных `IMPOSSIBLE` transitions. Для
+каждого entry рассматривается не более 64 следующих impossible exit-кандидатов и не
+более одного часа elapsed time. Поэтому detector не строит полный O(n²) reachability
+graph; работа после линейного local pass ограничена числом impossible edges и фиксированным
+candidate budget.
+
+Strong interval создаётся только для структуры:
+
+1. `A → X` локально `IMPOSSIBLE`;
+2. более поздний `Y → B` локально `IMPOSSIBLE`;
+3. прямой bridge `A → B` за исходный elapsed time физически правдоподобен.
+
+Для running-profile bridge limit вычисляется из robust baseline как
+`min(12 m/s, max(5 m/s, 3 × median speed))`. Поэтому длительный bridge должен быть не
+только ниже абсолютного потолка, но и соотноситься с наблюдаемым темпом активности.
+Affected boundaries включают все records после trusted `A` и до trusted `B`, в том числе
+records без позиции. Evidence даёт HIGH confidence и причины
+`impossible_transition_in`, `impossible_transition_out`, `plausible_bridge`.
+
+Search window, candidate budget и bridge threshold находятся в `IntegrityConfig`.
+Generic profile не выполняет island search, поскольку без sport-specific absolute ceiling
+у него нет `IMPOSSIBLE` entry/exit evidence.
 
 Статус: Accepted.

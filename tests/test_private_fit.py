@@ -1,5 +1,6 @@
 """Optional smoke test for ignored private activity data."""
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -69,3 +70,25 @@ def test_private_fixed_andromeda_has_no_impossible_local_transition() -> None:
     report = analyze_integrity(activity)
 
     assert report.count(TransitionClassification.IMPOSSIBLE) == 0
+
+
+@pytest.mark.private
+@pytest.mark.skipif(
+    not _ANDROMEDA_FILES[0].exists(),
+    reason=f"private FIT is unavailable: {_ANDROMEDA_FILES[0]}",
+)
+def test_private_andromeda_main_spoofing_island_is_detected() -> None:
+    """The main private incident is one HIGH interval without course input."""
+    activity = read_fit(_ANDROMEDA_FILES[0])
+
+    report = analyze_integrity(activity)
+    interval = max(report.corrupted_intervals, key=lambda candidate: candidate.record_count)
+
+    assert interval.confidence.value == "high"
+    assert interval.bridge.apparent_speed_mps <= interval.bridge.maximum_plausible_speed_mps
+    expected_start = datetime(2026, 8, 29, 18, 29, 13, tzinfo=UTC)
+    expected_end = datetime(2026, 8, 29, 18, 53, 33, tzinfo=UTC)
+    assert interval.start_timestamp is not None
+    assert interval.end_timestamp is not None
+    assert abs((interval.start_timestamp - expected_start).total_seconds()) <= 30
+    assert abs((interval.end_timestamp - expected_end).total_seconds()) <= 30

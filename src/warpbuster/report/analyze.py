@@ -7,6 +7,7 @@ from dataclasses import asdict
 
 from warpbuster.models.activity import ActivityData
 from warpbuster.models.integrity import (
+    CorruptedInterval,
     IntegrityReport,
     TransitionClassification,
     TransitionResult,
@@ -21,7 +22,8 @@ def analyze_report(activity: ActivityData, integrity: IntegrityReport) -> dict[s
     baseline = integrity.baseline
     return {
         "schema_version": "0.1",
-        "scope": "local_transitions",
+        "scope": "integrity_detection",
+        "stages": ["local_transitions", "spoofing_islands"],
         "source": {"path": str(activity.preservation.source_path)},
         "activity": {
             "sport": activity.sport,
@@ -34,6 +36,7 @@ def analyze_report(activity: ActivityData, integrity: IntegrityReport) -> dict[s
             "position_record_count": integrity.position_record_count,
             "missing_position_record_count": integrity.missing_position_record_count,
             "transition_count": len(integrity.transitions),
+            "corrupted_interval_count": len(integrity.corrupted_intervals),
             "classifications": {
                 classification.value: integrity.count(classification)
                 for classification in _CLASSIFICATIONS
@@ -47,6 +50,9 @@ def analyze_report(activity: ActivityData, integrity: IntegrityReport) -> dict[s
             "relative_suspicious_threshold_mps": (baseline.relative_suspicious_threshold_mps),
         },
         "config": asdict(integrity.config),
+        "corrupted_intervals": [
+            _interval_report(interval) for interval in integrity.corrupted_intervals
+        ],
         "findings": [
             _transition_report(transition)
             for transition in integrity.transitions
@@ -77,7 +83,7 @@ def analyze_console(activity: ActivityData, integrity: IntegrityReport) -> str:
         if transition.classification is not TransitionClassification.NORMAL
     ]
     lines = [
-        "WarpBuster FIT analyze — local transitions",
+        "WarpBuster FIT analyze",
         f"File: {activity.preservation.source_path}",
         (
             f"Sport: {_display(activity.sport)} / {_display(activity.sub_sport)}; "
@@ -106,7 +112,9 @@ def analyze_console(activity: ActivityData, integrity: IntegrityReport) -> str:
             "Relative suspicious threshold: "
             f"{_number(baseline.relative_suspicious_threshold_mps)} m/s"
         ),
+        f"Corrupted intervals: {len(integrity.corrupted_intervals)}",
     ]
+    lines.extend(_interval_console(interval) for interval in integrity.corrupted_intervals)
     if not findings:
         lines.append("Findings: none")
         return "\n".join(lines)
@@ -134,6 +142,45 @@ def _transition_report(transition: TransitionResult) -> dict[str, object]:
         "classification": transition.classification.value,
         "reasons": [reason.value for reason in transition.reasons],
     }
+
+
+def _interval_report(interval: CorruptedInterval) -> dict[str, object]:
+    return {
+        "start_record_index": interval.start_record_index,
+        "end_record_index": interval.end_record_index,
+        "record_count": interval.record_count,
+        "start_timestamp": (
+            interval.start_timestamp.isoformat() if interval.start_timestamp is not None else None
+        ),
+        "end_timestamp": (
+            interval.end_timestamp.isoformat() if interval.end_timestamp is not None else None
+        ),
+        "trusted_before_record_index": interval.trusted_before_record_index,
+        "trusted_after_record_index": interval.trusted_after_record_index,
+        "confidence": interval.confidence.value,
+        "reasons": [reason.value for reason in interval.reasons],
+        "entry_transition": _transition_report(interval.entry_transition),
+        "exit_transition": _transition_report(interval.exit_transition),
+        "bridge": {
+            "from_record_index": interval.bridge.from_record_index,
+            "to_record_index": interval.bridge.to_record_index,
+            "elapsed_seconds": interval.bridge.elapsed_seconds,
+            "distance_m": interval.bridge.distance_m,
+            "apparent_speed_mps": interval.bridge.apparent_speed_mps,
+            "maximum_plausible_speed_mps": interval.bridge.maximum_plausible_speed_mps,
+            "plausible": True,
+        },
+    }
+
+
+def _interval_console(interval: CorruptedInterval) -> str:
+    reasons = ",".join(reason.value for reason in interval.reasons)
+    return (
+        f"  - records {interval.start_record_index}..{interval.end_record_index} "
+        f"({interval.record_count}): {interval.confidence.value.upper()}, "
+        f"anchors={interval.trusted_before_record_index}->{interval.trusted_after_record_index}, "
+        f"bridge={interval.bridge.apparent_speed_mps:.2f} m/s, reasons={reasons}"
+    )
 
 
 def _transition_console(transition: TransitionResult) -> str:

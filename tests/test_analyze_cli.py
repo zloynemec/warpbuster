@@ -31,6 +31,7 @@ def test_analyze_console_reports_impossible_transition(
     assert "WarpBuster FIT analyze" in captured.out
     assert "Status: CORRUPTED" in captured.out
     assert "impossible=2" in captured.out
+    assert "Corrupted intervals: 1" in captured.out
     assert "absolute_speed_and_distance_exceeded" in captured.out
 
 
@@ -57,10 +58,21 @@ def test_analyze_json_contains_machine_readable_reasons(
     captured = capsys.readouterr()  # type: ignore[attr-defined]
     report = json.loads(captured.out)
     assert report["schema_version"] == "0.1"
-    assert report["scope"] == "local_transitions"
+    assert report["scope"] == "integrity_detection"
+    assert report["stages"] == ["local_transitions", "spoofing_islands"]
     assert report["activity"] == {"sport": "running", "sub_sport": None}
     assert report["status"] == "corrupted"
     assert report["summary"]["classifications"]["impossible"] == 2
+    assert report["summary"]["corrupted_interval_count"] == 1
+    assert report["corrupted_intervals"][0]["start_record_index"] == 2
+    assert report["corrupted_intervals"][0]["end_record_index"] == 2
+    assert report["corrupted_intervals"][0]["confidence"] == "high"
+    assert report["corrupted_intervals"][0]["bridge"]["plausible"] is True
+    assert report["corrupted_intervals"][0]["reasons"] == [
+        "impossible_transition_in",
+        "impossible_transition_out",
+        "plausible_bridge",
+    ]
     assert report["findings"][0]["classification"] == "impossible"
     assert report["findings"][0]["reasons"] == ["absolute_speed_and_distance_exceeded"]
     assert report["config"]["profile"] == "running"

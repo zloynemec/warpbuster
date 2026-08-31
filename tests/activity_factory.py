@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from math import cos, radians
 from pathlib import Path
 from types import MappingProxyType
 
@@ -78,7 +79,7 @@ def eastward_observations(
     """Create observations at approximate eastward offsets from one origin."""
     if len(elapsed_seconds) != len(distances_m):
         raise ValueError("elapsed_seconds and distances_m must have equal length")
-    metres_per_longitude_degree = 111_195.0 * 0.573576436351046  # cos(55 degrees)
+    metres_per_longitude_degree = 111_195.0 * cos(radians(latitude))
     return [
         (elapsed, latitude, 37.0 + distance / metres_per_longitude_degree)
         for elapsed, distance in zip(elapsed_seconds, distances_m, strict=True)

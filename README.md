@@ -111,6 +111,7 @@ python -m ruff format --check .
 python -m mypy src tests
 ```
 
-На текущем этапе реализованы чтение FIT, инспекция и локальный анализ соседних GNSS
-observations. Поиск и объединение длительных spoofing islands, reconstruction и repair
-намеренно отложены до следующих milestones согласно `docs/MILESTONES.md`.
+На текущем этапе реализованы чтение FIT, инспекция, локальный анализ соседних GNSS
+observations и bounded-поиск spoofing islands по impossible entry/exit и plausible bridge.
+Reconstruction и repair намеренно отложены до следующих milestones согласно
+`docs/MILESTONES.md`.
