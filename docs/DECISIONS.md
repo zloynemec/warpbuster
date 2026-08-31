@@ -179,3 +179,41 @@ turn обязан оставаться `CLEAN`.
 сохраняются. Console `-vv` дополнительно ограничен 20 строками candidate details.
 
 Статус: Accepted.
+
+## ADR-016 — GPX activity input is not GPX course
+
+GPX может быть самостоятельным source activity для `inspect` и `analyze`. Он проходит
+через отдельный adapter и ту же vendor-neutral `ActivityData`, что и FIT. Формат
+выбирается общим dispatcher по case-insensitive suffix `.fit`/`.gpx`; неизвестный suffix
+отклоняется явно.
+
+GPX activity не преобразуется в FIT. FIT adapter, raw frames, CRC и preservation metadata
+остаются отдельными и не ослабляются. GPX source хранит исходные bytes и собственные
+metadata только для inspection.
+
+`trkseg` задаёт явную границу физической непрерывности. Detector анализирует переходы
+только внутри одного continuity id, поэтому пространственный разрыв между сегментами не
+является teleport. GPX `<type>` маппится только для известных running/trail-running
+значений; остальные значения получают generic profile. Course по-прежнему отсутствует в
+API Integrity Detector.
+
+Статус: Accepted.
+
+## ADR-017 — Geometry gaps are advisory, not corruption evidence
+
+Длинная последовательность почти идеально collinear observations может быть результатом
+интерполяции после потери GNSS, но также может описывать настоящее движение по прямой.
+Одна геометрия не доказывает происхождение точек и тем более не позволяет приписать его
+Garmin, COROS, Strava или другому producer-у.
+
+Поэтому Task 005B добавляет отдельный `possible_interpolated_gnss_gap` warning с `LOW`
+confidence. Warning содержит chord/path/deviation metrics, но не участвует в вычислении
+integrity status, не создаёт `CorruptedInterval` и всегда сериализуется с
+`repair_eligible=false`. Файл без timestamps остаётся `UNKNOWN`, даже если warning найден.
+
+Scan использует только activity geometry, не принимает course/OSM/DEM, не пересекает
+continuity boundaries и ограничен window size, stride и retention cap из
+`IntegrityConfig`. Настоящую прямую допускаем как advisory false positive; automatic
+repair по этому evidence запрещён.
+
+Статус: Accepted.

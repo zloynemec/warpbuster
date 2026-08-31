@@ -46,6 +46,20 @@ class BridgeCandidateOutcome(StrEnum):
     EMPTY_INTERVAL = "empty_interval"
 
 
+class GeometryWarningKind(StrEnum):
+    """Non-authoritative geometry patterns that merit human inspection."""
+
+    POSSIBLE_INTERPOLATED_GNSS_GAP = "possible_interpolated_gnss_gap"
+
+
+class GeometryWarningReason(StrEnum):
+    """Machine-readable evidence for a geometry warning."""
+
+    LONG_NEAR_COLLINEAR_RUN = "long_near_collinear_run"
+    PATH_NEAR_CHORD = "path_near_chord"
+    NARROW_CORRIDOR = "narrow_corridor"
+
+
 class IntegrityStatus(StrEnum):
     """Overall result of the detector stage currently available."""
 
@@ -148,6 +162,7 @@ class IslandSearchDiagnostics:
     entries_considered: int
     consumed_entries_skipped: int
     candidates_considered: int
+    continuity_pruned_count: int
     candidate_limit_pruned_count: int
     time_window_pruned_count: int
     invalid_candidate_count: int
@@ -155,6 +170,37 @@ class IslandSearchDiagnostics:
     accepted_interval_count: int
     retained_candidate_details: tuple[BridgeCandidateDiagnostic, ...]
     candidate_details_truncated_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class GeometryWarning:
+    """Geometry-only warning that never establishes coordinate corruption."""
+
+    kind: GeometryWarningKind
+    start_record_index: int
+    end_record_index: int
+    start_timestamp: datetime | None
+    end_timestamp: datetime | None
+    position_record_count: int
+    chord_distance_m: float
+    path_distance_m: float
+    path_to_chord_ratio: float
+    max_cross_track_deviation_m: float
+    timestamps_available: bool
+    confidence: IntegrityConfidence
+    reasons: tuple[GeometryWarningReason, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class GeometryScanDiagnostics:
+    """Aggregate work and retention counters for bounded geometry scanning."""
+
+    continuity_segment_count: int
+    candidate_window_count: int
+    qualifying_window_count: int
+    warning_count: int
+    retained_warning_count: int
+    warnings_truncated_count: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,6 +216,8 @@ class IntegrityReport:
     transitions: tuple[TransitionResult, ...]
     corrupted_intervals: tuple[CorruptedInterval, ...]
     island_search_diagnostics: IslandSearchDiagnostics
+    geometry_warnings: tuple[GeometryWarning, ...]
+    geometry_scan_diagnostics: GeometryScanDiagnostics
     config: IntegrityConfig
 
     def count(self, classification: TransitionClassification) -> int:

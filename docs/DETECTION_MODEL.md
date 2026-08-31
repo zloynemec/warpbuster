@@ -129,6 +129,26 @@ Records без lat/lon:
 
 Это обязательный regression invariant.
 
+## 10A. Geometry gap diagnostics
+
+Файл без timestamps может содержать длинную последовательность точек, равномерно
+лежащих на почти идеальном chord. Соседние расстояния при этом малы, поэтому physical
+transition detector обоснованно возвращает `UNKNOWN`, а не corruption.
+
+Отдельный diagnostic pass измеряет:
+- длину chord;
+- число positioned observations;
+- sampled path/chord ratio;
+- максимальное поперечное отклонение от chord.
+
+Совпадение строгих геометрических признаков создаёт только
+`possible_interpolated_gnss_gap / LOW`. Оно не меняет общий status, не является
+`CorruptedInterval` и не допускает repair. Настоящая длинная прямая в принципе может
+иметь похожую форму; provenance интерполяции из одной геометрии доказать нельзя.
+
+Поиск выполняется ограниченными окнами с фиксированным stride и не строит O(n²) graph.
+Явные continuity boundaries не пересекаются. Course и внешний map matching запрещены.
+
 ## 11. Time integrity
 
 По умолчанию:

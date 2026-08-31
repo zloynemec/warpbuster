@@ -9,6 +9,8 @@ from warpbuster.models.activity import ActivityData
 from warpbuster.models.integrity import (
     BridgeCandidateDiagnostic,
     CorruptedInterval,
+    GeometryScanDiagnostics,
+    GeometryWarning,
     IntegrityReport,
     IslandSearchDiagnostics,
     TransitionClassification,
@@ -17,6 +19,7 @@ from warpbuster.models.integrity import (
 
 _MAX_CONSOLE_FINDINGS = 20
 _MAX_CONSOLE_CANDIDATE_DIAGNOSTICS = 20
+_MAX_CONSOLE_GEOMETRY_WARNINGS = 20
 _CLASSIFICATIONS = tuple(TransitionClassification)
 
 
@@ -26,8 +29,15 @@ def analyze_report(activity: ActivityData, integrity: IntegrityReport) -> dict[s
     return {
         "schema_version": "0.1",
         "scope": "integrity_detection",
-        "stages": ["local_transitions", "spoofing_islands"],
-        "source": {"path": str(activity.preservation.source_path)},
+        "stages": [
+            "local_transitions",
+            "spoofing_islands",
+            "geometry_gap_diagnostics",
+        ],
+        "source": {
+            "format": activity.preservation.source_format.value,
+            "path": str(activity.preservation.source_path),
+        },
         "activity": {
             "sport": activity.sport,
             "sub_sport": activity.sub_sport,
@@ -40,6 +50,7 @@ def analyze_report(activity: ActivityData, integrity: IntegrityReport) -> dict[s
             "missing_position_record_count": integrity.missing_position_record_count,
             "transition_count": len(integrity.transitions),
             "corrupted_interval_count": len(integrity.corrupted_intervals),
+            "geometry_warning_count": integrity.geometry_scan_diagnostics.warning_count,
             "classifications": {
                 classification.value: integrity.count(classification)
                 for classification in _CLASSIFICATIONS
@@ -56,8 +67,14 @@ def analyze_report(activity: ActivityData, integrity: IntegrityReport) -> dict[s
         "island_search_diagnostics": _island_diagnostics_report(
             integrity.island_search_diagnostics
         ),
+        "geometry_scan_diagnostics": _geometry_diagnostics_report(
+            integrity.geometry_scan_diagnostics
+        ),
         "corrupted_intervals": [
             _interval_report(interval) for interval in integrity.corrupted_intervals
+        ],
+        "geometry_warnings": [
+            _geometry_warning_report(warning) for warning in integrity.geometry_warnings
         ],
         "findings": [
             _transition_report(transition)
@@ -94,7 +111,7 @@ def analyze_console(
         if transition.classification is not TransitionClassification.NORMAL
     ]
     lines = [
-        "WarpBuster FIT analyze",
+        f"WarpBuster {activity.preservation.source_format.value.upper()} analyze",
         f"File: {activity.preservation.source_path}",
         (
             f"Sport: {_display(activity.sport)} / {_display(activity.sub_sport)}; "
@@ -124,10 +141,21 @@ def analyze_console(
             f"{_number(baseline.relative_suspicious_threshold_mps)} m/s"
         ),
         f"Corrupted intervals: {len(integrity.corrupted_intervals)}",
+        f"Geometry warnings: {integrity.geometry_scan_diagnostics.warning_count}",
     ]
     lines.extend(_interval_console(interval) for interval in integrity.corrupted_intervals)
+    lines.extend(
+        _geometry_warning_console(warning)
+        for warning in integrity.geometry_warnings[:_MAX_CONSOLE_GEOMETRY_WARNINGS]
+    )
+    hidden_geometry_warnings = (
+        max(0, len(integrity.geometry_warnings) - _MAX_CONSOLE_GEOMETRY_WARNINGS)
+        + integrity.geometry_scan_diagnostics.warnings_truncated_count
+    )
+    if hidden_geometry_warnings > 0:
+        lines.append(f"  ... {hidden_geometry_warnings} geometry warnings omitted; use --json")
     if verbosity >= 1:
-        lines.append("Pipeline: local_transitions -> spoofing_islands")
+        lines.append("Pipeline: local_transitions -> spoofing_islands -> geometry_gap_diagnostics")
     if verbosity >= 2:
         lines.extend(_diagnostics_console(integrity))
     if not findings:
@@ -196,6 +224,7 @@ def _island_diagnostics_report(diagnostics: IslandSearchDiagnostics) -> dict[str
         "entries_considered": diagnostics.entries_considered,
         "consumed_entries_skipped": diagnostics.consumed_entries_skipped,
         "candidates_considered": diagnostics.candidates_considered,
+        "continuity_pruned_count": diagnostics.continuity_pruned_count,
         "candidate_limit_pruned_count": diagnostics.candidate_limit_pruned_count,
         "time_window_pruned_count": diagnostics.time_window_pruned_count,
         "invalid_candidate_count": diagnostics.invalid_candidate_count,
@@ -227,6 +256,40 @@ def _candidate_diagnostic_report(detail: BridgeCandidateDiagnostic) -> dict[str,
     }
 
 
+def _geometry_diagnostics_report(diagnostics: GeometryScanDiagnostics) -> dict[str, object]:
+    return {
+        "continuity_segment_count": diagnostics.continuity_segment_count,
+        "candidate_window_count": diagnostics.candidate_window_count,
+        "qualifying_window_count": diagnostics.qualifying_window_count,
+        "warning_count": diagnostics.warning_count,
+        "retained_warning_count": diagnostics.retained_warning_count,
+        "warnings_truncated_count": diagnostics.warnings_truncated_count,
+    }
+
+
+def _geometry_warning_report(warning: GeometryWarning) -> dict[str, object]:
+    return {
+        "kind": warning.kind.value,
+        "start_record_index": warning.start_record_index,
+        "end_record_index": warning.end_record_index,
+        "start_timestamp": (
+            warning.start_timestamp.isoformat() if warning.start_timestamp is not None else None
+        ),
+        "end_timestamp": (
+            warning.end_timestamp.isoformat() if warning.end_timestamp is not None else None
+        ),
+        "position_record_count": warning.position_record_count,
+        "chord_distance_m": warning.chord_distance_m,
+        "path_distance_m": warning.path_distance_m,
+        "path_to_chord_ratio": warning.path_to_chord_ratio,
+        "max_cross_track_deviation_m": warning.max_cross_track_deviation_m,
+        "timestamps_available": warning.timestamps_available,
+        "confidence": warning.confidence.value,
+        "reasons": [reason.value for reason in warning.reasons],
+        "repair_eligible": False,
+    }
+
+
 def _interval_console(interval: CorruptedInterval) -> str:
     reasons = ",".join(reason.value for reason in interval.reasons)
     return (
@@ -234,6 +297,17 @@ def _interval_console(interval: CorruptedInterval) -> str:
         f"({interval.record_count}): {interval.confidence.value.upper()}, "
         f"anchors={interval.trusted_before_record_index}->{interval.trusted_after_record_index}, "
         f"bridge={interval.bridge.apparent_speed_mps:.2f} m/s, reasons={reasons}"
+    )
+
+
+def _geometry_warning_console(warning: GeometryWarning) -> str:
+    return (
+        f"  - geometry records {warning.start_record_index}..{warning.end_record_index}: "
+        f"{warning.kind.value}, {warning.confidence.value.upper()}, "
+        f"chord={warning.chord_distance_m:.2f} m, "
+        f"path/chord={warning.path_to_chord_ratio:.6f}, "
+        f"max_deviation={warning.max_cross_track_deviation_m:.2f} m, "
+        "repair_eligible=no"
     )
 
 
@@ -261,8 +335,23 @@ def _diagnostics_console(integrity: IntegrityReport) -> list[str]:
             f"candidates={diagnostics.candidates_considered}, "
             f"accepted={diagnostics.accepted_interval_count}, "
             f"too_fast={diagnostics.implausible_bridge_count}, "
+            f"continuity_pruned={diagnostics.continuity_pruned_count}, "
             f"candidate_pruned={diagnostics.candidate_limit_pruned_count}, "
             f"time_pruned={diagnostics.time_window_pruned_count}"
+        ),
+        (
+            "  Geometry thresholds: "
+            f"chord>={config.geometry_min_chord_distance_m:.2f} m, "
+            f"positions>={config.geometry_min_position_count}, "
+            f"path/chord<={config.geometry_max_path_to_chord_ratio:.6f}, "
+            f"deviation<={config.geometry_max_cross_track_deviation_m:.2f} m"
+        ),
+        (
+            "  Geometry scan: "
+            f"segments={integrity.geometry_scan_diagnostics.continuity_segment_count}, "
+            f"windows={integrity.geometry_scan_diagnostics.candidate_window_count}, "
+            f"qualifying={integrity.geometry_scan_diagnostics.qualifying_window_count}, "
+            f"warnings={integrity.geometry_scan_diagnostics.warning_count}"
         ),
     ]
     lines.extend(

@@ -18,6 +18,7 @@
 
 ### Integration
 - FIT → ActivityData;
+- GPX activity → ActivityData;
 - analyze full activity;
 - repair plan;
 - FIT write/read round-trip;
@@ -75,6 +76,13 @@ Expected: MISSING_GNSS interval.
 1s/5s/20s cadence mix.
 
 Expected: detector не путает большой segment с teleport только из-за dt.
+
+### interpolated_chord
+
+Сотни observations лежат на длинном математически почти идеальном chord.
+
+Expected: отдельный `LOW` geometry warning, но status не меняется и corrupted interval
+не создаётся.
 
 ## 4. Private Andromeda fixture
 
@@ -154,3 +162,30 @@ Expected changed:
 - affected aggregates.
 
 Любое неожиданное изменение должно появляться в diff.
+
+## 9. GPX activity input regression
+
+Публичные synthetic GPX fixtures проверяют:
+
+- standard namespace и core fields;
+- running/trail-running type normalization;
+- несколько `trkseg` без cross-segment transition;
+- clean и impossible trajectories через общий detector;
+- missing timestamps как `UNKNOWN`;
+- malformed XML, unsafe declarations и invalid coordinates;
+- неизменность существующих FIT reader/CLI/private acceptance tests.
+
+## 10. Geometry gap diagnostic regression
+
+Публичные synthetic fixtures проверяют:
+
+- warning на длинном идеальном chord с timestamps и без них;
+- неизменность общего status, exit code и corrupted intervals;
+- отсутствие warning на реалистично шумной прямой и плавной кривой;
+- запрет объединения разных continuity segments;
+- bounded candidate windows и capped retained warnings;
+- сохранение target `< 5 s` на fixture из 20 000 records.
+
+Private `Orion_Artyom.gpx` acceptance выполняется только при наличии локального файла и
+не коммитит пользовательский GPX. Из-за отсутствия timestamps ожидается общий status
+`UNKNOWN` и advisory warning на известном длинном chord, но не corruption.

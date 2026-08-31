@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
+from enum import StrEnum
 from pathlib import Path
 
 type SourceFieldName = str | int
+
+
+class ActivityFileFormat(StrEnum):
+    """Supported source activity container formats."""
+
+    FIT = "fit"
+    GPX = "gpx"
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +89,7 @@ class ActivityRecord:
     power: int | None
     temperature: float | None
     source: SourceRecordRef
+    continuity_id: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +102,23 @@ class FitPreservationData:
     definitions: tuple[Mapping[str, object], ...]
     profile_version: str
     crc_valid: bool
+    source_format: ActivityFileFormat = field(default=ActivityFileFormat.FIT, init=False)
+
+
+@dataclass(frozen=True, slots=True)
+class GpxPreservationData:
+    """GPX source metadata retained for inspection without implying FIT output."""
+
+    source_path: Path
+    raw_bytes: bytes
+    version: str | None
+    creator: str | None
+    track_count: int
+    segment_count: int
+    source_format: ActivityFileFormat = field(default=ActivityFileFormat.GPX, init=False)
+
+
+type ActivityPreservationData = FitPreservationData | GpxPreservationData
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,4 +141,4 @@ class ActivityData:
     message_counts: Mapping[str, int]
     developer_fields: tuple[DeveloperFieldDefinition, ...]
     unknown_fields: tuple[UnknownFieldSummary, ...]
-    preservation: FitPreservationData
+    preservation: ActivityPreservationData

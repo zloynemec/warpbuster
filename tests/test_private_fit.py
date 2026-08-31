@@ -7,6 +7,7 @@ import pytest
 
 from warpbuster.fit.reader import read_fit
 from warpbuster.integrity import analyze_integrity
+from warpbuster.models.activity import FitPreservationData
 from warpbuster.models.integrity import TransitionClassification
 
 _ANDROMEDA_FILES = (
@@ -37,6 +38,7 @@ def test_private_andromeda_fit_can_be_inspected(fit_path: Path) -> None:
     assert activity.records
     assert activity.manufacturer == "garmin"
     assert activity.sport == "running"
+    assert isinstance(activity.preservation, FitPreservationData)
     assert activity.preservation.crc_valid is True
     assert any(record.timestamp is not None for record in activity.records)
     assert any(

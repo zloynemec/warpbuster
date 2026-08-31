@@ -1,6 +1,8 @@
 # WarpBuster Core
 
-WarpBuster — локальное Python-ядро и CLI для обнаружения и восстановления физически невозможных GNSS/GPS-данных в спортивных FIT-файлах.
+WarpBuster — локальное Python-ядро и CLI для обнаружения и восстановления физически
+невозможных GNSS/GPS-данных. FIT остаётся главным lossless форматом, а FIT и GPX можно
+использовать как входные активности для inspection и detection.
 
 Главная цель первой версии — **не «сделать красивый трек»**, а сначала доказать, что конкретный участок координат физически недостоверен, и только после этого разрешать реконструкцию.
 
@@ -15,10 +17,12 @@ WarpBuster — локальное Python-ядро и CLI для обнаруже
 В v0.1 входят:
 
 - чтение FIT;
+- чтение GPX activity без конвертации в FIT;
 - нормализованная модель активности;
 - CLI `inspect`, `analyze`, позже `repair` и `validate`;
 - поиск физически невозможных переходов;
 - обнаружение длительных spoofing islands;
+- advisory-предупреждения о возможных интерполированных GNSS gaps;
 - confidence/reasons для каждого подозрительного интервала;
 - опциональная реконструкция только уже доказанно повреждённых интервалов по известному GPX course;
 - сохранение исходных timestamps и спортивной телеметрии;
@@ -86,6 +90,8 @@ python -c "import warpbuster; print(warpbuster.__version__)"
 ```bash
 warpbuster inspect activity.fit
 warpbuster inspect activity.fit --json
+warpbuster inspect activity.gpx
+warpbuster inspect activity.gpx --json
 ```
 
 Локальный анализ физических переходов:
@@ -95,6 +101,8 @@ warpbuster analyze activity.fit
 warpbuster analyze activity.fit -v
 warpbuster analyze activity.fit -vv
 warpbuster analyze activity.fit --json
+warpbuster analyze activity.gpx
+warpbuster analyze activity.gpx --json
 ```
 
 Exit code `1` означает, что найдены `SUSPICIOUS` или `IMPOSSIBLE` переходы;
@@ -108,6 +116,10 @@ Exit code `1` означает, что найдены `SUSPICIOUS` или `IMPOS
 границы bounded island search и результаты проверки bridge-кандидатов. Детали
 кандидатов ограничены конфигурацией; полные агрегатные счётчики остаются в JSON.
 
+`analyze` также показывает `LOW` geometry warnings для длинных почти идеально прямых
+участков, похожих на интерполяцию. Такое предупреждение не меняет integrity status или
+exit code, не создаёт corrupted interval и всегда имеет `repair_eligible=false`.
+
 Полный набор проверок:
 
 ```bash
@@ -118,6 +130,8 @@ python -m mypy src tests
 ```
 
 На текущем этапе реализованы чтение FIT, инспекция, локальный анализ соседних GNSS
-observations, bounded-поиск spoofing islands по impossible entry/exit и plausible bridge,
-а также false-positive regressions и bounded diagnostics. Reconstruction и repair
-намеренно отложены до следующих milestones согласно `docs/MILESTONES.md`.
+observations, GPX activity input, bounded-поиск spoofing islands по impossible entry/exit
+и plausible bridge, geometry gap diagnostics, а также false-positive regressions и
+bounded diagnostics.
+Reconstruction и repair намеренно отложены до следующих milestones согласно
+`docs/MILESTONES.md`.

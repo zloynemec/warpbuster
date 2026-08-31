@@ -44,6 +44,20 @@ class IntegrityConfig:
             deriving the bridge limit.
         diagnostic_max_candidate_details: Maximum bridge candidate details retained
             for reports; aggregate counters are never truncated.
+        geometry_min_chord_distance_m: Minimum endpoint distance in metres for a
+            near-collinear geometry warning.
+        geometry_min_position_count: Minimum positioned observations in a warning.
+        geometry_max_cross_track_deviation_m: Maximum perpendicular deviation in
+            metres from the candidate chord.
+        geometry_max_path_to_chord_ratio: Maximum sampled-path/chord ratio.
+        geometry_scan_max_window_records: Maximum positioned observations inspected
+            by one bounded candidate window.
+        geometry_scan_stride_records: Number of positioned observations between
+            candidate window starts.
+        geometry_max_bearing_change_degrees: Maximum chord-bearing difference in
+            degrees when merging overlapping candidate windows.
+        geometry_max_warnings: Maximum warnings retained in a report; aggregate
+            diagnostics still count omitted warnings.
     """
 
     profile: IntegrityProfile = IntegrityProfile.GENERIC
@@ -60,6 +74,14 @@ class IntegrityConfig:
     bridge_speed_floor_mps: float = 5.0
     bridge_baseline_multiplier: float = 3.0
     diagnostic_max_candidate_details: int = 100
+    geometry_min_chord_distance_m: float = 1_000.0
+    geometry_min_position_count: int = 100
+    geometry_max_cross_track_deviation_m: float = 0.5
+    geometry_max_path_to_chord_ratio: float = 1.0005
+    geometry_scan_max_window_records: int = 512
+    geometry_scan_stride_records: int = 16
+    geometry_max_bearing_change_degrees: float = 2.0
+    geometry_max_warnings: int = 100
 
     @classmethod
     def running(cls) -> IntegrityConfig:
@@ -88,6 +110,9 @@ class IntegrityConfig:
             "island_search_max_elapsed_seconds": self.island_search_max_elapsed_seconds,
             "bridge_speed_floor_mps": self.bridge_speed_floor_mps,
             "bridge_baseline_multiplier": self.bridge_baseline_multiplier,
+            "geometry_min_chord_distance_m": self.geometry_min_chord_distance_m,
+            "geometry_max_cross_track_deviation_m": (self.geometry_max_cross_track_deviation_m),
+            "geometry_max_bearing_change_degrees": (self.geometry_max_bearing_change_degrees),
         }
         for name, value in positive_values.items():
             if value <= 0:
@@ -110,3 +135,17 @@ class IntegrityConfig:
             raise ValueError("island_search_max_exit_candidates must be at least one")
         if self.diagnostic_max_candidate_details < 0:
             raise ValueError("diagnostic_max_candidate_details must not be negative")
+        if self.geometry_min_position_count < 3:
+            raise ValueError("geometry_min_position_count must be at least three")
+        if self.geometry_scan_max_window_records < self.geometry_min_position_count:
+            raise ValueError(
+                "geometry_scan_max_window_records must not be less than geometry_min_position_count"
+            )
+        if self.geometry_scan_stride_records < 1:
+            raise ValueError("geometry_scan_stride_records must be at least one")
+        if self.geometry_max_path_to_chord_ratio < 1.0:
+            raise ValueError("geometry_max_path_to_chord_ratio must be at least one")
+        if self.geometry_max_bearing_change_degrees > 180.0:
+            raise ValueError("geometry_max_bearing_change_degrees must not exceed 180")
+        if self.geometry_max_warnings < 0:
+            raise ValueError("geometry_max_warnings must not be negative")

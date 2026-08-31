@@ -38,9 +38,23 @@ Roadmap следует порядку milestone из [`docs/MILESTONES.md`](docs
   - bounded `-vv` diagnostics и performance regression;
   - защита от false positive до появления repair.
 
+- [x] **M4A / Task 005A — GPX Activity Input**
+  ([task](tasks/005a-gpx-activity-input.md))
+  - отдельный GPX adapter и общий FIT/GPX activity dispatcher;
+  - `inspect` и `analyze` для GPX без конвертации в FIT;
+  - безопасные границы непрерывности между `trkseg`;
+  - FIT regression и GPX parser/CLI tests.
+
+- [x] **M4B / Task 005B — Geometry Gap Diagnostics**
+  ([task](tasks/005b-geometry-gap-diagnostics.md))
+  - advisory detection длинных почти идеальных GNSS chords;
+  - отдельные `LOW` geometry warnings без изменения integrity status;
+  - bounded scan, configurable thresholds и false-positive regressions;
+  - private acceptance для Strava GPX без timestamps.
+
 - [ ] **M5 / Task 006 — GPX Course Matching + Dry Repair Plan**
   ([task](tasks/006-course-repair-plan.md))
-  - GPX reader, trusted anchors и ambiguity handling;
+  - GPX course reader, trusted anchors и ambiguity handling;
   - reconstruction candidates и `RepairPlan`;
   - `repair --dry-run` без изменения исходного FIT.
 

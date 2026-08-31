@@ -59,7 +59,11 @@ def test_analyze_json_contains_machine_readable_reasons(
     report = json.loads(captured.out)
     assert report["schema_version"] == "0.1"
     assert report["scope"] == "integrity_detection"
-    assert report["stages"] == ["local_transitions", "spoofing_islands"]
+    assert report["stages"] == [
+        "local_transitions",
+        "spoofing_islands",
+        "geometry_gap_diagnostics",
+    ]
     assert report["activity"] == {"sport": "running", "sub_sport": None}
     assert report["status"] == "corrupted"
     assert report["summary"]["classifications"]["impossible"] == 2
@@ -101,10 +105,15 @@ def test_analyze_double_verbose_shows_detector_diagnostics(
 
     assert main(["analyze", str(fit_path), "-vv"]) == 1
     captured = capsys.readouterr()  # type: ignore[attr-defined]
-    assert "Pipeline: local_transitions -> spoofing_islands" in captured.out
+    assert (
+        "Pipeline: local_transitions -> spoofing_islands -> geometry_gap_diagnostics"
+        in captured.out
+    )
     assert "Detector diagnostics:" in captured.out
     assert "Local thresholds:" in captured.out
     assert "Island bounds:" in captured.out
+    assert "Geometry thresholds:" in captured.out
+    assert "Geometry scan:" in captured.out
     assert "Candidate 0->1 / 1->2: accepted" in captured.out
 
 

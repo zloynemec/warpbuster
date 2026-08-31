@@ -6,6 +6,7 @@ import pytest
 
 from tests.fit_factory import write_synthetic_activity
 from warpbuster.fit.reader import FitReadError, read_fit
+from warpbuster.models.activity import FitPreservationData
 
 
 def test_reader_normalizes_activity_and_preserves_source(tmp_path: Path) -> None:
@@ -49,6 +50,7 @@ def test_reader_normalizes_activity_and_preserves_source(tmp_path: Path) -> None
     assert activity.developer_fields[0].name == "synthetic_metric"
     assert activity.developer_fields[0].units == "points"
     assert activity.developer_fields[0].occurrences == 4
+    assert isinstance(activity.preservation, FitPreservationData)
     assert activity.preservation.raw_bytes == raw_bytes
     assert activity.preservation.crc_valid is True
     assert activity.preservation.profile_version == "21.214"

@@ -60,6 +60,7 @@ def detect_spoofing_islands(
     entries_considered = 0
     consumed_entries_skipped = 0
     candidates_considered = 0
+    continuity_pruned_count = 0
     candidate_limit_pruned_count = 0
     time_window_pruned_count = 0
     invalid_candidate_count = 0
@@ -82,6 +83,9 @@ def detect_spoofing_islands(
         for exit_position in range(candidate_start, candidate_end):
             exit_transition = impossible[exit_position]
             if exit_transition.from_record_index < entry.to_record_index:
+                continue
+            if not _same_continuity(activity, entry, exit_transition):
+                continuity_pruned_count += 1
                 continue
             candidates_considered += 1
             search_elapsed = _search_elapsed_seconds(entry, exit_transition)
@@ -183,6 +187,7 @@ def detect_spoofing_islands(
             entries_considered=entries_considered,
             consumed_entries_skipped=consumed_entries_skipped,
             candidates_considered=candidates_considered,
+            continuity_pruned_count=continuity_pruned_count,
             candidate_limit_pruned_count=candidate_limit_pruned_count,
             time_window_pruned_count=time_window_pruned_count,
             invalid_candidate_count=invalid_candidate_count,
@@ -202,6 +207,7 @@ def _diagnostics(*, enabled: bool, impossible_count: int) -> IslandSearchDiagnos
         entries_considered=0,
         consumed_entries_skipped=0,
         candidates_considered=0,
+        continuity_pruned_count=0,
         candidate_limit_pruned_count=0,
         time_window_pruned_count=0,
         invalid_candidate_count=0,
@@ -321,6 +327,21 @@ def _evaluate_bridge(
 
 def _valid_record_index(activity: ActivityData, index: int) -> bool:
     return 0 <= index < len(activity.records)
+
+
+def _same_continuity(
+    activity: ActivityData,
+    entry: TransitionResult,
+    exit_transition: TransitionResult,
+) -> bool:
+    if not _valid_record_index(activity, entry.from_record_index) or not _valid_record_index(
+        activity, exit_transition.to_record_index
+    ):
+        return False
+    return (
+        activity.records[entry.from_record_index].continuity_id
+        == activity.records[exit_transition.to_record_index].continuity_id
+    )
 
 
 def _has_complete_observation(record: ActivityRecord) -> bool:

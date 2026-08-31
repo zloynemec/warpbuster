@@ -7,6 +7,7 @@ from statistics import median
 
 from warpbuster.config import IntegrityConfig
 from warpbuster.geo import geodesic_distance_m
+from warpbuster.integrity.geometry import detect_geometry_warnings
 from warpbuster.integrity.islands import detect_spoofing_islands
 from warpbuster.models.activity import ActivityData, ActivityRecord
 from warpbuster.models.integrity import (
@@ -28,7 +29,9 @@ def analyze_integrity(
     effective_config = config or IntegrityConfig.for_sport(activity.sport)
     position_records = tuple(record for record in activity.records if _has_position(record))
     measurements = tuple(
-        _measure_transition(previous, current) for previous, current in pairwise(position_records)
+        _measure_transition(previous, current)
+        for previous, current in pairwise(position_records)
+        if previous.continuity_id == current.continuity_id
     )
     baseline = _baseline_stats(measurements, effective_config)
     transitions = tuple(
@@ -40,6 +43,7 @@ def analyze_integrity(
         baseline,
         effective_config,
     )
+    geometry_detection = detect_geometry_warnings(activity, effective_config)
     missing_position_record_count = len(activity.records) - len(position_records)
     status, confidence = _summarize(
         transitions,
@@ -57,6 +61,8 @@ def analyze_integrity(
         transitions=transitions,
         corrupted_intervals=island_detection.intervals,
         island_search_diagnostics=island_detection.diagnostics,
+        geometry_warnings=geometry_detection.warnings,
+        geometry_scan_diagnostics=geometry_detection.diagnostics,
         config=effective_config,
     )
 

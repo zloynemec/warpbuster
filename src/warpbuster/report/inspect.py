@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from warpbuster.models.activity import ActivityData
+from warpbuster.models.activity import ActivityData, FitPreservationData, GpxPreservationData
 
 _FIELD_NAMES = (
     "timestamp",
@@ -24,12 +24,7 @@ def inspect_report(activity: ActivityData) -> dict[str, object]:
     bounds = activity.coordinate_bounds
     return {
         "schema_version": "0.1",
-        "source": {
-            "path": str(activity.preservation.source_path),
-            "size_bytes": len(activity.preservation.raw_bytes),
-            "crc_valid": activity.preservation.crc_valid,
-            "fit_profile_version": activity.preservation.profile_version,
-        },
+        "source": _source_report(activity),
         "device": {
             "manufacturer": activity.manufacturer,
             "product": activity.product,
@@ -94,9 +89,9 @@ def inspect_console(activity: ActivityData) -> str:
         raise TypeError("invalid inspect report shape")
 
     lines = [
-        "WarpBuster FIT inspect",
+        f"WarpBuster {str(source['format']).upper()} inspect",
         f"File: {source['path']}",
-        f"FIT profile: {source['fit_profile_version']} (CRC valid: yes)",
+        _source_console(activity),
         f"Manufacturer: {_display(device['manufacturer'])}",
         f"Product: {_display(device['product'])}",
         f"Start: {_display(report['start_time'])}",
@@ -118,6 +113,44 @@ def inspect_console(activity: ActivityData) -> str:
     )
     lines.append(f"Unknown fields: {len(activity.unknown_fields)}")
     return "\n".join(lines)
+
+
+def _source_report(activity: ActivityData) -> dict[str, object]:
+    preservation = activity.preservation
+    common: dict[str, object] = {
+        "format": preservation.source_format.value,
+        "path": str(preservation.source_path),
+        "size_bytes": len(preservation.raw_bytes),
+    }
+    if isinstance(preservation, FitPreservationData):
+        common.update(
+            {
+                "crc_valid": preservation.crc_valid,
+                "fit_profile_version": preservation.profile_version,
+            }
+        )
+    elif isinstance(preservation, GpxPreservationData):
+        common.update(
+            {
+                "gpx_version": preservation.version,
+                "creator": preservation.creator,
+                "track_count": preservation.track_count,
+                "segment_count": preservation.segment_count,
+            }
+        )
+    return common
+
+
+def _source_console(activity: ActivityData) -> str:
+    preservation = activity.preservation
+    if isinstance(preservation, FitPreservationData):
+        crc_valid = "yes" if preservation.crc_valid else "no"
+        return f"FIT profile: {preservation.profile_version} (CRC valid: {crc_valid})"
+    return (
+        f"GPX version: {_display(preservation.version)}; "
+        f"creator: {_display(preservation.creator)}; "
+        f"tracks: {preservation.track_count}; segments: {preservation.segment_count}"
+    )
 
 
 def _display(value: object) -> str:

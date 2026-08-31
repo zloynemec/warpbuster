@@ -100,6 +100,41 @@ Task: `tasks/005-safety-regressions.md`
 
 ---
 
+## M4A — GPX Activity Input
+
+**Цель:** принимать GPX как самостоятельную активность для inspection и detection.
+
+Результат:
+- отдельный GPX activity adapter;
+- общий FIT/GPX input dispatcher;
+- `inspect` и `analyze` для GPX;
+- явные границы непрерывности `trkseg`;
+- отсутствие GPX → FIT conversion.
+
+GPX activity input не является GPX course и не добавляет course evidence в detector.
+
+Task: `tasks/005a-gpx-activity-input.md`
+
+---
+
+## M4B — Geometry Gap Diagnostics
+
+**Цель:** замечать длинные почти идеально прямые участки, похожие на синтетическую
+интерполяцию между GNSS-точками, не объявляя их доказанным повреждением.
+
+Результат:
+- отдельные advisory geometry warnings;
+- измеримые chord/path/deviation metrics;
+- bounded scan и configurable thresholds;
+- console/JSON diagnostics;
+- отсутствие влияния на integrity status и repair eligibility.
+
+Course, attribution и reconstruction отсутствуют.
+
+Task: `tasks/005b-geometry-gap-diagnostics.md`
+
+---
+
 ## M5 — GPX Course Matching + Repair Plan (без записи FIT)
 
 **Цель:** после HIGH-confidence corruption научиться строить безопасный план реконструкции по course.

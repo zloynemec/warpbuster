@@ -3,39 +3,32 @@
 ## 1. Общая схема
 
 ```text
-FIT
- │
- ▼
-FIT Adapter
- │
- ▼
-ActivityData
- │
- ├──────────────► Inspect / Reports
- │
- ▼
+FIT ──► FIT Adapter ──┐
+                     ├──► ActivityData
+GPX ──► GPX Adapter ──┘
+                              ├──► Inspect / Reports
+                              │
+                              ▼
 Integrity Detector
- │
- ▼
-IntegrityReport
- │
- ├── CLEAN
- │
- ├── UNKNOWN
- │
- └── CORRUPTED intervals
-          │
-          ▼
-Reconstruction Provider (optional)
-          │
-          ▼
-Repair Plan
-          │
-          ▼
-FIT Patch/Writer
-          │
-          ▼
-Validation + Diff
+                              │
+                              ▼
+                       IntegrityReport
+                              ├── CLEAN
+                              ├── UNKNOWN
+                              ├── advisory geometry warnings
+                              └── CORRUPTED intervals
+                                      │
+                                      ▼
+                         Reconstruction Provider (optional)
+                                      │
+                                      ▼
+                                Repair Plan
+                                      │
+                                      ▼
+                              FIT Patch/Writer
+                                      │
+                                      ▼
+                              Validation + Diff
 ```
 
 ## 2. Package layout
@@ -91,7 +84,8 @@ src/warpbuster/
 - heart_rate nullable;
 - cadence nullable;
 - power nullable;
-- ссылка/идентификатор исходного FIT record.
+- ссылка/идентификатор исходной observation;
+- continuity id, запрещающий переходы между явно раздельными сегментами.
 
 Дополнительно ActivityData хранит:
 - laps;
@@ -110,15 +104,34 @@ Integrity Detector не должен импортировать FIT SDK напр
 
 Это позволяет тестировать detector на синтетическом `ActivityData`.
 
+## 4A. GPX Activity Adapter
+
+Reader нормализует только activity tracks (`trk/trkseg/trkpt`). GPX `rte`/`wpt` и
+vendor extensions не входят в Task 005A. Каждый `trkseg` получает отдельный continuity
+id, поэтому detector не считает расстояние между разными сегментами teleport.
+
+Это отдельная роль от GPX course в Reconstruction. GPX activity adapter не создаёт FIT
+и не предоставляет course detector-у.
+
 ## 5. Integrity Detector
 
 Pure-ish service:
 
 `ActivityData + IntegrityConfig -> IntegrityReport`
 
-Не читает GPX.  
-Не пишет FIT.  
+Не парсит FIT или GPX самостоятельно.
+Не принимает course и не пишет файлы.
 Не обращается в сеть.
+
+После authoritative physical stages выполняется отдельный bounded geometry diagnostic
+pass. Он ищет длинные, плотно sampled, почти collinear участки и добавляет только
+`LOW` warning. Geometry warning не участвует в вычислении integrity status, не создаёт
+`CorruptedInterval` и всегда имеет `repair_eligible=false` в report. Это позволяет
+показать возможную интерполяцию без нарушения главного инварианта detector-а.
+
+Diagnostic pass использует только геометрию самой activity и continuity ids. Course,
+OSM, DEM и vendor attribution в него не входят. Все thresholds и scan bounds находятся
+в `IntegrityConfig`; число retained warnings ограничено, aggregate counters сохраняются.
 
 ## 6. Reconstruction
 

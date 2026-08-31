@@ -70,14 +70,35 @@ Expected:
 - не путать с spoofing;
 - reconstruction — отдельная стадия.
 
+### 3.6 GPX activity input
+
+Input: GPX track как самостоятельная записанная активность, а не planned course.
+
+Expected:
+- `inspect` и `analyze` работают без конвертации в FIT;
+- стандартные time/elevation/coordinates нормализуются в `ActivityData`;
+- отдельные `trkseg` не создают ложный teleport;
+- отсутствующая информация остаётся неизвестной и не угадывается.
+
+### 3.7 Possible interpolated GNSS gap
+
+Input: длинный плотно sampled участок почти идеально совпадает с прямой между двумя
+точками; timestamps могут отсутствовать.
+
+Expected:
+- отдельный `LOW` geometry warning с измеримыми метриками;
+- integrity status определяется только physical detector и не повышается;
+- corrupted interval и automatic repair не создаются;
+- course и предположение о vendor-е не используются.
+
 ## 4. Команды v0.1
 
 Планируемые команды:
 
-- `warpbuster inspect <fit>`
-- `warpbuster analyze <fit>`
-- `warpbuster analyze <fit> --json`
-- `warpbuster analyze <fit> --html report.html`
+- `warpbuster inspect <activity.fit|activity.gpx>`
+- `warpbuster analyze <activity.fit|activity.gpx>`
+- `warpbuster analyze <activity.fit|activity.gpx> --json`
+- `warpbuster analyze <activity.fit|activity.gpx> --html report.html`
 - `warpbuster repair <fit> --course <gpx>`
 - `warpbuster repair <fit> --course <gpx> --dry-run`
 - `warpbuster validate <fit>`
