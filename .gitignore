@@ -1,0 +1,19 @@
+.DS_Store
+.env
+.venv/
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+build/
+dist/
+
+# Private user activities must never be committed by default.
+tests/private/
