@@ -42,6 +42,8 @@ class IntegrityConfig:
         bridge_speed_floor_mps: Minimum derived bridge limit in metres per second.
         bridge_baseline_multiplier: Multiplier applied to median local speed when
             deriving the bridge limit.
+        diagnostic_max_candidate_details: Maximum bridge candidate details retained
+            for reports; aggregate counters are never truncated.
     """
 
     profile: IntegrityProfile = IntegrityProfile.GENERIC
@@ -57,6 +59,7 @@ class IntegrityConfig:
     bridge_max_speed_mps: float | None = None
     bridge_speed_floor_mps: float = 5.0
     bridge_baseline_multiplier: float = 3.0
+    diagnostic_max_candidate_details: int = 100
 
     @classmethod
     def running(cls) -> IntegrityConfig:
@@ -105,3 +108,5 @@ class IntegrityConfig:
             raise ValueError("minimum_baseline_samples must be at least one")
         if self.island_search_max_exit_candidates < 1:
             raise ValueError("island_search_max_exit_candidates must be at least one")
+        if self.diagnostic_max_candidate_details < 0:
+            raise ValueError("diagnostic_max_candidate_details must not be negative")

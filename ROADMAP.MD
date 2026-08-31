@@ -31,10 +31,11 @@ Roadmap следует порядку milestone из [`docs/MILESTONES.md`](docs
   - bridge plausibility, corrupted intervals и confidence/reasons;
   - ограниченный по сложности поиск и проверка производительности.
 
-- [ ] **M4 / Task 005 — Safety / False Positive Hardening**
+- [x] **M4 / Task 005 — Safety / False Positive Hardening**
   ([task](tasks/005-safety-regressions.md))
   - regression-набор для правдоподобных сложных траекторий;
   - настройка confidence и документирование thresholds;
+  - bounded `-vv` diagnostics и performance regression;
   - защита от false positive до появления repair.
 
 - [ ] **M5 / Task 006 — GPX Course Matching + Dry Repair Plan**

@@ -77,6 +77,35 @@ def test_analyze_json_contains_machine_readable_reasons(
     assert report["findings"][0]["reasons"] == ["absolute_speed_and_distance_exceeded"]
     assert report["config"]["profile"] == "running"
     assert report["config"]["absolute_impossible_speed_mps"] == 25.0
+    assert report["island_search_diagnostics"]["accepted_interval_count"] == 1
+    assert (
+        report["island_search_diagnostics"]["retained_candidate_details"][0]["outcome"]
+        == "accepted"
+    )
+
+
+def test_analyze_double_verbose_shows_detector_diagnostics(
+    tmp_path: Path,
+    capsys: object,
+) -> None:
+    """Double verbosity explains thresholds, pruning, and bridge candidates."""
+    fit_path = tmp_path / "spike.fit"
+    write_trajectory_activity(
+        fit_path,
+        [
+            (0, 55.0, 37.0),
+            (1, 56.0, 37.0),
+            (2, 55.0, 37.00005),
+        ],
+    )
+
+    assert main(["analyze", str(fit_path), "-vv"]) == 1
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    assert "Pipeline: local_transitions -> spoofing_islands" in captured.out
+    assert "Detector diagnostics:" in captured.out
+    assert "Local thresholds:" in captured.out
+    assert "Island bounds:" in captured.out
+    assert "Candidate 0->1 / 1->2: accepted" in captured.out
 
 
 def test_analyze_clean_activity_returns_exit_code_zero(

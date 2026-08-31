@@ -127,6 +127,30 @@ def test_local_and_island_analysis_of_20k_records_is_bounded() -> None:
     assert elapsed_seconds < 5.0
 
 
+def test_many_impossible_edges_keep_diagnostics_bounded() -> None:
+    """Worst-case local findings do not create unbounded diagnostic storage."""
+    count = 20_000
+    base_track = eastward_observations(
+        [float(index) for index in range(count)],
+        [float(index * 3) for index in range(count)],
+    )
+    observations = [
+        observation if index % 2 == 0 else (observation[0], 56.0, observation[2])
+        for index, observation in enumerate(base_track)
+    ]
+    activity = make_activity(observations)
+
+    started = perf_counter()
+    report = analyze_integrity(activity)
+    elapsed_seconds = perf_counter() - started
+
+    diagnostics = report.island_search_diagnostics
+    assert diagnostics.candidates_considered >= diagnostics.accepted_interval_count
+    assert len(diagnostics.retained_candidate_details) == 100
+    assert diagnostics.candidate_details_truncated_count > 0
+    assert elapsed_seconds < 5.0
+
+
 def _spoof_island_observations() -> list[Observation]:
     observations: list[Observation] = [eastward_observations([0.0], [0.0])[0]]
     observations.extend(

@@ -7,13 +7,16 @@ from dataclasses import asdict
 
 from warpbuster.models.activity import ActivityData
 from warpbuster.models.integrity import (
+    BridgeCandidateDiagnostic,
     CorruptedInterval,
     IntegrityReport,
+    IslandSearchDiagnostics,
     TransitionClassification,
     TransitionResult,
 )
 
 _MAX_CONSOLE_FINDINGS = 20
+_MAX_CONSOLE_CANDIDATE_DIAGNOSTICS = 20
 _CLASSIFICATIONS = tuple(TransitionClassification)
 
 
@@ -50,6 +53,9 @@ def analyze_report(activity: ActivityData, integrity: IntegrityReport) -> dict[s
             "relative_suspicious_threshold_mps": (baseline.relative_suspicious_threshold_mps),
         },
         "config": asdict(integrity.config),
+        "island_search_diagnostics": _island_diagnostics_report(
+            integrity.island_search_diagnostics
+        ),
         "corrupted_intervals": [
             _interval_report(interval) for interval in integrity.corrupted_intervals
         ],
@@ -71,7 +77,12 @@ def analyze_json(activity: ActivityData, integrity: IntegrityReport) -> str:
     )
 
 
-def analyze_console(activity: ActivityData, integrity: IntegrityReport) -> str:
+def analyze_console(
+    activity: ActivityData,
+    integrity: IntegrityReport,
+    *,
+    verbosity: int = 0,
+) -> str:
     """Render a compact local integrity report for a human reader."""
     counts = {
         classification: integrity.count(classification) for classification in _CLASSIFICATIONS
@@ -115,6 +126,10 @@ def analyze_console(activity: ActivityData, integrity: IntegrityReport) -> str:
         f"Corrupted intervals: {len(integrity.corrupted_intervals)}",
     ]
     lines.extend(_interval_console(interval) for interval in integrity.corrupted_intervals)
+    if verbosity >= 1:
+        lines.append("Pipeline: local_transitions -> spoofing_islands")
+    if verbosity >= 2:
+        lines.extend(_diagnostics_console(integrity))
     if not findings:
         lines.append("Findings: none")
         return "\n".join(lines)
@@ -173,6 +188,45 @@ def _interval_report(interval: CorruptedInterval) -> dict[str, object]:
     }
 
 
+def _island_diagnostics_report(diagnostics: IslandSearchDiagnostics) -> dict[str, object]:
+    return {
+        "enabled": diagnostics.enabled,
+        "bridge_speed_limit_mps": diagnostics.bridge_speed_limit_mps,
+        "impossible_transition_count": diagnostics.impossible_transition_count,
+        "entries_considered": diagnostics.entries_considered,
+        "consumed_entries_skipped": diagnostics.consumed_entries_skipped,
+        "candidates_considered": diagnostics.candidates_considered,
+        "candidate_limit_pruned_count": diagnostics.candidate_limit_pruned_count,
+        "time_window_pruned_count": diagnostics.time_window_pruned_count,
+        "invalid_candidate_count": diagnostics.invalid_candidate_count,
+        "implausible_bridge_count": diagnostics.implausible_bridge_count,
+        "accepted_interval_count": diagnostics.accepted_interval_count,
+        "retained_candidate_details": [
+            _candidate_diagnostic_report(detail)
+            for detail in diagnostics.retained_candidate_details
+        ],
+        "candidate_details_truncated_count": diagnostics.candidate_details_truncated_count,
+    }
+
+
+def _candidate_diagnostic_report(detail: BridgeCandidateDiagnostic) -> dict[str, object]:
+    return {
+        "entry_transition": {
+            "from_record_index": detail.entry_from_record_index,
+            "to_record_index": detail.entry_to_record_index,
+        },
+        "exit_transition": {
+            "from_record_index": detail.exit_from_record_index,
+            "to_record_index": detail.exit_to_record_index,
+        },
+        "search_elapsed_seconds": detail.search_elapsed_seconds,
+        "bridge_distance_m": detail.bridge_distance_m,
+        "bridge_speed_mps": detail.bridge_speed_mps,
+        "bridge_speed_limit_mps": detail.bridge_speed_limit_mps,
+        "outcome": detail.outcome.value,
+    }
+
+
 def _interval_console(interval: CorruptedInterval) -> str:
     reasons = ",".join(reason.value for reason in interval.reasons)
     return (
@@ -180,6 +234,58 @@ def _interval_console(interval: CorruptedInterval) -> str:
         f"({interval.record_count}): {interval.confidence.value.upper()}, "
         f"anchors={interval.trusted_before_record_index}->{interval.trusted_after_record_index}, "
         f"bridge={interval.bridge.apparent_speed_mps:.2f} m/s, reasons={reasons}"
+    )
+
+
+def _diagnostics_console(integrity: IntegrityReport) -> list[str]:
+    config = integrity.config
+    diagnostics = integrity.island_search_diagnostics
+    lines = [
+        "Detector diagnostics:",
+        (
+            "  Local thresholds: "
+            f"impossible_speed={_number(config.absolute_impossible_speed_mps)} m/s, "
+            f"impossible_distance={config.absolute_impossible_distance_m:.2f} m, "
+            f"relative_floor={config.relative_suspicious_speed_floor_mps:.2f} m/s"
+        ),
+        (
+            "  Island bounds: "
+            f"elapsed<={config.island_search_max_elapsed_seconds:.2f} s, "
+            f"exit_candidates<={config.island_search_max_exit_candidates}, "
+            f"derived_bridge_limit={_number(diagnostics.bridge_speed_limit_mps)} m/s"
+        ),
+        (
+            "  Island search: "
+            f"enabled={'yes' if diagnostics.enabled else 'no'}, "
+            f"entries={diagnostics.entries_considered}, "
+            f"candidates={diagnostics.candidates_considered}, "
+            f"accepted={diagnostics.accepted_interval_count}, "
+            f"too_fast={diagnostics.implausible_bridge_count}, "
+            f"candidate_pruned={diagnostics.candidate_limit_pruned_count}, "
+            f"time_pruned={diagnostics.time_window_pruned_count}"
+        ),
+    ]
+    lines.extend(
+        _candidate_diagnostic_console(detail)
+        for detail in diagnostics.retained_candidate_details[:_MAX_CONSOLE_CANDIDATE_DIAGNOSTICS]
+    )
+    hidden_count = (
+        max(
+            0,
+            len(diagnostics.retained_candidate_details) - _MAX_CONSOLE_CANDIDATE_DIAGNOSTICS,
+        )
+        + diagnostics.candidate_details_truncated_count
+    )
+    if hidden_count > 0:
+        lines.append(f"  ... {hidden_count} candidate diagnostics omitted; use --json")
+    return lines
+
+
+def _candidate_diagnostic_console(detail: BridgeCandidateDiagnostic) -> str:
+    return (
+        f"  Candidate {detail.entry_from_record_index}->{detail.entry_to_record_index} / "
+        f"{detail.exit_from_record_index}->{detail.exit_to_record_index}: "
+        f"{detail.outcome.value}, bridge={_number(detail.bridge_speed_mps)} m/s"
     )
 
 

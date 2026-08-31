@@ -35,6 +35,17 @@ class IntervalReason(StrEnum):
     PLAUSIBLE_BRIDGE = "plausible_bridge"
 
 
+class BridgeCandidateOutcome(StrEnum):
+    """Machine-readable outcome of one bounded exit-candidate evaluation."""
+
+    ACCEPTED = "accepted"
+    INVALID_ELAPSED_TIME = "invalid_elapsed_time"
+    OUTSIDE_SEARCH_WINDOW = "outside_search_window"
+    UNUSABLE_ANCHORS = "unusable_anchors"
+    BRIDGE_TOO_FAST = "bridge_too_fast"
+    EMPTY_INTERVAL = "empty_interval"
+
+
 class IntegrityStatus(StrEnum):
     """Overall result of the detector stage currently available."""
 
@@ -113,6 +124,40 @@ class CorruptedInterval:
 
 
 @dataclass(frozen=True, slots=True)
+class BridgeCandidateDiagnostic:
+    """Diagnostic snapshot for one entry/exit pair considered by island search."""
+
+    entry_from_record_index: int
+    entry_to_record_index: int
+    exit_from_record_index: int
+    exit_to_record_index: int
+    search_elapsed_seconds: float | None
+    bridge_distance_m: float | None
+    bridge_speed_mps: float | None
+    bridge_speed_limit_mps: float | None
+    outcome: BridgeCandidateOutcome
+
+
+@dataclass(frozen=True, slots=True)
+class IslandSearchDiagnostics:
+    """Bounded-search counters and a capped sample of candidate details."""
+
+    enabled: bool
+    bridge_speed_limit_mps: float | None
+    impossible_transition_count: int
+    entries_considered: int
+    consumed_entries_skipped: int
+    candidates_considered: int
+    candidate_limit_pruned_count: int
+    time_window_pruned_count: int
+    invalid_candidate_count: int
+    implausible_bridge_count: int
+    accepted_interval_count: int
+    retained_candidate_details: tuple[BridgeCandidateDiagnostic, ...]
+    candidate_details_truncated_count: int
+
+
+@dataclass(frozen=True, slots=True)
 class IntegrityReport:
     """Deterministic report for local physical-transition analysis."""
 
@@ -124,6 +169,7 @@ class IntegrityReport:
     baseline: BaselineStats
     transitions: tuple[TransitionResult, ...]
     corrupted_intervals: tuple[CorruptedInterval, ...]
+    island_search_diagnostics: IslandSearchDiagnostics
     config: IntegrityConfig
 
     def count(self, classification: TransitionClassification) -> int:

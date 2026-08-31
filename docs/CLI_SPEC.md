@@ -130,6 +130,11 @@ warpbuster diff original.fit fixed.fit
 - candidate bridges;
 - thresholds/config values.
 
+Console показывает не более 20 candidate diagnostics. JSON сохраняет не более
+`IntegrityConfig.diagnostic_max_candidate_details` деталей (default: 100), но всегда
+содержит полные aggregate counters и число отброшенных деталей. Это не позволяет
+диагностике потреблять неограниченную память на повреждённом файле.
+
 Не выводить тысячи records без отдельного debug flag.
 
 ## 7. Exit codes

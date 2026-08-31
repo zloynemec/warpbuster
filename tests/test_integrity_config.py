@@ -23,6 +23,7 @@ def test_integrity_thresholds_are_named_and_serializable() -> None:
         "bridge_max_speed_mps": None,
         "bridge_speed_floor_mps": 5.0,
         "bridge_baseline_multiplier": 3.0,
+        "diagnostic_max_candidate_details": 100,
     }
 
 
@@ -65,3 +66,10 @@ def test_bridge_floor_cannot_exceed_bridge_ceiling() -> None:
     """A contradictory bridge profile is rejected at construction."""
     with pytest.raises(ValueError, match="bridge_speed_floor_mps"):
         IntegrityConfig(bridge_max_speed_mps=4.0, bridge_speed_floor_mps=5.0)
+
+
+def test_diagnostic_detail_limit_can_be_zero_but_not_negative() -> None:
+    """Diagnostics may retain no details while preserving aggregate counters."""
+    assert IntegrityConfig(diagnostic_max_candidate_details=0).diagnostic_max_candidate_details == 0
+    with pytest.raises(ValueError, match="diagnostic_max_candidate_details"):
+        IntegrityConfig(diagnostic_max_candidate_details=-1)

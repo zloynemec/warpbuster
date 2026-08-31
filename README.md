@@ -92,6 +92,8 @@ warpbuster inspect activity.fit --json
 
 ```bash
 warpbuster analyze activity.fit
+warpbuster analyze activity.fit -v
+warpbuster analyze activity.fit -vv
 warpbuster analyze activity.fit --json
 ```
 
@@ -101,6 +103,10 @@ Exit code `1` означает, что найдены `SUSPICIOUS` или `IMPOS
 `analyze` выбирает thresholds по нормализованному виду активности. Для `running`
 используется отдельный консервативный профиль; неизвестный sport не получает
 `CORRUPTED / HIGH` только из-за высокой apparent speed.
+
+`-v` показывает стадии pipeline, а `-vv` дополнительно объясняет активные thresholds,
+границы bounded island search и результаты проверки bridge-кандидатов. Детали
+кандидатов ограничены конфигурацией; полные агрегатные счётчики остаются в JSON.
 
 Полный набор проверок:
 
@@ -112,6 +118,6 @@ python -m mypy src tests
 ```
 
 На текущем этапе реализованы чтение FIT, инспекция, локальный анализ соседних GNSS
-observations и bounded-поиск spoofing islands по impossible entry/exit и plausible bridge.
-Reconstruction и repair намеренно отложены до следующих milestones согласно
-`docs/MILESTONES.md`.
+observations, bounded-поиск spoofing islands по impossible entry/exit и plausible bridge,
+а также false-positive regressions и bounded diagnostics. Reconstruction и repair
+намеренно отложены до следующих milestones согласно `docs/MILESTONES.md`.

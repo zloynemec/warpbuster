@@ -47,6 +47,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="emit a machine-readable JSON report",
     )
+    analyze_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="show pipeline details; repeat for detector diagnostics",
+    )
     return parser
 
 
@@ -70,7 +77,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 2
         integrity = analyze_integrity(activity)
         print(
-            analyze_json(activity, integrity) if args.json else analyze_console(activity, integrity)
+            analyze_json(activity, integrity)
+            if args.json
+            else analyze_console(activity, integrity, verbosity=args.verbose)
         )
         if integrity.status in {IntegrityStatus.CORRUPTED, IntegrityStatus.SUSPICIOUS}:
             return 1

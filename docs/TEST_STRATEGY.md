@@ -101,13 +101,30 @@ Acceptance repair:
 - output FIT валиден;
 - итоговая геометрия/дистанция разумны.
 
-## 5. Golden reports
+## 5. False-positive safety matrix
+
+До появления repair synthetic regression suite обязан покрывать:
+
+- постепенный wrong turn на километры;
+- out-and-back и замкнутую петлю;
+- tight switchbacks;
+- быстрый непрерывный downhill;
+- stop/restart и irregular sampling;
+- длинный GPS dropout;
+- короткий noisy drift;
+- несколько правдоподобных pace regimes.
+
+Для каждого сценария запрещён результат `CORRUPTED / HIGH` и запрещены corrupted
+intervals. Wrong turn дополнительно обязан быть `CLEAN`. API detector-а не принимает
+course: отклонение от GPX не является detector evidence.
+
+## 6. Golden reports
 
 Для synthetic fixtures можно хранить expected JSON reports.
 
 Не golden-test-ить человекочитаемый console output посимвольно, если это не CLI contract.
 
-## 6. Performance test
+## 7. Performance test
 
 Fixture ~20k records.
 
@@ -116,7 +133,10 @@ Target MVP:
 - memory bounded;
 - отсутствие O(n²) full scan.
 
-## 7. FIT preservation regression
+Worst-case regression с большим количеством impossible edges дополнительно проверяет,
+что bridge candidate details ограничены конфигурацией, а aggregate counters не теряются.
+
+## 8. FIT preservation regression
 
 После repair сравнивать original vs fixed:
 

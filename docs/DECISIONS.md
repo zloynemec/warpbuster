@@ -151,3 +151,31 @@ Generic profile не выполняет island search, поскольку без
 у него нет `IMPOSSIBLE` entry/exit evidence.
 
 Статус: Accepted.
+
+## ADR-015 — Safety confidence matrix and bounded diagnostics
+
+Task 005 фиксирует матрицу итогового confidence до появления repair:
+
+- хотя бы один локальный `IMPOSSIBLE` transition → `CORRUPTED / HIGH`;
+- только baseline-relative `SUSPICIOUS` evidence → `SUSPICIOUS / LOW`;
+- missing position, missing timestamp или невалидный `dt` без более сильного evidence
+  → `UNKNOWN / LOW`;
+- полностью нормальные данные → `CLEAN / HIGH` при достаточном baseline и
+  `CLEAN / MEDIUM` при коротком baseline.
+
+`HIGH` требует sport-specific абсолютного физического потолка. Relative outlier не
+повышается до `HIGH`: смена темпа сама по себе может быть реальным движением. Corrupted
+interval требует двух `IMPOSSIBLE` границ и физически правдоподобного bridge между
+trusted anchors. Course отсутствует в API Integrity Detector.
+
+Safety regression matrix включает wrong turn, out-and-back, loop, tight switchbacks,
+fast downhill, stop/restart, irregular sampling, long dropout, short drift и несколько
+pace regimes. Все правдоподобные траектории обязаны не быть `CORRUPTED / HIGH`, а wrong
+turn обязан оставаться `CLEAN`.
+
+Все detector thresholds и search bounds находятся в `IntegrityConfig` и описаны там с
+единицами измерения. `diagnostic_max_candidate_details` (default: 100) ограничивает
+хранимый sample bridge candidates; aggregate counters и количество отброшенных деталей
+сохраняются. Console `-vv` дополнительно ограничен 20 строками candidate details.
+
+Статус: Accepted.

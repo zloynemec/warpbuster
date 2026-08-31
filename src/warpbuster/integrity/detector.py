@@ -34,7 +34,7 @@ def analyze_integrity(
     transitions = tuple(
         _classify_transition(transition, baseline, effective_config) for transition in measurements
     )
-    corrupted_intervals = detect_spoofing_islands(
+    island_detection = detect_spoofing_islands(
         activity,
         transitions,
         baseline,
@@ -55,7 +55,8 @@ def analyze_integrity(
         missing_position_record_count=missing_position_record_count,
         baseline=baseline,
         transitions=transitions,
-        corrupted_intervals=corrupted_intervals,
+        corrupted_intervals=island_detection.intervals,
+        island_search_diagnostics=island_detection.diagnostics,
         config=effective_config,
     )
 
