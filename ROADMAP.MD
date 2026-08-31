@@ -19,7 +19,7 @@ Roadmap следует порядку milestone из [`docs/MILESTONES.md`](docs
   - сохранение metadata и исходных FIT frames для будущего lossless patching;
   - synthetic tests и private smoke tests для Andromeda FIT.
 
-- [ ] **M2 / Task 003 — Local Physical Transition Detector**
+- [x] **M2 / Task 003 — Local Physical Transition Detector**
   ([task](tasks/003-local-transition-detector.md))
   - консервативная классификация соседних переходов;
   - geodesic distance, apparent speed и централизованный `IntegrityConfig`;

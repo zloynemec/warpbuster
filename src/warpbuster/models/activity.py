@@ -105,6 +105,8 @@ class ActivityData:
     events: tuple[SourceMessage, ...]
     manufacturer: str | int | None
     product: str | int | None
+    sport: str | int | None
+    sub_sport: str | int | None
     start_time: datetime | None
     duration_seconds: float | None
     recorded_distance_m: float | None

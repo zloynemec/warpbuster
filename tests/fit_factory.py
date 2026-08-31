@@ -100,5 +100,54 @@ def write_synthetic_activity(path: Path) -> bytes:
     return raw_bytes
 
 
+def write_trajectory_activity(
+    path: Path,
+    observations: list[tuple[int, float | None, float | None]],
+) -> bytes:
+    """Write a valid FIT containing a caller-supplied synthetic trajectory."""
+    start = datetime(2026, 1, 1, 8, 0, tzinfo=UTC)
+    encoder = Encoder()
+    encoder.on_mesg(
+        Profile["mesg_num"]["FILE_ID"],
+        {
+            "type": "activity",
+            "manufacturer": "garmin",
+            "product": 123,
+            "time_created": start,
+        },
+    )
+    encoder.on_mesg(
+        Profile["mesg_num"]["EVENT"],
+        {"timestamp": start, "event": "timer", "event_type": "start"},
+    )
+    for elapsed_seconds, latitude, longitude in observations:
+        record: dict[str, Any] = {
+            "timestamp": start + timedelta(seconds=elapsed_seconds),
+        }
+        if latitude is not None and longitude is not None:
+            record["position_lat"] = _semicircles(latitude)
+            record["position_long"] = _semicircles(longitude)
+        encoder.on_mesg(Profile["mesg_num"]["RECORD"], record)
+
+    duration = float(observations[-1][0]) if observations else 0.0
+    encoder.on_mesg(
+        Profile["mesg_num"]["SESSION"],
+        {
+            "timestamp": start + timedelta(seconds=duration),
+            "start_time": start,
+            "total_elapsed_time": duration,
+            "total_timer_time": duration,
+            "sport": "running",
+        },
+    )
+    encoder.on_mesg(
+        Profile["mesg_num"]["ACTIVITY"],
+        {"timestamp": start + timedelta(seconds=duration), "total_timer_time": duration},
+    )
+    raw_bytes = encoder.close()
+    path.write_bytes(raw_bytes)
+    return raw_bytes
+
+
 def _semicircles(degrees: float) -> int:
     return round(degrees * (1 << 31) / 180.0)

@@ -9,6 +9,9 @@ from pathlib import Path
 
 from warpbuster import __version__
 from warpbuster.fit.reader import FitReadError, read_fit
+from warpbuster.integrity import analyze_integrity
+from warpbuster.models.integrity import IntegrityStatus
+from warpbuster.report.analyze import analyze_console, analyze_json
 from warpbuster.report.inspect import inspect_console, inspect_json
 
 
@@ -34,6 +37,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="emit a machine-readable JSON report",
     )
+    analyze_parser = subparsers.add_parser(
+        "analyze",
+        help="analyze local physical transitions in a FIT activity",
+    )
+    analyze_parser.add_argument("fit_file", type=Path, help="path to the FIT file")
+    analyze_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="emit a machine-readable JSON report",
+    )
     return parser
 
 
@@ -48,6 +61,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"error: {error}", file=sys.stderr)
             return 2
         print(inspect_json(activity) if args.json else inspect_console(activity))
+        return 0
+    if args.command == "analyze":
+        try:
+            activity = read_fit(args.fit_file)
+        except (FitReadError, OSError) as error:
+            print(f"error: {error}", file=sys.stderr)
+            return 2
+        integrity = analyze_integrity(activity)
+        print(
+            analyze_json(activity, integrity) if args.json else analyze_console(activity, integrity)
+        )
+        if integrity.status in {IntegrityStatus.CORRUPTED, IntegrityStatus.SUSPICIOUS}:
+            return 1
         return 0
     parser.print_help()
     return 0

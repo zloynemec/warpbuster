@@ -88,6 +88,20 @@ warpbuster inspect activity.fit
 warpbuster inspect activity.fit --json
 ```
 
+Локальный анализ физических переходов:
+
+```bash
+warpbuster analyze activity.fit
+warpbuster analyze activity.fit --json
+```
+
+Exit code `1` означает, что найдены `SUSPICIOUS` или `IMPOSSIBLE` переходы;
+нечитаемый FIT возвращает `2`.
+
+`analyze` выбирает thresholds по нормализованному виду активности. Для `running`
+используется отдельный консервативный профиль; неизвестный sport не получает
+`CORRUPTED / HIGH` только из-за высокой apparent speed.
+
 Полный набор проверок:
 
 ```bash
@@ -97,5 +111,6 @@ python -m ruff format --check .
 python -m mypy src tests
 ```
 
-На текущем этапе реализовано только чтение и инспекция FIT. Анализ GNSS и восстановление
-трека намеренно отложены до следующих milestones согласно `docs/MILESTONES.md`.
+На текущем этапе реализованы чтение FIT, инспекция и локальный анализ соседних GNSS
+observations. Поиск и объединение длительных spoofing islands, reconstruction и repair
+намеренно отложены до следующих milestones согласно `docs/MILESTONES.md`.

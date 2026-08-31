@@ -89,3 +89,40 @@ Normalized model остаётся vendor-neutral и не импортирует 
 Task 007; decoded objects не считаются lossless canonical representation.
 
 Статус: Accepted.
+
+## ADR-013 — Conservative local transition thresholds
+
+Task 003 классифицирует только переходы между соседними records с доступной позицией.
+Records без позиции учитываются отдельно и не считаются teleport; при переходе через
+такой gap используется полный elapsed time исходных timestamps.
+Если более сильной аномалии нет, наличие missing position или невычислимого `dt`
+понижает итоговый status до `UNKNOWN`, а не создаёт ложный `CLEAN`.
+
+Evidence разделён на два уровня:
+
+- абсолютный предел одновременно по apparent speed и длине перехода может дать
+  `IMPOSSIBLE` и HIGH confidence;
+- robust-relative outlier относительно median/MAD может дать только `SUSPICIOUS` и
+  LOW confidence.
+
+Абсолютная физическая граница зависит от вида активности. Reader нормализует `sport`
+и `sub_sport`, после чего detector выбирает именованный profile:
+
+- `running`: `25 m/s` вместе с дистанцией не менее `50 m` для `IMPOSSIBLE`;
+- `generic`: absolute ceiling отключён, поэтому скорость сама по себе может дать только
+  `SUSPICIOUS / LOW`.
+
+Running ceiling более чем вдвое выше средней скорости мирового рекорда 100 m
+(`100 / 9.58 ≈ 10.44 m/s`) и дополнен distance floor. Источник результата:
+<https://worldathletics.org/records/all-time-toplists/sprints/100-metres/all/men/senior>.
+
+Relative floor остаётся `20 m/s` вместе с дистанцией не менее `20 m`. При наличии пяти
+samples он дополнительно повышается до максимума из floor, `6 × median` и
+`median + 10 × MAD`. Все значения находятся в `IntegrityConfig`, сериализуются в JSON
+report и могут быть переопределены явной конфигурацией.
+
+Course, recorded FIT speed и distance не используются как доказательство повреждения.
+Task 004 отдельно решит, какие локальные transitions ограничивают единый corrupted
+interval.
+
+Статус: Accepted.

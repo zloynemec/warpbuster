@@ -26,6 +26,8 @@ def test_reader_normalizes_activity_and_preserves_source(tmp_path: Path) -> None
     assert activity.records[0].source.message_index < activity.records[1].source.message_index
     assert activity.manufacturer == "garmin"
     assert activity.product == 123
+    assert activity.sport == "running"
+    assert activity.sub_sport is None
     assert activity.duration_seconds == 3.0
     assert activity.recorded_distance_m == 30.0
     assert activity.coordinate_bounds is not None

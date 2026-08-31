@@ -99,6 +99,8 @@ def read_fit(path: str | Path) -> ActivityData:
         events=events,
         manufacturer=_identity_value(file_id_fields.get("manufacturer")),
         product=_product_value(file_id_fields),
+        sport=_session_identity(sessions, "sport"),
+        sub_sport=_session_identity(sessions, "sub_sport"),
         start_time=_activity_start_time(records, sessions),
         duration_seconds=_activity_duration(records, sessions),
         recorded_distance_m=_recorded_distance(records, sessions),
@@ -268,6 +270,20 @@ def _product_value(fields: Mapping[SourceFieldName, object]) -> str | int | None
             if identity is not None:
                 return identity
     return _identity_value(fields.get("product"))
+
+
+def _session_identity(
+    sessions: tuple[SourceMessage, ...],
+    field_name: str,
+) -> str | int | None:
+    return next(
+        (
+            identity
+            for session in sessions
+            if (identity := _identity_value(session.fields.get(field_name))) is not None
+        ),
+        None,
+    )
 
 
 def _activity_start_time(

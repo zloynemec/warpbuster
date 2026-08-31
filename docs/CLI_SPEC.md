@@ -56,6 +56,12 @@ warpbuster analyze activity.fit --json
 
 JSON schema должна быть стабильной внутри minor release.
 
+На milestone M2 report имеет scope `local_transitions`: показывает transition counts,
+robust baseline, thresholds и machine-readable findings. Corrupted intervals и bridge
+details появляются только в M3 и не вычисляются локальным detector-ом.
+Console и JSON также показывают нормализованные `sport/sub_sport` и выбранный threshold
+profile. Для неизвестного sport generic profile не выдаёт `IMPOSSIBLE` только по скорости.
+
 ```bash
 warpbuster analyze activity.fit --html report.html
 ```
