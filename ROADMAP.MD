@@ -73,6 +73,14 @@ Roadmap следует порядку milestone из [`docs/MILESTONES.md`](docs
   - внешние stable anchors и plausible bridge только как диагностика;
   - mixed region остаётся `MEDIUM/LOW`, `repair_eligible=false`.
 
+- [ ] **M5B / Task 006B — One-sided GNSS Failure Clusters**
+  ([task](tasks/006b-one-sided-gnss-failure-clusters.md))
+  - residual Andromeda cluster `3626..3700`, видимый примерно на `6.6..7.0 км`;
+  - bounded detection для impossible/suspicious evidence рядом с GNSS dropouts без
+    классической пары entry/exit transitions;
+  - course-independent proof rule либо явный unresolved diagnostic region;
+  - реализация пока не начата.
+
 - [x] **M6 / Task 007 — FIT Writer, Preservation, Validate, Diff**
   ([task](tasks/007-fit-writer-validation.md))
   - byte-preserving writer, CRC, atomic output и no-overwrite реализованы;
