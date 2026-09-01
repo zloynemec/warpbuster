@@ -12,7 +12,7 @@ authors = [
     { name = "WarpBuster contributors" },
 ]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.14",
@@ -21,6 +21,9 @@ classifiers = [
 dependencies = [
     "fitdecode>=0.11,<0.12",
 ]
+
+[project.urls]
+Repository = "https://github.com/zloynemec/warpbuster"
 
 [project.optional-dependencies]
 dev = [
@@ -40,7 +43,7 @@ version = { attr = "warpbuster.__version__" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-warpbuster = ["py.typed"]
+warpbuster = ["py.typed", "report/assets/*.html"]
 
 [tool.pytest.ini_options]
 addopts = "--strict-config --strict-markers"

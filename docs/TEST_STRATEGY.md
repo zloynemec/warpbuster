@@ -229,6 +229,8 @@ outer anchors, но остаётся `MEDIUM` и не eligible. Итоговый
 - coordinates меняются только внутри planned interval;
 - cumulative distance больше не содержит teleport increments;
 - lap/session total distance и existing average speed согласованы;
+- невалидный summary end timestamp использует `start_time + total_elapsed_time`, не
+  меняя исходные timestamps и не инвертируя correction следующих laps;
 - timestamps, altitude, record speed, HR, cadence, power, temperature и developer fields
   сохраняются на 100%;
 - semantic diff содержит только expected changes;
@@ -241,5 +243,34 @@ outer anchors, но остаётся `MEDIUM` и не eligible. Итоговый
 
 Private Andromeda regression применяет основной HIGH interval из `PARTIAL` plan и
 оставляет mixed region `8820..9580` неизменным. Output проходит validation/diff;
-timestamps, sensors, developer и unknown fields сохраняются на 100%. Ручной
+последний `record.distance`, сумма `lap.total_distance` и `session.total_distance`
+согласованы; timestamps, sensors, developer и unknown fields сохраняются на 100%. Ручной
 Garmin/Strava upload остаётся вне automated CI.
+
+## 13. Interactive HTML report и packaging regression
+
+Публичные synthetic fixtures проверяют:
+
+- analyze HTML для FIT/GPX и repair preview/write modes;
+- совместимость `--json` + `--html` без загрязнения JSON stdout;
+- embedded original/candidate/repaired/course layers;
+- сохранение missing coordinates как разрывов solid geometry и отдельный dashed bridge
+  без пересечения continuity boundaries;
+- applied/skipped decisions и FIT diff в write report;
+- deterministic bytes для одинакового input;
+- безопасное JSON embedding и metadata escaping;
+- pinned Leaflet CDN URLs, OSM tile URL, attribution и ограничивающий CSP;
+- наличие pan/zoom, scale, fit-to-track, collapsed overlay control, start/end и markers
+  через каждый 1 km;
+- original/course/repaired distance и ascent comparison с provenance;
+- missing-run audit table, chord/speed/distance delta и запрет bridge через continuity;
+- atomic no-overwrite и invalid destination errors;
+- наличие HTML template внутри installed package.
+
+Private Andromeda smoke измеряет `analyze + HTML render` для ~20 000 records с target
+`< 5 s` и report size `< 5 MiB`. Fixed fixture должен перечислять 7 оставшихся
+missing-position runs, включая `8893..9580`. Residual Task 006B evidence `3626 -> 3627`
+должно оставаться видимым finding, но HTML не создаёт новый corrupted interval.
+
+Release check отдельно строит wheel, устанавливает его с runtime dependencies в чистый
+temporary Python 3.14 venv и запускает version/resource/analyze HTML smoke.

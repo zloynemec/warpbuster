@@ -142,3 +142,25 @@ def test_analyze_invalid_input_returns_exit_code_2(tmp_path: Path, capsys: objec
     assert main(["analyze", str(fit_path)]) == 2
     captured = capsys.readouterr()  # type: ignore[attr-defined]
     assert "error:" in captured.err
+
+
+def test_analyze_writes_html_without_corrupting_json_stdout(
+    tmp_path: Path,
+    capsys: object,
+) -> None:
+    """HTML is an additional local artifact while stdout remains valid JSON."""
+    fit_path = tmp_path / "clean.fit"
+    html_path = tmp_path / "analysis.html"
+    write_trajectory_activity(
+        fit_path,
+        [(index, 55.0, 37.0 + index * 0.00005) for index in range(7)],
+    )
+
+    assert main(["analyze", str(fit_path), "--json", "--html", str(html_path)]) == 0
+    report = json.loads(capsys.readouterr().out)  # type: ignore[attr-defined]
+    assert report["scope"] == "integrity_detection"
+    assert html_path.exists()
+    assert '"report_kind":"analyze"' in html_path.read_text(encoding="utf-8")
+
+    assert main(["analyze", str(fit_path), "--html", str(html_path)]) == 2
+    assert "HTML output already exists" in capsys.readouterr().err  # type: ignore[attr-defined]

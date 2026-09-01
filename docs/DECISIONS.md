@@ -283,9 +283,51 @@ coordinates; поддерживаемые lap/session totals и existing average
 происходить от footpod/Stryd или device fusion и не является доказанно
 coordinate-derived.
 
+Для привязки summary correction writer предпочитает declared `timestamp`, когда тот
+согласован с `start_time + total_elapsed_time`. При явно повреждённом end timestamp
+используется derived end; timestamps в FIT остаются неизменными. Отсутствие обоих
+надёжных вариантов является ошибкой записи, а не поводом угадывать границу.
+
 Output сначала создаётся как temporary file в destination directory. До atomic publish
 он повторно декодируется с CRC check, проходит normalized validation и semantic diff.
 Любое изменение definitions/structure или unexpected field блокирует publish. Existing
 destination не перезаписывается.
+
+Статус: Accepted.
+
+## ADR-021 — HTML reports use Leaflet and an online OSM basemap
+
+M7 генерирует один локальный HTML-файл с embedded report data и application code, но
+карта не является offline. Она загружает pinned Leaflet 1.9.4 CSS/JavaScript с
+`unpkg.com` и видимые raster tiles с `tile.openstreetmap.org`. Решение принято после
+практической проверки: coordinate-only Canvas без географической подложки недостаточен
+для анализа GNSS ошибок.
+
+Leaflet отвечает только за presentation. Detector и reconstruction не получают OSM
+данные и сохраняют deterministic/offline-инвариант core. Browser запрашивает лишь tiles
+текущего viewport без prefetch; attribution OpenStreetMap всегда видима. CSP разрешает
+remote resources только от pinned Leaflet CDN и OSM tile host. Следствие для privacy:
+эти сервисы получают IP пользователя и приблизительную область просмотра по tile
+requests, поэтому документация больше не называет HTML report offline.
+
+Renderer получает готовые `IntegrityReport`, `RepairPlan`, `RepairSelection` и
+`FitWriteResult`. Он не повторяет detector/reconstruction decisions. Original,
+candidate, actual repaired и course geometry сериализуются отдельными слоями. Missing
+coordinates и `continuity_id` boundaries разрывают polyline, чтобы report не создавал
+ложную solid geometry через GNSS dropout. Для читаемости полного маршрута renderer
+показывает missing-position runs отдельными dashed bridges; они являются только
+presentation uncertainty, отключаются как слой и никогда не пересекают continuity
+boundary. Карта также показывает start/end и markers через каждый 1 km recorded
+distance.
+
+Distance/elevation audit не смешивает разные semantics: embedded FIT distance остаётся
+отдельно от coordinate-derived map geometry; solid geometry отдельно исключает unknown
+gap chords. FIT ascent берётся из `session.total_ascent`, а reference-course ascent явно
+маркируется как unsmoothed positive GPX elevation deltas. Каждый missing run получает
+отдельную строку с anchors, временем, chord и distance-stream delta.
+
+Template и application code поставляются package resource. JSON payload экранирует HTML
+control characters, а metadata выводится через DOM `textContent`. Output публикуется
+атомарно и без overwrite; одинаковые inputs/config/version дают одинаковые bytes.
 
 Статус: Accepted.

@@ -216,13 +216,18 @@ Task: `tasks/007-fit-writer-validation.md`
 **Цель:** сделать удобную диагностику и подготовить ядро к реальному использованию.
 
 Результат:
-- HTML before/after report;
-- map + graphs;
-- anomaly explanations;
-- performance;
-- CLI docs;
-- packaging;
+- local analyze и repair before/after HTML reports;
+- Leaflet/OpenStreetMap basemap с pan/zoom/layers и локальные telemetry graphs;
+- original/course/repaired metrics comparison и remaining missing-run audit table;
+- corrupted/applied/skipped explanations и FIT diff;
+- ~20k-record performance regression;
+- CLI/docs synchronization;
+- wheel resource и clean-install smoke;
 - full v0.1 Definition of Done.
+
+M7 реализован без расширения detector-а. Residual Andromeda cluster из Task 006B
+остаётся известным ограничением: HTML показывает его impossible/suspicious findings и
+GNSS gaps, но не создаёт новый repair interval.
 
 Task: `tasks/008-html-report-release.md`
 

@@ -80,16 +80,19 @@ Geometry warning содержит границы records, chord/path metrics, co
 
 ```bash
 warpbuster analyze activity.fit --html report.html
+warpbuster analyze activity.gpx --html report.html
 ```
 
-HTML добавляется отдельным milestone.
+`--html` записывает интерактивный local report и совместим с `--json`. Console/JSON
+остаётся в stdout; в console mode дополнительно печатается путь к HTML. Existing report
+не перезаписывается. Ошибка report destination возвращает `2`.
 
 ## 3. `warpbuster repair`
 
 Появляется только после завершения detector milestones.
 
-Dry-run остаётся planning mode для исходного FIT и reference GPX course. На M6 команда
-без `--dry-run` применяет только полный `READY` plan.
+Dry-run остаётся planning mode для исходного FIT и reference GPX course. Команда без
+`--dry-run` применяет выбранные interval candidates согласно `--min-confidence`.
 
 ### Dry run
 
@@ -104,7 +107,9 @@ warpbuster repair activity.fit --course race.gpx --dry-run
 ```bash
 warpbuster repair activity.fit --course race.gpx --dry-run --json
 warpbuster repair activity.fit --course race.gpx --dry-run -v
+warpbuster repair activity.fit --course race.gpx --dry-run --html preview.html
 warpbuster repair activity.fit --course race.gpx --min-confidence medium
+warpbuster repair activity.fit --course race.gpx --output out.fit --html repair.html
 ```
 
 Report содержит anchor matches, direction, course span/speed, allocation method,
@@ -139,6 +144,27 @@ warpbuster repair activity.fit --course race.gpx --output out.fit
 Если `--output` не указан, используется `<stem>.fixed.fit`. Existing output никогда не
 перезаписывается. Запись атомарно публикуется только после validation и diff без
 unexpected changes.
+
+### HTML report
+
+Repair dry-run HTML показывает original track, course, выбранную candidate geometry и
+все applied/skipped preview decisions. После фактической записи renderer повторно читает
+validated output FIT и показывает actual repaired track и semantic diff.
+
+HTML является одним локальным файлом с embedded report data и application code.
+Интерактивная карта загружает Leaflet 1.9.4 с pinned `unpkg.com` URL и стандартные
+OpenStreetMap raster tiles. Она поддерживает pan, zoom, scale, fit-to-track и layer
+switching, start/end и markers через каждый 1 km. Missing coordinates разрывают solid polyline, а
+отдельный dashed `Missing-data bridges` layer явно показывает неизвестные прямые между
+доступными точками. Continuity boundaries не соединяются ни одним слоем. `--html` можно
+сочетать с `--json` без добавления текста в JSON stdout.
+
+Comparison table отдельно показывает embedded FIT distance, map geometry со straight
+gap chords, solid known geometry без gaps, delta относительно course и elevation gain с
+указанием источника. Missing-run table перечисляет records/count, anchors, elapsed time,
+straight chord, recorded distance delta и bridge speed.
+HTML path должен отличаться от FIT output path. Если HTML generation неожиданно падает
+после успешного FIT publish, CLI явно сообщает, что FIT уже записан.
 
 ## 4. `warpbuster validate`
 
@@ -192,13 +218,12 @@ Geometry warnings отдельно ограничены `IntegrityConfig.geometr
 
 ## 7. Exit codes
 
-Предварительно:
-
 - `0` — команда успешно выполнена, clean/valid where applicable;
 - `1` — integrity anomalies detected;
 - `2` — input invalid/unreadable;
 - `3` — operation refused due to insufficient reconstruction confidence;
 - `4` — validation failed;
-- `10` — internal/unexpected error.
 
-Перед публичным release значения зафиксировать.
+HTML destination/no-overwrite errors относятся к `2`. Если FIT уже успешно опубликован,
+но последующая HTML generation завершилась ошибкой, repair возвращает `3` и явно
+указывает сохранённый FIT path.

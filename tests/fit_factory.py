@@ -150,7 +150,12 @@ def write_trajectory_activity(
     return raw_bytes
 
 
-def write_repairable_activity(path: Path, *, heart_rate_offset: int = 0) -> bytes:
+def write_repairable_activity(
+    path: Path,
+    *,
+    heart_rate_offset: int = 0,
+    summary_timestamp_at_start: bool = False,
+) -> bytes:
     """Write a READY single-spike FIT with corrupted coordinate-derived distance."""
     start = datetime(2026, 1, 1, 8, 0, tzinfo=UTC)
     developer_id = cast(
@@ -218,7 +223,7 @@ def write_repairable_activity(path: Path, *, heart_rate_offset: int = 0) -> byte
 
     duration = 32.0
     summary = {
-        "timestamp": start + timedelta(seconds=duration),
+        "timestamp": start if summary_timestamp_at_start else start + timedelta(seconds=duration),
         "start_time": start,
         "total_elapsed_time": duration,
         "total_timer_time": duration,

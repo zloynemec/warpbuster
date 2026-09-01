@@ -108,6 +108,12 @@ def test_private_andromeda_main_interval_has_high_course_candidate(tmp_path: Pat
     assert fixed.records[-1].distance is not None
     assert activity.records[-1].distance - fixed.records[-1].distance > 80_000.0
     assert fixed.records[-1].distance == pytest.approx(34_431.02, abs=0.05)
+    assert fixed.recorded_distance_m == pytest.approx(34_431.02, abs=0.05)
+    assert fixed.sessions[0].fields["total_distance"] == pytest.approx(34_431.02, abs=0.05)
+    assert [lap.fields["total_distance"] for lap in fixed.laps] == pytest.approx(
+        [9_121.68, 13_557.62, 11_751.72],
+        abs=0.05,
+    )
     assert tuple(record.timestamp for record in fixed.records) == tuple(
         record.timestamp for record in activity.records
     )

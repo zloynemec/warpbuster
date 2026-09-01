@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: https://unpkg.com https://tile.openstreetmap.org; style-src 'unsafe-inline' https://unpkg.com; script-src 'unsafe-inline' https://unpkg.com; connect-src https://unpkg.com">
+  <title>WarpBuster activity report</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #17202a;
+      --muted: #65717d;
+      --paper: #f5f3ed;
+      --card: #fffefa;
+      --line: #dedbd2;
+      --blue: #176b87;
+      --green: #2f855a;
+      --amber: #b7791f;
+      --red: #c53030;
+      --purple: #6b46c1;
+      --slate: #64748b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font: 15px/1.45 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    header, main, footer { width: min(1440px, calc(100% - 32px)); margin: 0 auto; }
+    header { padding: 34px 0 18px; }
+    h1 { margin: 0; font-size: clamp(28px, 4vw, 48px); letter-spacing: -0.04em; }
+    h2 { margin: 0 0 14px; font-size: 21px; }
+    p { margin: 6px 0; }
+    .subtitle { color: var(--muted); overflow-wrap: anywhere; }
+    .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+    .card, section {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: 0 8px 24px rgb(23 32 42 / 5%);
+    }
+    .card { padding: 15px 17px; }
+    .card .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+    .card .value { margin-top: 4px; font-size: 21px; font-weight: 720; overflow-wrap: anywhere; }
+    section { margin-top: 16px; padding: 18px; }
+    canvas.chart { display: block; width: 100%; border: 1px solid var(--line); border-radius: 10px; background: #fbfcf8; }
+    #map { height: min(72vh, 760px); border: 1px solid var(--line); border-radius: 10px; background: #e7ecef; }
+    button { border: 1px solid var(--line); border-radius: 7px; background: white; color: var(--ink); padding: 6px 10px; cursor: pointer; font: inherit; }
+    button:hover { border-color: var(--blue); }
+    .leaflet-control-layers { font: 13px/1.4 ui-sans-serif, system-ui, sans-serif; }
+    .leaflet-tile-pane { filter: saturate(.68) brightness(1.06) contrast(.9); }
+    .distance-marker, .endpoint-marker {
+      display: grid;
+      place-items: center;
+      border: 1px solid #17202a;
+      box-shadow: 0 1px 3px rgb(23 32 42 / 30%);
+      color: #17202a;
+      font: 700 10px/1 ui-sans-serif, system-ui, sans-serif;
+    }
+    .distance-marker { border-radius: 2px; background: #fff3a3; }
+    .endpoint-marker { border-radius: 50%; background: white; font-size: 9px; }
+    .endpoint-start { background: #2f855a; color: white; }
+    .endpoint-end { background: #c53030; color: white; }
+    .chart { height: 230px; margin-top: 12px; }
+    .legend, .controls { display: flex; flex-wrap: wrap; gap: 9px 16px; align-items: center; margin: 8px 0 13px; }
+    .legend span, .controls label { color: var(--muted); font-size: 13px; }
+    .swatch { display: inline-block; width: 20px; height: 3px; margin-right: 6px; vertical-align: middle; border-radius: 2px; }
+    .hint { color: var(--muted); font-size: 13px; }
+    .badge { display: inline-block; padding: 3px 8px; border-radius: 999px; font-size: 12px; font-weight: 750; }
+    .high, .clean, .applied, .ready, .written { color: #22543d; background: #c6f6d5; }
+    .medium, .suspicious, .partial, .skipped { color: #744210; background: #feebc8; }
+    .low, .unknown, .not_needed { color: #3f4c5c; background: #e2e8f0; }
+    .corrupted, .impossible, .refused { color: #742a2a; background: #fed7d7; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 9px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+    td.reasons { min-width: 260px; overflow-wrap: anywhere; }
+    .empty { color: var(--muted); padding: 10px 0; }
+    footer { color: var(--muted); padding: 20px 0 38px; font-size: 12px; }
+    @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 560px) { header, main, footer { width: min(100% - 18px, 1440px); } .grid { grid-template-columns: 1fr; } section { padding: 12px; } }
+    @media print { body { background: white; } section, .card { box-shadow: none; break-inside: avoid; } #map { height: 520px; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>WarpBuster activity report</h1>
+    <p class="subtitle" id="source-path"></p>
+  </header>
+  <main>
+    <div class="grid" id="summary"></div>
+
+    <section>
+      <h2>Track geometry</h2>
+      <div class="controls"><button id="fit-map" type="button">Fit whole track</button></div>
+      <div class="legend">
+        <span><i class="swatch" style="background:#64748b"></i>Original</span>
+        <span><i class="swatch" style="background:#1d6fb8"></i>Repaired</span>
+        <span><i class="swatch" style="background:#0f766e"></i>Candidate</span>
+        <span><i class="swatch" style="background:#6b46c1"></i>Course</span>
+        <span><i class="swatch" style="background:#c53030"></i>Corrupted</span>
+        <span><i class="swatch" style="background:#b7791f"></i>Skipped</span>
+        <span><i class="swatch" style="background:#d97706;border-top:1px dashed white"></i>Missing data</span>
+      </div>
+      <div id="map" role="application" aria-label="Interactive track map"></div>
+      <p class="hint">Interactive OpenStreetMap: drag to pan, use +/− or the mouse wheel to zoom, and toggle layers in the top-right control. Solid lines contain recorded or repaired coordinates; dashed orange bridges mark unknown geometry across missing positions.</p>
+    </section>
+
+    <section>
+      <h2>Distance &amp; elevation comparison</h2>
+      <div id="metrics-comparison"></div>
+      <div class="hint" id="metrics-notes"></div>
+    </section>
+
+    <section>
+      <h2>Missing-position runs</h2>
+      <div id="missing-runs"></div>
+      <p class="hint">Straight chord is how map services normally connect the anchors. Recorded distance Δ is the source distance-stream change between the same anchors; neither value reconstructs the unknown path.</p>
+    </section>
+
+    <section>
+      <h2>Telemetry</h2>
+      <canvas class="chart" id="speed-chart" aria-label="Speed chart"></canvas>
+      <canvas class="chart" id="altitude-chart" aria-label="Altitude chart"></canvas>
+      <canvas class="chart" id="hr-chart" aria-label="Heart-rate chart"></canvas>
+    </section>
+
+    <section>
+      <h2>Repair decisions</h2>
+      <div id="repair-decisions"></div>
+    </section>
+
+    <section>
+      <h2>Detected intervals</h2>
+      <div id="intervals"></div>
+    </section>
+
+    <section>
+      <h2>Findings and geometry warnings</h2>
+      <div id="findings"></div>
+    </section>
+
+    <section>
+      <h2>FIT preservation and diff</h2>
+      <div id="diff"></div>
+    </section>
+  </main>
+  <footer id="footer"></footer>
+  <noscript>This report requires JavaScript for its interactive map and embedded activity data.</noscript>
+
+  <script id="warpbuster-report-data" type="application/json">__WARPBUSTER_REPORT_DATA__</script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script>
+    "use strict";
+    const data = JSON.parse(document.getElementById("warpbuster-report-data").textContent);
+    const originalRows = data.tracks.original.records;
+    const analysis = data.analysis;
+    const repair = data.repair;
+    const writeResult = data.write_result;
+    const colors = { original: "#64748b", repaired: "#1d6fb8", candidate: "#0f766e", course: "#6b46c1", corrupted: "#c53030", skipped: "#b7791f", missing: "#d97706", recorded: "#2f855a", blue: "#176b87", purple: "#6b46c1", grid: "#dedbd2", ink: "#17202a", muted: "#65717d" };
+
+    const text = (value, fallback = "n/a") => value === null || value === undefined || value === "" ? fallback : String(value);
+    const number = (value, digits = 2) => typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "n/a";
+    const badge = (value) => {
+      const span = document.createElement("span");
+      span.className = `badge ${String(value).toLowerCase()}`;
+      span.textContent = String(value).toUpperCase();
+      return span;
+    };
+    const appendText = (parent, value) => parent.appendChild(document.createTextNode(String(value)));
+    const distance = (value) => Number.isFinite(value) ? `${number(value / 1000, 3)} km` : "n/a";
+    const metres = (value) => Number.isFinite(value) ? `${number(value, 1)} m` : "n/a";
+    const signedDistance = (value) => Number.isFinite(value) ? `${value >= 0 ? "+" : "−"}${number(Math.abs(value) / 1000, 3)} km` : "n/a";
+    const elapsed = (value) => {
+      if (!Number.isFinite(value)) return "n/a";
+      const rounded = Math.round(value), minutes = Math.floor(rounded / 60), seconds = rounded % 60;
+      return minutes ? `${minutes}:${String(seconds).padStart(2, "0")}` : `${seconds} s`;
+    };
+
+    document.title = `WarpBuster — ${text(data.inspect.source.path)}`;
+    document.getElementById("source-path").textContent = `${data.report_kind.replaceAll("_", " ")} · ${text(data.inspect.source.path)}`;
+    document.getElementById("footer").textContent = `Generated locally by WarpBuster ${data.generator.version}. This file contains embedded activity coordinates and telemetry; treat it as private data. The map loads Leaflet from unpkg.com and visible tiles from tile.openstreetmap.org.`;
+
+    const summaryItems = [
+      ["Integrity", analysis.status, true],
+      ["Confidence", analysis.confidence, true],
+      ["Records", data.inspect.record_count, false],
+      ["Distance", data.inspect.recorded_distance_m === null ? "n/a" : `${number(data.inspect.recorded_distance_m / 1000)} km`, false],
+      ["Duration", data.inspect.duration_seconds === null ? "n/a" : `${number(data.inspect.duration_seconds / 3600)} h`, false],
+      ["Sport", `${text(analysis.activity.sport)} / ${text(analysis.activity.sub_sport)}`, false],
+      ["Intervals", analysis.summary.corrupted_interval_count, false],
+      ["Missing positions", analysis.summary.missing_position_record_count, false],
+    ];
+    if (repair) summaryItems.splice(2, 0, ["Repair plan", repair.status, true], ["Application", repair.selection.application_status, true]);
+    const summary = document.getElementById("summary");
+    for (const [label, value, asBadge] of summaryItems) {
+      const card = document.createElement("div"); card.className = "card";
+      const labelNode = document.createElement("div"); labelNode.className = "label"; labelNode.textContent = label;
+      const valueNode = document.createElement("div"); valueNode.className = "value";
+      asBadge ? valueNode.appendChild(badge(value)) : appendText(valueNode, value);
+      card.append(labelNode, valueNode); summary.appendChild(card);
+    }
+
+    const table = (headers, rows) => {
+      if (!rows.length) { const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = "None"; return empty; }
+      const wrap = document.createElement("div"); wrap.className = "table-wrap";
+      const node = document.createElement("table"); const head = document.createElement("thead"); const headRow = document.createElement("tr");
+      headers.forEach((header) => { const th = document.createElement("th"); th.textContent = header; headRow.appendChild(th); });
+      head.appendChild(headRow); node.appendChild(head); const body = document.createElement("tbody");
+      rows.forEach((row) => { const tr = document.createElement("tr"); row.forEach((value, index) => { const td = document.createElement("td"); if (index === row.length - 1) td.className = "reasons"; if (value instanceof Node) td.appendChild(value); else td.textContent = text(value); tr.appendChild(td); }); body.appendChild(tr); });
+      node.appendChild(body); wrap.appendChild(node); return wrap;
+    };
+
+    const decisionRows = repair ? repair.selection.intervals.map((item) => [
+      `${item.start_record_index}..${item.end_record_index}`,
+      badge(item.action),
+      item.confidence.toUpperCase(),
+      item.candidate_available ? "yes" : "no",
+      item.coordinate_update_count,
+      [...item.selection_reasons, ...item.reconstruction_reasons].join(", "),
+    ]) : [];
+    document.getElementById("repair-decisions").appendChild(table(["Records", "Action", "Confidence", "Candidate", "Updates", "Reasons"], decisionRows));
+
+    const intervalRows = analysis.corrupted_intervals.map((item) => [
+      `${item.start_record_index}..${item.end_record_index}`,
+      item.record_count,
+      badge(item.confidence),
+      `${number(item.bridge.distance_m)} m / ${number(item.bridge.apparent_speed_mps)} m/s`,
+      item.reasons.join(", "),
+    ]);
+    document.getElementById("intervals").appendChild(table(["Records", "Count", "Confidence", "Bridge", "Reasons"], intervalRows));
+
+    const findingRows = analysis.findings.map((item) => [
+      `${item.from_record_index} → ${item.to_record_index}`,
+      badge(item.classification),
+      `${number(item.distance_m)} m`,
+      `${number(item.apparent_speed_mps)} m/s`,
+      item.reasons.join(", "),
+    ]);
+    analysis.geometry_warnings.forEach((item) => findingRows.push([
+      `${item.start_record_index}..${item.end_record_index}`,
+      badge(item.confidence),
+      `${number(item.chord_distance_m)} m chord`,
+      `deviation ${number(item.max_cross_track_deviation_m)} m`,
+      item.reasons.join(", "),
+    ]));
+    document.getElementById("findings").appendChild(table(["Records", "Class", "Distance", "Speed / metric", "Reasons"], findingRows));
+
+    const comparison = data.metrics_comparison;
+    const comparisonRows = comparison.rows.map((item) => [
+      item.label,
+      distance(item.embedded_distance_m),
+      distance(item.map_geometry_distance_m),
+      distance(item.solid_geometry_distance_m),
+      signedDistance(item.geometry_delta_vs_course_m),
+      metres(item.elevation_gain_m),
+      item.elevation_gain_source,
+    ]);
+    document.getElementById("metrics-comparison").appendChild(table(
+      ["Source", "FIT summary distance", "Map geometry", "Solid known geometry", "Δ geometry vs course", "Elevation gain", "Elevation source"],
+      comparisonRows,
+    ));
+    const metricsNotes = document.createElement("ul");
+    comparison.notes.forEach((note) => { const item = document.createElement("li"); item.textContent = note; metricsNotes.appendChild(item); });
+    document.getElementById("metrics-notes").appendChild(metricsNotes);
+
+    const missingRows = data.missing_position_runs.map((item) => [
+      `${item.start_record_index}..${item.end_record_index}`,
+      item.missing_record_count,
+      `${text(item.anchor_before_record_index)} → ${text(item.anchor_after_record_index)}`,
+      elapsed(item.anchor_elapsed_seconds),
+      metres(item.straight_line_distance_m),
+      metres(item.recorded_distance_delta_m),
+      Number.isFinite(item.straight_line_speed_mps) ? `${number(item.straight_line_speed_mps)} m/s` : "n/a",
+    ]);
+    document.getElementById("missing-runs").appendChild(table(
+      ["Records", "Missing", "Anchors", "Gap time", "Straight chord", "Recorded distance Δ", "Bridge speed"],
+      missingRows,
+    ));
+
+    const diffRoot = document.getElementById("diff");
+    if (!writeResult) {
+      const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = "No FIT was written; diff is unavailable for this report."; diffRoot.appendChild(empty);
+    } else {
+      const diff = writeResult.diff; const preservation = diff.preservation;
+      diffRoot.appendChild(table(["Metric", "Value", "Status"], [
+        ["Changed records", diff.changed_record_count, "expected"],
+        ["Changed fields", diff.changed_field_count, `${diff.unexpected_changed_field_count} unexpected`],
+        ["Timestamps", `${number(preservation.timestamps.percentage)}%`, "preserved"],
+        ["Sensors", `${number(preservation.sensors.percentage)}%`, "preserved"],
+        ["Developer fields", `${number(preservation.developer_fields.percentage)}%`, "preserved"],
+        ["Unknown fields", `${number(preservation.unknown_fields.percentage)}%`, "preserved"],
+      ]));
+    }
+
+    const compactRecords = (track) => track ? track.records.map((row) => row.length > 4 ? [row[0], row[2], row[3], row[9]] : [row[0], row[1], row[2], row[3]]) : [];
+    const layers = {
+      original: originalRows.map((row) => [row[0], row[2], row[3], row[9]]),
+      repaired: compactRecords(data.tracks.repaired),
+      candidate: compactRecords(data.tracks.candidate),
+      course: data.tracks.course ? data.tracks.course.segments : [],
+    };
+    const prepareCanvas = (canvas) => { const ratio = window.devicePixelRatio || 1; const rect = canvas.getBoundingClientRect(); const width = Math.max(320, Math.round(rect.width)); const height = Math.max(180, Math.round(rect.height)); if (canvas.width !== width * ratio || canvas.height !== height * ratio) { canvas.width = width * ratio; canvas.height = height * ratio; } const ctx = canvas.getContext("2d"); ctx.setTransform(ratio, 0, 0, ratio, 0, 0); return [ctx, width, height]; };
+    const splitTrack = (rows, interval = null) => {
+      const segments = []; let segment = []; let continuity = null;
+      const flush = () => { if (segment.length) segments.push(segment); segment = []; };
+      for (const [index, lat, lon, currentContinuity] of rows) {
+        if ((interval && (index < interval[0] || index > interval[1])) || !Number.isFinite(lat) || !Number.isFinite(lon)) { flush(); continuity = currentContinuity; continue; }
+        if (continuity !== null && currentContinuity !== continuity) flush();
+        segment.push([lat, lon]); continuity = currentContinuity;
+      }
+      flush(); return segments;
+    };
+    const missingBridges = (rows) => {
+      const bridges = []; let previous = null; let crossedMissing = false;
+      for (const [index, lat, lon, continuity] of rows) {
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) { crossedMissing = previous !== null; continue; }
+        if (previous && previous.continuity !== continuity) { previous = null; crossedMissing = false; }
+        if (previous && crossedMissing) bridges.push([[previous.lat, previous.lon], [lat, lon]]);
+        previous = { index, lat, lon, continuity }; crossedMissing = false;
+      }
+      return bridges;
+    };
+    let map = null;
+    if (typeof L === "undefined") {
+      document.getElementById("map").textContent = "Interactive map unavailable: Leaflet could not be loaded. Check the internet connection and reload this report.";
+      document.getElementById("fit-map").disabled = true;
+    } else {
+    map = L.map("map", { preferCanvas: true, zoomControl: true, scrollWheelZoom: true });
+    const tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }).addTo(map);
+    const lineGroup = (segments, options) => L.layerGroup(segments.map((segment) => L.polyline(segment, options)));
+    const overlayLayers = {};
+    const addOverlay = (label, segments, options, enabled = true) => {
+      if (!segments.length) return null;
+      const group = lineGroup(segments, options); overlayLayers[label] = group; if (enabled) group.addTo(map); return group;
+    };
+    const hasRepaired = layers.repaired.length > 0, hasCandidate = layers.candidate.length > 0;
+    const primaryRows = hasRepaired ? layers.repaired : (hasCandidate ? layers.candidate : layers.original);
+    const primaryFullRows = data.tracks.repaired ? data.tracks.repaired.records : originalRows;
+    addOverlay("Original", splitTrack(layers.original), { color: colors.original, weight: 2.5, opacity: 0.8 }, !hasRepaired && !hasCandidate);
+    addOverlay("Repaired", splitTrack(layers.repaired), { color: colors.repaired, weight: 3, opacity: 0.95 }, hasRepaired);
+    addOverlay("Candidate", splitTrack(layers.candidate), { color: colors.candidate, weight: 3, opacity: 0.95, dashArray: "8 6" }, !hasRepaired && hasCandidate);
+    addOverlay("Course", layers.course.filter((segment) => segment.length), { color: colors.course, weight: 2.5, opacity: 0.8, dashArray: "6 5" }, false);
+    const corruptedSegments = analysis.corrupted_intervals.flatMap((item) => splitTrack(layers.original, [item.start_record_index, item.end_record_index]));
+    addOverlay("Corrupted intervals", corruptedSegments, { color: colors.corrupted, weight: 6, opacity: 0.9 }, !hasRepaired);
+    const skippedSegments = repair ? repair.selection.intervals.filter((item) => item.action === "skipped").flatMap((item) => splitTrack(layers.original, [item.start_record_index, item.end_record_index])) : [];
+    addOverlay("Skipped intervals", skippedSegments, { color: colors.skipped, weight: 6, opacity: 0.9 }, false);
+    addOverlay("Missing-data bridges", missingBridges(primaryRows), { color: colors.missing, weight: 3, opacity: 0.9, dashArray: "7 7" });
+
+    const markerLayers = [];
+    const validPrimaryRows = primaryFullRows.filter((row) => Number.isFinite(row[2]) && Number.isFinite(row[3]));
+    const endpointIcon = (label, variant) => L.divIcon({ className: `endpoint-marker endpoint-${variant}`, html: label, iconSize: [20, 20], iconAnchor: [10, 10] });
+    if (validPrimaryRows.length) {
+      const first = validPrimaryRows[0], last = validPrimaryRows[validPrimaryRows.length - 1];
+      markerLayers.push(L.marker([first[2], first[3]], { icon: endpointIcon("S", "start"), title: "Start" }));
+      markerLayers.push(L.marker([last[2], last[3]], { icon: endpointIcon("E", "end"), title: "End" }));
+    }
+    let distanceBucket = 0;
+    const distanceMarkerStepMetres = 1000;
+    for (const row of validPrimaryRows) {
+      if (!Number.isFinite(row[5])) continue;
+      const bucket = Math.floor(row[5] / distanceMarkerStepMetres);
+      if (bucket <= distanceBucket) continue;
+      distanceBucket = bucket;
+      const label = `${bucket}`;
+      const icon = L.divIcon({ className: "distance-marker", html: label, iconSize: [26, 16], iconAnchor: [13, 8] });
+      markerLayers.push(L.marker([row[2], row[3]], { icon, title: `${label} km` }));
+    }
+    if (markerLayers.length) {
+      const markerGroup = L.layerGroup(markerLayers).addTo(map);
+      overlayLayers["Distance markers (km)"] = markerGroup;
+    }
+    L.control.layers({}, overlayLayers, { collapsed: true }).addTo(map);
+    L.control.scale({ imperial: false }).addTo(map);
+
+    const mapBounds = L.latLngBounds([]);
+    splitTrack(primaryRows).forEach((segment) => segment.forEach((point) => mapBounds.extend(point)));
+    if (!mapBounds.isValid()) layers.course.forEach((segment) => segment.forEach((point) => { if (Number.isFinite(point[0]) && Number.isFinite(point[1])) mapBounds.extend(point); }));
+    const fitWholeTrack = () => mapBounds.isValid() ? map.fitBounds(mapBounds, { padding: [28, 28], maxZoom: 17 }) : map.setView([0, 0], 2);
+    document.getElementById("fit-map").addEventListener("click", fitWholeTrack);
+    fitWholeTrack();
+    }
+
+    const xByIndex = new Map(originalRows.map((row) => [row[0], row[1]]));
+    const bands = analysis.corrupted_intervals.map((item) => [xByIndex.get(item.start_record_index), xByIndex.get(item.end_record_index), colors.corrupted]);
+    if (repair) repair.selection.intervals.forEach((item) => bands.push([xByIndex.get(item.start_record_index), xByIndex.get(item.end_record_index), item.action === "applied" ? colors.repaired : colors.skipped]));
+    const percentile = (values, q) => { const sorted = values.filter(Number.isFinite).sort((a, b) => a - b); if (!sorted.length) return 1; return sorted[Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * q))]; };
+    const drawChart = (canvas, title, series) => {
+      const [ctx, width, height] = prepareCanvas(canvas); ctx.clearRect(0, 0, width, height); const pad = { l: 54, r: 18, t: 28, b: 30 };
+      let minX = Infinity, maxX = -Infinity; originalRows.forEach((row) => { minX = Math.min(minX, row[1]); maxX = Math.max(maxX, row[1]); }); const values = series.flatMap((item) => originalRows.map((row) => row[item.field]).filter(Number.isFinite));
+      if (!values.length) { ctx.fillStyle = colors.muted; ctx.fillText(`${title}: unavailable`, 12, 22); return; }
+      const minY = Math.min(0, percentile(values, 0.005)), maxY = Math.max(minY + 1e-9, percentile(values, 0.995)); const sx = (x) => pad.l + (x - minX) / Math.max(maxX - minX, 1e-9) * (width - pad.l - pad.r); const sy = (y) => pad.t + (1 - (Math.min(maxY, Math.max(minY, y)) - minY) / (maxY - minY)) * (height - pad.t - pad.b);
+      ctx.fillStyle = colors.ink; ctx.font = "600 13px system-ui"; ctx.fillText(title, 8, 17); ctx.font = "11px system-ui"; ctx.fillStyle = colors.muted; ctx.fillText(`${number(maxY)} max display`, width - 124, 17);
+      bands.forEach(([start, end, color]) => { if (!Number.isFinite(start) || !Number.isFinite(end)) return; ctx.globalAlpha = 0.10; ctx.fillStyle = color; ctx.fillRect(sx(start), pad.t, Math.max(2, sx(end) - sx(start)), height - pad.t - pad.b); ctx.globalAlpha = 1; });
+      ctx.strokeStyle = colors.grid; ctx.lineWidth = 1; for (let i = 0; i <= 4; i++) { const y = pad.t + i * (height - pad.t - pad.b) / 4; ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(width - pad.r, y); ctx.stroke(); ctx.fillStyle = colors.muted; ctx.fillText(number(maxY - i * (maxY - minY) / 4, 1), 5, y + 4); }
+      series.forEach((item) => { ctx.strokeStyle = item.color; ctx.lineWidth = item.width || 1.5; ctx.setLineDash(item.dashed ? [5, 4] : []); ctx.beginPath(); let active = false; for (const row of originalRows) { const value = row[item.field]; if (!Number.isFinite(value)) { active = false; continue; } const x = sx(row[1]), y = sy(value); active ? ctx.lineTo(x, y) : ctx.moveTo(x, y); active = true; } ctx.stroke(); });
+      ctx.setLineDash([]); ctx.fillStyle = colors.muted; ctx.fillText(data.chart_axis.label, width / 2 - 45, height - 7);
+    };
+    const drawAll = () => { if (map) map.invalidateSize(); drawChart(document.getElementById("speed-chart"), "Speed (m/s) — recorded green, coordinate-derived red", [{ field: 6, color: colors.recorded }, { field: 7, color: colors.corrupted, dashed: true }]); drawChart(document.getElementById("altitude-chart"), "Altitude (m)", [{ field: 4, color: colors.blue }]); drawChart(document.getElementById("hr-chart"), "Heart rate (bpm)", [{ field: 8, color: colors.purple }]); };
+    window.addEventListener("resize", drawAll); drawAll();
+  </script>
+</body>
+</html>

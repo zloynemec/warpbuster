@@ -56,6 +56,9 @@ unresolved region без изменения coordinates и явно показы
 - `record.distance` корректируется заменой increments на edges, затронутых новыми
   coordinates; correction переносится на последующие cumulative values;
 - `lap/session.total_distance` и существующие average-speed summaries пересчитываются;
+- сломанный summary `timestamp` не искажает correction: граница берётся из
+  `start_time + total_elapsed_time`, если эти поля доступны и согласованы с records;
+- исходные record/lap/session timestamps не изменяются;
 - каждый available interval candidate выбирается по `--min-confidence` (`LOW`, `MEDIUM`,
   `HIGH`; default `HIGH`), partial application разрешено;
 - report перечисляет все detected intervals как `APPLIED`/`SKIPPED` с confidence,

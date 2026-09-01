@@ -19,7 +19,7 @@ WarpBuster — локальное Python-ядро и CLI для обнаруже
 - чтение FIT;
 - чтение GPX activity без конвертации в FIT;
 - нормализованная модель активности;
-- CLI `inspect`, `analyze`, позже `repair` и `validate`;
+- CLI `inspect`, `analyze`, `repair`, `validate` и `diff`;
 - поиск физически невозможных переходов;
 - обнаружение длительных spoofing islands;
 - advisory-предупреждения о возможных интерполированных GNSS gaps;
@@ -63,14 +63,14 @@ WarpBuster — локальное Python-ядро и CLI для обнаруже
 4. зафиксировать результат;
 5. только затем переходить к следующему этапу.
 
-Первый этап: `tasks/001-project-bootstrap.md`.
+Актуальное состояние milestones и отложенные задачи находятся в `ROADMAP.MD`.
 
 ## Разработка
 
 Требуется Python 3.14 или новее.
 
 ```bash
-git clone https://github.com/zloynemec/warpbuster.git
+git clone git@github.com:zloynemec/warpbuster.git
 cd warpbuster
 python3.14 -m venv .venv
 source .venv/bin/activate
@@ -101,11 +101,16 @@ warpbuster analyze activity.fit
 warpbuster analyze activity.fit -v
 warpbuster analyze activity.fit -vv
 warpbuster analyze activity.fit --json
+warpbuster analyze activity.fit --html analysis.html
 warpbuster analyze activity.gpx
 warpbuster analyze activity.gpx --json
 warpbuster repair activity.fit --course race.gpx --dry-run
 warpbuster repair activity.fit --course race.gpx --dry-run --json
+warpbuster repair activity.fit --course race.gpx --dry-run --html preview.html
 warpbuster repair activity.fit --course race.gpx --min-confidence medium
+warpbuster repair activity.fit --course race.gpx --output activity.fixed.fit --html repair.html
+warpbuster validate activity.fixed.fit
+warpbuster diff activity.fit activity.fixed.fit
 ```
 
 Exit code `1` означает, что найдены `SUSPICIOUS` или `IMPOSSIBLE` переходы;
@@ -143,6 +148,32 @@ Writer создаёт `<stem>.fixed.fit` либо путь из `--output`, со
 `warpbuster validate` проверяет FIT/CRC и базовые invariants, а `warpbuster diff`
 показывает expected/unexpected changes и preservation percentages.
 
+### Интерактивный HTML-отчёт
+
+`--html` создаёт один локальный файл с embedded activity data, summary, track geometry,
+course/candidate, applied/skipped intervals, findings, speed/altitude/HR graphs и FIT
+diff после записи. Отдельная таблица сравнивает embedded FIT distance, map geometry,
+solid known geometry и elevation gain для original/course/repaired. Missing-position
+runs перечисляются с anchors, временем, straight chord, recorded distance delta и bridge
+speed.
+Report открывается напрямую с диска. Интерактивная карта использует Leaflet 1.9.4 с CDN
+и стандартные OpenStreetMap tiles, поэтому для basemap нужен интернет. Pan, wheel/+/- zoom,
+scale, fit-to-track, start/end, markers через каждый 1 km и переключение слоёв доступны
+на самой карте.
+Solid track разрывается на missing GNSS coordinates; отдельный включённый по умолчанию
+пунктирный `Missing-data bridges` показывает связь между доступными точками, не выдавая
+неизвестную прямую за записанную или восстановленную geometry. Границы continuity никогда
+не соединяются.
+
+При открытии отчёта браузер обращается к `unpkg.com` и `tile.openstreetmap.org`: эти
+сервисы видят IP и область запрошенных tiles. Coordinates и telemetry остаются embedded
+в локальном HTML и не отправляются как отдельный API payload. Attribution OpenStreetMap
+всегда показана на карте.
+
+`--json` и `--html` можно использовать вместе: JSON остаётся в stdout. Existing HTML
+не перезаписывается. Сам HTML содержит coordinates и telemetry, поэтому его следует
+считать приватным файлом.
+
 Полный набор проверок:
 
 ```bash
@@ -157,5 +188,8 @@ observations, GPX activity input, bounded-поиск spoofing islands по impos
 и plausible bridge, geometry gap diagnostics, а также false-positive regressions и
 bounded diagnostics. M5 также добавляет GPX course matching и dry-run RepairPlan.
 Task 006A добавляет course-independent trusted-anchor safety gate. Фактическая запись
-FIT, validation и diff реализованы в M6. Private Andromeda regression подтверждает
-частичную запись основного HIGH interval с сохранением unresolved mixed region.
+FIT, validation и diff реализованы в M6. M7 добавляет interactive HTML reports и завершает
+package/release stabilization. Private Andromeda regression подтверждает частичную
+запись основного HIGH interval с сохранением unresolved mixed region. Residual cluster
+около records `3626..3700` зафиксирован отдельной незавершённой Task 006B и показывается
+в HTML как detector findings, но renderer не меняет его classification.

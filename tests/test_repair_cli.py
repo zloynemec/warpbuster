@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from typing import Any
 
 from tests.activity_factory import eastward_observations
 from tests.fit_factory import write_repairable_activity, write_trajectory_activity
@@ -195,6 +196,81 @@ def test_repair_minimum_confidence_argument_is_case_insensitive() -> None:
     assert args.min_confidence is IntegrityConfidence.MEDIUM
 
 
+def test_repair_dry_run_writes_candidate_html_report(
+    tmp_path: Path,
+    capsys: object,
+) -> None:
+    """Dry-run HTML contains the course, candidate geometry, and repair decisions."""
+    fit_path, course_path = _repairable_fixture(tmp_path)
+    html_path = tmp_path / "preview.html"
+
+    assert (
+        main(
+            [
+                "repair",
+                str(fit_path),
+                "--course",
+                str(course_path),
+                "--dry-run",
+                "--html",
+                str(html_path),
+            ]
+        )
+        == 0
+    )
+    output = capsys.readouterr().out  # type: ignore[attr-defined]
+    rendered = html_path.read_text(encoding="utf-8")
+    assert f"HTML report: {html_path}" in output
+    assert '"report_kind":"repair_dry_run"' in rendered
+    assert '"action":"applied"' in rendered
+    assert '"candidate":{"record_count":33' in rendered
+    assert '"course":{"point_count":33' in rendered
+    assert '"write_result":null' in rendered
+
+
+def test_repair_write_html_contains_actual_track_and_diff(
+    tmp_path: Path,
+    capsys: object,
+) -> None:
+    """Write-mode HTML is built from the validated FIT and keeps JSON stdout valid."""
+    fit_path, course_path = _repairable_fixture(tmp_path, with_elevation=True)
+    fixed_path = tmp_path / "fixed.fit"
+    html_path = tmp_path / "written.html"
+
+    assert (
+        main(
+            [
+                "repair",
+                str(fit_path),
+                "--course",
+                str(course_path),
+                "--output",
+                str(fixed_path),
+                "--json",
+                "--html",
+                str(html_path),
+            ]
+        )
+        == 0
+    )
+    report = json.loads(capsys.readouterr().out)  # type: ignore[attr-defined]
+    rendered = html_path.read_text(encoding="utf-8")
+    assert report["output_path"] == str(fixed_path)
+    assert fixed_path.exists()
+    assert '"report_kind":"repair_write"' in rendered
+    assert '"repaired":{"record_count":33' in rendered
+    assert '"write_result":{"bytes_written"' in rendered
+    assert '"unexpected_changed_field_count":0' in rendered
+    payload = _html_payload(rendered)
+    comparison_rows = payload["metrics_comparison"]["rows"]
+    assert [row["id"] for row in comparison_rows] == ["original", "course", "repaired"]
+    assert comparison_rows[1]["elevation_gain_m"] == 32.0
+    assert comparison_rows[1]["elevation_gain_source"] == (
+        "GPX positive elevation deltas (unsmoothed)"
+    )
+    assert payload["missing_position_runs"] == []
+
+
 def test_validate_and_diff_cli_report_success_and_unexpected_changes(
     tmp_path: Path,
     capsys: object,
@@ -225,7 +301,11 @@ def test_validate_and_diff_cli_report_success_and_unexpected_changes(
     assert "Status: INVALID" in capsys.readouterr().out  # type: ignore[attr-defined]
 
 
-def _repairable_fixture(tmp_path: Path) -> tuple[Path, Path]:
+def _repairable_fixture(
+    tmp_path: Path,
+    *,
+    with_elevation: bool = False,
+) -> tuple[Path, Path]:
     observations = [
         *eastward_observations(
             [float(index) for index in range(16)],
@@ -251,10 +331,19 @@ def _repairable_fixture(tmp_path: Path) -> tuple[Path, Path]:
         [float(index * 6) for index in range(33)],
     )
     course_points: list[GpxPoint] = [
-        (latitude, longitude, None, None)
-        for _elapsed, latitude, longitude in course_observations
+        (latitude, longitude, None, 100.0 + index if with_elevation else None)
+        for index, (_elapsed, latitude, longitude) in enumerate(course_observations)
         if latitude is not None and longitude is not None
     ]
     course_path = tmp_path / "course.gpx"
     write_gpx_activity(course_path, [course_points])
     return fit_path, course_path
+
+
+def _html_payload(rendered: str) -> dict[str, Any]:
+    prefix = '<script id="warpbuster-report-data" type="application/json">'
+    encoded = rendered.split(prefix, maxsplit=1)[1].split("</script>", maxsplit=1)[0]
+    payload = json.loads(encoded)
+    if not isinstance(payload, dict):
+        raise TypeError("HTML payload must be an object")
+    return payload

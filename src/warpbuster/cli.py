@@ -13,7 +13,11 @@ from warpbuster.config import CourseReconstructionConfig
 from warpbuster.fit.diff import diff_fit
 from warpbuster.fit.reader import FitReadError, read_fit
 from warpbuster.fit.validate import validate_fit
-from warpbuster.fit.writer import FitWriteError, write_repaired_fit
+from warpbuster.fit.writer import (
+    FitWriteError,
+    default_output_path,
+    write_repaired_fit,
+)
 from warpbuster.gpx.course import GpxCourseReadError, read_gpx_course
 from warpbuster.integrity import analyze_integrity
 from warpbuster.models.integrity import IntegrityConfidence, IntegrityStatus
@@ -27,6 +31,12 @@ from warpbuster.report.fit import (
     validation_json,
     write_result_console,
     write_result_json,
+)
+from warpbuster.report.html import (
+    HtmlReportError,
+    ensure_html_output_available,
+    write_analyze_html,
+    write_repair_html,
 )
 from warpbuster.report.inspect import inspect_console, inspect_json
 from warpbuster.report.repair import repair_console, repair_json
@@ -63,6 +73,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--json",
         action="store_true",
         help="emit a machine-readable JSON report",
+    )
+    analyze_parser.add_argument(
+        "--html",
+        type=Path,
+        metavar="REPORT",
+        help="write an interactive HTML report with an online map",
     )
     analyze_parser.add_argument(
         "-v",
@@ -104,6 +120,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--json",
         action="store_true",
         help="emit a machine-readable RepairPlan",
+    )
+    repair_parser.add_argument(
+        "--html",
+        type=Path,
+        metavar="REPORT",
+        help="write an interactive repair HTML report with an online map",
     )
     repair_parser.add_argument(
         "-v",
@@ -162,11 +184,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"error: {error}", file=sys.stderr)
             return 2
         integrity = analyze_integrity(activity)
-        print(
+        if args.html is not None:
+            try:
+                write_analyze_html(activity, integrity, args.html)
+            except (HtmlReportError, OSError) as error:
+                print(f"error: {error}", file=sys.stderr)
+                return 2
+        rendered = (
             analyze_json(activity, integrity)
             if args.json
             else analyze_console(activity, integrity, verbosity=args.verbose)
         )
+        print(_html_notice(rendered, args.html) if not args.json else rendered)
         if integrity.status in {IntegrityStatus.CORRUPTED, IntegrityStatus.SUSPICIOUS}:
             return 1
         return 0
@@ -180,12 +209,41 @@ def main(argv: Sequence[str] | None = None) -> int:
         except (FitReadError, GpxCourseReadError, OSError) as error:
             print(f"error: {error}", file=sys.stderr)
             return 2
+        if args.html is not None:
+            try:
+                ensure_html_output_available(args.html)
+            except HtmlReportError as error:
+                print(f"error: {error}", file=sys.stderr)
+                return 2
+            fit_destination = (
+                args.output if args.output is not None else default_output_path(args.activity_file)
+            )
+            if not args.dry_run and args.html.resolve() == fit_destination.resolve():
+                print(
+                    "error: HTML report path must differ from FIT output path",
+                    file=sys.stderr,
+                )
+                return 2
         integrity = analyze_integrity(activity)
         config = CourseReconstructionConfig()
         plan = build_course_repair_plan(activity, integrity, course, config)
         selection = select_repair_intervals(plan, args.min_confidence)
         if args.dry_run:
-            print(
+            if args.html is not None:
+                try:
+                    write_repair_html(
+                        activity,
+                        integrity,
+                        course,
+                        plan,
+                        config,
+                        args.html,
+                        minimum_confidence=args.min_confidence,
+                    )
+                except (HtmlReportError, OSError) as error:
+                    print(f"error: {error}", file=sys.stderr)
+                    return 2
+            rendered = (
                 repair_json(
                     plan,
                     course,
@@ -201,11 +259,26 @@ def main(argv: Sequence[str] | None = None) -> int:
                     verbosity=args.verbose,
                 )
             )
+            print(_html_notice(rendered, args.html) if not args.json else rendered)
             if selection.selected_interval_plans or plan.status is RepairPlanStatus.NOT_NEEDED:
                 return 0
             return 3
         if not selection.selected_interval_plans:
-            print(
+            if args.html is not None:
+                try:
+                    write_repair_html(
+                        activity,
+                        integrity,
+                        course,
+                        plan,
+                        config,
+                        args.html,
+                        minimum_confidence=args.min_confidence,
+                    )
+                except (HtmlReportError, OSError) as error:
+                    print(f"error: {error}", file=sys.stderr)
+                    return 2
+            rendered = (
                 repair_json(
                     plan,
                     course,
@@ -221,6 +294,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     verbosity=args.verbose,
                 )
             )
+            print(_html_notice(rendered, args.html) if not args.json else rendered)
             print(
                 "error: no reconstruction candidate meets minimum confidence "
                 f"{args.min_confidence.value.upper()}",
@@ -237,7 +311,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         except (FitWriteError, OSError) as error:
             print(f"error: {error}", file=sys.stderr)
             return 3
-        print(write_result_json(result) if args.json else write_result_console(result))
+        if args.html is not None:
+            try:
+                fixed_activity = read_fit(result.output_path)
+                write_repair_html(
+                    activity,
+                    integrity,
+                    course,
+                    plan,
+                    config,
+                    args.html,
+                    minimum_confidence=args.min_confidence,
+                    fixed_activity=fixed_activity,
+                    write_result=result,
+                )
+            except (FitReadError, HtmlReportError, OSError) as error:
+                print(
+                    f"error: FIT was written to {result.output_path}, "
+                    f"but HTML report failed: {error}",
+                    file=sys.stderr,
+                )
+                return 3
+        rendered = write_result_json(result) if args.json else write_result_console(result)
+        print(_html_notice(rendered, args.html) if not args.json else rendered)
         return 0
     if args.command == "validate":
         validation_result = validate_fit(args.fit_file)
@@ -274,3 +370,9 @@ def _confidence_argument(value: str) -> IntegrityConfidence:
         return IntegrityConfidence(value.casefold())
     except ValueError as error:
         raise argparse.ArgumentTypeError("confidence must be one of: low, medium, high") from error
+
+
+def _html_notice(rendered: str, output_path: Path | None) -> str:
+    if output_path is None:
+        return rendered
+    return f"{rendered}\nHTML report: {output_path}"

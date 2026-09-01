@@ -109,7 +109,6 @@ Expected:
 ## 5. Confidence
 
 Каждый anomaly/interval содержит:
-- численный `confidence` 0..1;
 - level: LOW / MEDIUM / HIGH;
 - список machine-readable reasons.
 
@@ -180,10 +179,12 @@ candidate нельзя обойти снижением threshold.
 
 После изменения position пересчитать только необходимые зависимые поля.
 
-Writer применяет только полный `READY` plan. Он сохраняет исходные FIT frames и
-definitions, патчит fixed-width coordinate/distance/поддерживаемые summary fields и
-публикует output только после CRC validation и diff без unexpected changes. Existing
-output не перезаписывается.
+Writer применяет available interval candidates не ниже выбранного minimum confidence
+(`HIGH` по умолчанию), включая безопасную partial application. Все applied/skipped
+intervals перечисляются в report. Writer сохраняет исходные FIT frames и definitions,
+патчит fixed-width coordinate/distance/поддерживаемые summary fields и публикует output
+только после CRC validation и diff без unexpected changes. Existing output не
+перезаписывается.
 
 Record speed по умолчанию сохраняется: без знания producer-а нельзя считать его
 coordinate-derived. Average-speed summaries пересчитываются из corrected distance и
@@ -212,5 +213,10 @@ v0.1 готова, когда:
 - HIGH-confidence interval может быть реконструирован по course;
 - output FIT валиден;
 - timestamps/sensors сохраняются;
-- diff/validate/report работают;
+- diff/validate и console/JSON/HTML reports работают;
+- HTML открывается локально, использует Leaflet/OSM network resources для basemap,
+  показывает GNSS gaps отдельными dashed bridges и не передаёт их в repair pipeline;
+- HTML отдельно сравнивает embedded/geometry distance и ascent original/course/repaired,
+  а также перечисляет каждый remaining missing-position run;
+- wheel устанавливается в чистый Python 3.14 environment;
 - private Andromeda acceptance test проходит.

@@ -91,11 +91,13 @@ Roadmap следует порядку milestone из [`docs/MILESTONES.md`](docs
   - private Andromeda regression записывает основной HIGH interval и сохраняет
     unresolved region; ручная Garmin/Strava compatibility остаётся внешней проверкой.
 
-- [ ] **M7 / Task 008 — HTML Report + v0.1 Stabilization**
+- [x] **M7 / Task 008 — HTML Report + v0.1 Stabilization**
   ([task](tasks/008-html-report-release.md))
-  - локальный HTML-отчёт с картой, графиками и объяснением аномалий;
-  - CLI/docs/packaging cleanup и полный regression/performance check;
-  - выпуск WarpBuster Core v0.1.
+  - локальные analyze/repair HTML reports с картой, графиками и anomaly explanations;
+  - Leaflet/OSM basemap с zoom, safe gap rendering и no-overwrite;
+  - distance/elevation comparison и audit table оставшихся missing-position runs;
+  - CLI/docs/packaging cleanup, clean wheel install и regression/performance checks;
+  - WarpBuster Core v0.1 готов с Task 006B как явно зафиксированным ограничением.
 
 ## После v0.1
 

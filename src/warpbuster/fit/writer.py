@@ -7,7 +7,7 @@ import struct
 import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from itertools import pairwise
 from pathlib import Path
 
@@ -31,6 +31,9 @@ from warpbuster.reconstruction.selection import select_repair_intervals
 _SEMICIRCLES_PER_DEGREE = (1 << 31) / 180.0
 _DISTANCE_QUANTIZATION_M = 0.01
 _DISTANCE_REGRESSION_TOLERANCE_M = 0.01
+# FIT summary timestamps have one-second resolution while total_elapsed_time may carry
+# milliseconds. Values selecting an end more than one second apart are inconsistent.
+_SUMMARY_END_ALIGNMENT_TOLERANCE_SECONDS = 1.0
 
 
 class FitWriteError(ValueError):
@@ -346,9 +349,9 @@ def _summary_correction(
     corrections: tuple[float, ...],
 ) -> float:
     start_time = fields.get("start_time")
-    end_time = fields.get("timestamp")
-    if not isinstance(start_time, datetime) or not isinstance(end_time, datetime):
-        raise FitWriteError("cannot align distance summary without start/end timestamps")
+    if not isinstance(start_time, datetime):
+        raise FitWriteError("cannot align distance summary without a start timestamp")
+    end_time = _summary_end_time(fields, start_time)
     end_indices = [
         record.index
         for record in activity.records
@@ -363,6 +366,35 @@ def _summary_correction(
     ]
     correction_before = corrections[before_indices[-1]] if before_indices else 0.0
     return corrections[end_indices[-1]] - correction_before
+
+
+def _summary_end_time(
+    fields: Mapping[str | int, object],
+    start_time: datetime,
+) -> datetime:
+    declared_end = fields.get("timestamp")
+    elapsed_seconds = _number(fields.get("total_elapsed_time"))
+    elapsed_end = (
+        start_time + timedelta(seconds=elapsed_seconds)
+        if elapsed_seconds is not None and elapsed_seconds >= 0.0
+        else None
+    )
+
+    if isinstance(declared_end, datetime):
+        if elapsed_end is None:
+            if declared_end < start_time:
+                raise FitWriteError("distance summary ends before its start timestamp")
+            return declared_end
+        alignment_error = abs((declared_end - elapsed_end).total_seconds())
+        if alignment_error <= _SUMMARY_END_ALIGNMENT_TOLERANCE_SECONDS:
+            return declared_end
+
+    if elapsed_end is not None:
+        return elapsed_end
+    raise FitWriteError(
+        "cannot align distance summary without a consistent end timestamp "
+        "or non-negative total_elapsed_time"
+    )
 
 
 def _number(value: object) -> float | None:

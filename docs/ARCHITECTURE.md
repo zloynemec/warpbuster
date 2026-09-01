@@ -211,6 +211,12 @@ repaired geometry, а накопленная correction переносится �
 correction. Record speed не меняется без доказанного provenance: он может приходить от
 footpod или sensor fusion и не обязан зависеть от GNSS.
 
+Summary interval обычно заканчивается в `lap/session.timestamp`. Если этот timestamp не
+согласован с `start_time + total_elapsed_time` с учётом секундной точности FIT, writer
+использует вычисленный конец из elapsed time только для привязки correction. Исходные
+временные поля не патчатся. Если надёжно определить конец невозможно, запись
+останавливается с ошибкой вместо предположения.
+
 Output сначала пишется во временный файл в destination directory. До atomic publish он
 обязан пройти CRC decode, normalized validation и semantic diff с нулём unexpected field
 changes. Existing destination не перезаписывается даже при race.
@@ -230,6 +236,27 @@ ranges и отсутствие distance regression внутри continuity segme
 Console/JSON/HTML используют один и тот же доменный `IntegrityReport` / `RepairReport`.
 
 Не дублировать detection logic в renderer-ах.
+
+HTML renderer получает готовые domain reports и normalized records. Apparent speed для
+графика берётся из `IntegrityReport.transitions`, а не вычисляется повторно. Repair
+preview строится только из выбранных `CandidateCoordinate`; write report повторно читает
+уже validated output FIT.
+
+Report хранит template, application CSS/JavaScript и JSON payload в одном atomic
+no-overwrite output. Интерактивная карта использует Leaflet 1.9.4 с pinned CDN URL и
+стандартные OpenStreetMap raster tiles; CSP разрешает только эти map dependencies.
+Telemetry остаётся локальным Canvas. Track geometry до передачи Leaflet разбивается на
+отдельные solid polylines по missing coordinates и смене `continuity_id`. Renderer строит
+отдельный dashed presentation-layer bridge между доступными точками вокруг missing run,
+но никогда через continuity boundary. Эти bridges не являются repair candidates и не
+попадают обратно в FIT. Metadata вставляется только через JSON с безопасным escaping и
+DOM `textContent`.
+
+Metrics comparison также является presentation/reporting logic. FIT distance и ascent
+берутся из normalized/session fields; map geometry считается по доступным координатам,
+solid geometry исключает missing bridges, а course ascent — это явно обозначенная сумма
+положительных GPX elevation deltas без smoothing. Эти значения не подаются обратно в
+detector, reconstruction или writer.
 
 ## 10. Configuration
 

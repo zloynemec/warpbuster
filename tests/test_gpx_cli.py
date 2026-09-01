@@ -48,6 +48,24 @@ def test_analyze_clean_gpx_uses_running_profile(tmp_path: Path, capsys: object) 
     assert report["status"] == "clean"
 
 
+def test_analyze_gpx_writes_self_contained_html(tmp_path: Path, capsys: object) -> None:
+    """The format-neutral HTML path works for GPX input through the CLI."""
+    gpx_path = tmp_path / "clean.gpx"
+    html_path = tmp_path / "clean-report.html"
+    write_gpx_activity(gpx_path, [_clean_points(8)])
+
+    assert main(["analyze", str(gpx_path), "--html", str(html_path), "--json"]) == 0
+    report = json.loads(capsys.readouterr().out)  # type: ignore[attr-defined]
+    rendered = html_path.read_text(encoding="utf-8")
+
+    assert report["source"]["format"] == "gpx"
+    assert "WarpBuster activity report" in rendered
+    assert '"report_kind":"analyze"' in rendered
+    assert '"format":"gpx"' in rendered
+    assert "https://tile.openstreetmap.org/{z}/{x}/{y}.png" in rendered
+    assert "https://unpkg.com/leaflet@1.9.4/" in rendered
+
+
 def test_analyze_gpx_detects_impossible_running_teleport(tmp_path: Path, capsys: object) -> None:
     """GPX input reaches the same absolute running detector as FIT input."""
     gpx_path = tmp_path / "teleport.gpx"

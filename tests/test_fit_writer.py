@@ -73,6 +73,45 @@ def test_ready_plan_writes_valid_preserved_fit_and_corrects_distance(tmp_path: P
     assert fixed.sessions[0].fields["enhanced_avg_speed"] == pytest.approx(6.0, abs=0.002)
 
 
+def test_writer_uses_elapsed_time_when_summary_timestamp_is_inconsistent(
+    tmp_path: Path,
+) -> None:
+    """A broken summary timestamp must not leave or invert cumulative corrections."""
+    source_path = tmp_path / "broken-summary-time.fit"
+    write_repairable_activity(source_path, summary_timestamp_at_start=True)
+    course_path = tmp_path / "course.gpx"
+    observations = eastward_observations(
+        [float(index) for index in range(33)],
+        [float(index * 6) for index in range(33)],
+    )
+    write_gpx_activity(
+        course_path,
+        [
+            [
+                (latitude, longitude, None, None)
+                for _elapsed, latitude, longitude in observations
+                if latitude is not None and longitude is not None
+            ]
+        ],
+    )
+    activity = read_fit(source_path)
+    plan = build_course_repair_plan(
+        activity,
+        analyze_integrity(activity),
+        read_gpx_course(course_path),
+    )
+
+    result = write_repaired_fit(activity, plan)
+    fixed = read_fit(result.output_path)
+
+    assert fixed.records[-1].distance == pytest.approx(192.0, abs=0.05)
+    assert fixed.recorded_distance_m == pytest.approx(192.0, abs=0.05)
+    assert fixed.laps[0].fields["total_distance"] == pytest.approx(192.0, abs=0.05)
+    assert fixed.sessions[0].fields["total_distance"] == pytest.approx(192.0, abs=0.05)
+    assert fixed.laps[0].fields["timestamp"] == activity.laps[0].fields["timestamp"]
+    assert fixed.sessions[0].fields["timestamp"] == activity.sessions[0].fields["timestamp"]
+
+
 def test_writer_refuses_overwrite_and_applies_high_candidate_from_partial_plan(
     tmp_path: Path,
 ) -> None:
