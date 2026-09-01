@@ -80,6 +80,41 @@ class ReconstructionReason(StrEnum):
     ONE_SIDED_BOUNDARY_BEFORE_NOT_FOUND = "one_sided_boundary_before_not_found"
     ONE_SIDED_BOUNDARY_AFTER_NOT_FOUND = "one_sided_boundary_after_not_found"
     STABLE_COURSE_CORRIDOR = "stable_course_corridor"
+    ALL_POSITIONED_COMPONENTS_TAINTED = "all_positioned_components_tainted"
+    UNTAINTED_POSITION_COMPONENT = "untainted_position_component"
+    COMPOSITE_REGION_RECONSTRUCTABLE = "composite_region_reconstructable"
+    COMPOSITE_REGION_EXPANDED = "composite_region_expanded"
+    MISSING_COORDINATES_INFERRED = "missing_coordinates_inferred"
+    COMPONENT_WISE_RECONSTRUCTION_REQUIRED = "component_wise_reconstruction_required"
+
+
+class GnssComponentKind(StrEnum):
+    """Whether one contiguous composite-region component has positions."""
+
+    POSITIONED = "positioned"
+    MISSING = "missing"
+
+
+class GnssComponentState(StrEnum):
+    """Course-independent evidence state for one composite-region component."""
+
+    PROVEN_CORRUPTED = "proven_corrupted"
+    TAINTED = "tainted"
+    PLAUSIBLE = "plausible"
+    UNKNOWN = "unknown"
+    MISSING = "missing"
+
+
+class GnssComponentReason(StrEnum):
+    """Stable evidence explaining a composite-region component state."""
+
+    POSITION_UNAVAILABLE = "position_unavailable"
+    COVERED_BY_DETECTED_CORE = "covered_by_detected_core"
+    OVERLAPS_DETECTED_CORE = "overlaps_detected_core"
+    CONTAINS_IMPOSSIBLE_TRANSITION = "contains_impossible_transition"
+    CONTAINS_SUSPICIOUS_TRANSITION = "contains_suspicious_transition"
+    SUFFICIENT_NORMAL_CONTEXT = "sufficient_normal_context"
+    INSUFFICIENT_COMPONENT_EVIDENCE = "insufficient_component_evidence"
 
 
 class RepairPlanStatus(StrEnum):
@@ -185,8 +220,29 @@ class AnchorStabilityDiagnostic:
 
 
 @dataclass(frozen=True, slots=True)
+class GnssRegionComponent:
+    """One contiguous positioned or missing part of a composite GNSS region."""
+
+    start_record_index: int
+    end_record_index: int
+    record_count: int
+    start_timestamp: datetime | None
+    end_timestamp: datetime | None
+    duration_seconds: float | None
+    kind: GnssComponentKind
+    state: GnssComponentState
+    confidence: IntegrityConfidence
+    positioned_record_count: int
+    missing_position_record_count: int
+    suspicious_transition_count: int
+    impossible_transition_count: int
+    detected_core_record_count: int
+    reasons: tuple[GnssComponentReason, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class MixedGnssRegion:
-    """Bounded evidence cluster around unsafe anchors; never auto-repairable."""
+    """Bounded component-level evidence cluster around unsafe local anchors."""
 
     start_record_index: int
     end_record_index: int
@@ -206,6 +262,10 @@ class MixedGnssRegion:
     confidence: IntegrityConfidence
     repair_eligible: bool
     reasons: tuple[ReconstructionReason, ...]
+    components: tuple[GnssRegionComponent, ...] = ()
+    detected_core_ranges: tuple[tuple[int, int], ...] = ()
+    all_positioned_components_tainted: bool = False
+    reconstructable: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -249,6 +309,8 @@ class IntervalRepairPlan:
     anchor_before_stability: AnchorStabilityDiagnostic
     anchor_after_stability: AnchorStabilityDiagnostic
     boundary_refinement: CourseBoundaryRefinement | None = None
+    composite_region: MixedGnssRegion | None = None
+    reconstruction_scope_ranges: tuple[tuple[int, int], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

@@ -168,6 +168,13 @@ course. Внешние stable anchors и physically plausible direct bridge по
 качество диагностики до `MEDIUM`; они не доказывают corruption всех правдоподобных
 coordinates внутри региона и не дают repair eligibility.
 
+Composite diagnostics разбивает такой region на ordered `POSITIONED/MISSING`
+components и хранит detected cores отдельно. Reconstruction по stable outer anchors
+формирует точные, возможно разрывные scope ranges: `PLAUSIBLE/UNKNOWN` components
+остаются неизменными, а каждый переход между candidate и preserved geometry проходит
+physical post-check. Наличие course не меняет component state. Composite candidate
+ограничен `MEDIUM` и требует явного снижения application threshold.
+
 GPX course reader принимает `trk/trkseg/trkpt` и `rte/rtept`, сохраняет границы
 continuous segments и строит cumulative distance. Trusted anchors проецируются на
 polyline с configurable tolerance. Candidate pair обязан находиться на одном segment,
@@ -222,6 +229,9 @@ report. Writer повторно читает original raw bytes и изменя�
 scalar payload полей, явно перечисленных write policy.
 Definitions, порядок/число messages, unknown fields/messages и developer payload не
 перекодируются. Размер FIT остаётся прежним; footer CRC пересчитывается.
+Из этого следует ограничение: missing coordinate можно заполнить только если исходное
+message definition уже содержит fixed-width position fields с invalid values. Writer не
+добавляет отсутствующие fields и не меняет definition ради визуальной непрерывности.
 
 После coordinate patch cumulative `record.distance` корректируется только через edges,
 касающиеся changed coordinates: исходный increment заменяется geodesic increment по

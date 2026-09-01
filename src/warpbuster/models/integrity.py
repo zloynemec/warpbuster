@@ -43,6 +43,7 @@ class IntervalDetectionKind(StrEnum):
 
     CLASSIC_ISLAND = "classic_island"
     ONE_SIDED_CLUSTER = "one_sided_cluster"
+    COMPOSITE_REGION = "composite_region"
 
 
 class OneSidedClusterReason(StrEnum):

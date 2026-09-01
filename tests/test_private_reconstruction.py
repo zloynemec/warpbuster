@@ -11,9 +11,14 @@ from warpbuster.fit.writer import write_repaired_fit
 from warpbuster.geo import geodesic_distance_m
 from warpbuster.gpx.course import read_gpx_course
 from warpbuster.integrity import analyze_integrity
-from warpbuster.models.integrity import IntegrityConfidence
+from warpbuster.models.integrity import (
+    IntegrityConfidence,
+    IntervalDetectionKind,
+    TransitionClassification,
+)
 from warpbuster.models.reconstruction import (
-    ReconstructionReason,
+    AllocationMethod,
+    GnssComponentState,
     RepairIntervalAction,
     RepairPlanStatus,
 )
@@ -87,8 +92,10 @@ def test_private_andromeda_one_sided_cluster_is_explicit_medium_candidate() -> N
     not all(path.exists() for path in _PRIVATE_FILES),
     reason="private Andromeda original/fixed/course fixtures are unavailable",
 )
-def test_private_andromeda_main_interval_has_high_course_candidate(tmp_path: Path) -> None:
-    """The known long island matches course; off-course short anomaly stays unresolved."""
+def test_private_andromeda_main_and_composite_candidates_preserve_default_safety(
+    tmp_path: Path,
+) -> None:
+    """The wider composite is auditable and remains skipped by default HIGH policy."""
     activity = read_fit(_ORIGINAL)
     reference = read_fit(_REFERENCE_FIXED)
     plan = build_course_repair_plan(
@@ -120,17 +127,22 @@ def test_private_andromeda_main_interval_has_high_course_candidate(tmp_path: Pat
     assert residual.confidence is IntegrityConfidence.MEDIUM
     assert residual.repair_eligible is False
 
-    unresolved = plan.unresolved_intervals[0]
-    assert unresolved.reasons == (
-        ReconstructionReason.ANCHOR_BEFORE_UNSTABLE,
-        ReconstructionReason.ANCHOR_AFTER_UNSTABLE,
-        ReconstructionReason.MIXED_GNSS_REGION,
+    composite = next(
+        candidate
+        for candidate in plan.interval_plans
+        if candidate.interval.detection_kind is IntervalDetectionKind.COMPOSITE_REGION
     )
-    assert unresolved.anchor_before_stability is not None
-    assert unresolved.anchor_before_stability.consecutive_normal_transition_count == 0
-    assert unresolved.anchor_after_stability is not None
-    assert unresolved.anchor_after_stability.consecutive_normal_transition_count == 11
-    region = unresolved.mixed_region
+    assert (composite.interval.start_record_index, composite.interval.end_record_index) == (
+        8_820,
+        9_580,
+    )
+    assert composite.interval.trusted_before_record_index == 8_819
+    assert composite.interval.trusted_after_record_index == 9_581
+    assert composite.confidence is IntegrityConfidence.MEDIUM
+    assert composite.repair_eligible is False
+    assert composite.allocation_method is AllocationMethod.TIMESTAMPS
+    assert len(composite.coordinate_updates) == 761
+    region = composite.composite_region
     assert region is not None
     assert (region.start_record_index, region.end_record_index) == (8_820, 9_580)
     assert (
@@ -143,6 +155,13 @@ def test_private_andromeda_main_interval_has_high_course_candidate(tmp_path: Pat
     assert region.bridge_speed_mps == pytest.approx(1.3046, abs=0.001)
     assert region.confidence is IntegrityConfidence.MEDIUM
     assert region.repair_eligible is False
+    assert region.reconstructable is True
+    assert [component.state for component in region.components] == [
+        GnssComponentState.TAINTED,
+        GnssComponentState.MISSING,
+        GnssComponentState.TAINTED,
+        GnssComponentState.MISSING,
+    ]
     output_path = tmp_path / "andromeda.fixed.fit"
     result = write_repaired_fit(activity, plan, output_path)
     fixed = read_fit(output_path)
@@ -215,3 +234,46 @@ def test_private_andromeda_main_interval_has_high_course_candidate(tmp_path: Pat
     ]
     assert median(deviations) < 20.0
     assert max(deviations) < 40.0
+
+
+@pytest.mark.private
+@pytest.mark.skipif(
+    not (_ORIGINAL.exists() and _COURSE.exists()),
+    reason="private Andromeda original/course fixtures are unavailable",
+)
+def test_private_andromeda_explicit_medium_writes_composite_region(tmp_path: Path) -> None:
+    """Explicit MEDIUM fills both composite dropouts and passes FIT/post-transition checks."""
+    activity = read_fit(_ORIGINAL)
+    plan = build_course_repair_plan(
+        activity,
+        analyze_integrity(activity),
+        read_gpx_course(_COURSE),
+    )
+    output_path = tmp_path / "andromeda-medium.fixed.fit"
+
+    result = write_repaired_fit(
+        activity,
+        plan,
+        output_path,
+        minimum_confidence=IntegrityConfidence.MEDIUM,
+    )
+    fixed = read_fit(output_path)
+    fixed_integrity = analyze_integrity(fixed)
+
+    assert result.selection.applied_interval_count == 3
+    assert result.selection.skipped_interval_count == 0
+    assert result.validation.valid is True
+    assert result.diff.unexpected_changed_field_count == 0
+    assert all(
+        fixed.records[index].latitude is not None and fixed.records[index].longitude is not None
+        for index in range(8_820, 9_581)
+    )
+    assert not any(
+        transition.classification is not TransitionClassification.NORMAL
+        for transition in fixed_integrity.transitions
+        if transition.to_record_index >= 8_819 and transition.from_record_index <= 9_581
+    )
+    assert tuple(record.timestamp for record in fixed.records) == tuple(
+        record.timestamp for record in activity.records
+    )
+    assert fixed.recorded_distance_m == pytest.approx(33_495.62, abs=0.05)

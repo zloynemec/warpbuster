@@ -208,6 +208,14 @@ Classic island с impossible entry/exit получает `HIGH`. One-sided missi
 никогда не получает выше `MEDIUM` и поэтому не применяется writer-ом при default
 `--min-confidence high`.
 
+Composite region не является новым доказательством corruption. Он запускается вокруг
+существующего course-independent interval при unsafe immediate anchor и лишь агрегирует
+ordered positioned/missing components в bounded diagnostic region. Component с
+достаточным NORMAL context остаётся `PLAUSIBLE`, недостаточно доказанный — `UNKNOWN`;
+ни course proximity, ни внешний bridge не повышают эти состояния. `TAINTED` означает
+локальное abnormal transition evidence и ограничивает возможный candidate уровнем
+`MEDIUM`.
+
 ## 13. False positives
 
 Особо тестировать:

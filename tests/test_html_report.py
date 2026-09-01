@@ -59,6 +59,9 @@ def test_analyze_html_is_deterministic_uses_leaflet_and_preserves_gaps(tmp_path:
     assert 'id="metrics-comparison"' in first
     assert 'id="missing-runs"' in first
     assert 'id="one-sided-clusters"' in first
+    assert 'id="composite-regions"' in first
+    assert 'addOverlay("Composite tainted"' in first
+    assert "component.state === state" in first
     assert "connect-src https://unpkg.com" in first
     assert "\\u003c/script\\u003e" in first
     payload = _embedded_payload(first)

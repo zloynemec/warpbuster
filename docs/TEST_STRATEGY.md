@@ -243,7 +243,9 @@ outer anchors, но остаётся `MEDIUM` и не eligible. Итоговый
 - write report перечисляет все detected intervals как applied/skipped с reasons.
 
 Private Andromeda regression применяет основной HIGH interval из `PARTIAL` plan и
-оставляет mixed region `8820..9580` неизменным. Output проходит validation/diff;
+при default threshold оставляет composite region `8820..9580` неизменным. Explicit
+`MEDIUM` строит один component-audited candidate, заполняет structural invalid-position
+fields и не создаёт abnormal transitions. Output проходит validation/diff;
 последний `record.distance`, сумма `lap.total_distance` и `session.total_distance`
 согласованы; timestamps, sensors, developer и unknown fields сохраняются на 100%. Ручной
 Garmin/Strava upload остаётся вне automated CI.
@@ -274,9 +276,15 @@ missing-position runs, включая `8893..9580`. Task 006B acceptance доп�
 course-independent `MEDIUM` core `3627..3700`, proof diagnostics `2/2` tainted
 components и reconstruction refinement до `3582..3741` с anchors в stable course
 corridor. Candidate применяется только при explicit `MEDIUM` и не должен оставлять
-abnormal transitions на этом участке; поздний mixed region остаётся skipped. Отдельные
+abnormal transitions на этом участке; поздний composite region также применяется только
+при explicit `MEDIUM`. Отдельные
 vertical regressions подтверждают, что altitude anomaly видна в отчёте, но не создаёт
 coordinate interval.
+
+Task 006C synthetic regressions отдельно проверяют ordered component states,
+deduplication нескольких detected cores в один planning unit, сохранение
+`PLAUSIBLE/UNKNOWN` components, disjoint reconstruction scope, разделение existing и
+missing coordinate updates, default skip и explicit-MEDIUM FIT write.
 
 Release check отдельно строит wheel, устанавливает его с runtime dependencies в чистый
 temporary Python 3.14 venv и запускает version/resource/analyze HTML smoke.

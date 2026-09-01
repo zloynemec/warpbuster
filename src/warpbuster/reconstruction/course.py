@@ -28,7 +28,10 @@ from warpbuster.models.reconstruction import (
     CourseData,
     CourseDirection,
     CourseSegment,
+    GnssComponentKind,
+    GnssComponentState,
     IntervalRepairPlan,
+    MixedGnssRegion,
     ReconstructionReason,
     RepairPlan,
     RepairPlanStatus,
@@ -98,8 +101,15 @@ def build_course_repair_plan(
 
     interval_plans: list[IntervalRepairPlan] = []
     unresolved: list[UnresolvedInterval] = []
-    for interval_index, interval in enumerate(intervals):
-        if interval_index >= effective_config.maximum_reconstruction_intervals:
+    covered_interval_keys: set[tuple[int, int]] = set()
+    for interval in intervals:
+        interval_key = (interval.start_record_index, interval.end_record_index)
+        if interval_key in covered_interval_keys:
+            continue
+        if (
+            len(interval_plans) + len(unresolved)
+            >= effective_config.maximum_reconstruction_intervals
+        ):
             unresolved.append(
                 _unresolved(
                     interval,
@@ -116,11 +126,21 @@ def build_course_repair_plan(
         )
         if isinstance(result, IntervalRepairPlan):
             interval_plans.append(result)
+            composite_region = result.composite_region
         else:
             unresolved.append(result)
+            composite_region = result.mixed_region
+        if composite_region is not None:
+            covered_interval_keys.update(
+                (candidate.start_record_index, candidate.end_record_index)
+                for candidate in intervals
+                if candidate.end_record_index >= composite_region.start_record_index
+                and candidate.start_record_index <= composite_region.end_record_index
+            )
 
+    planning_unit_count = len(interval_plans) + len(unresolved)
     eligible_count = sum(plan.repair_eligible for plan in interval_plans)
-    if eligible_count == len(intervals) and not unresolved:
+    if eligible_count == planning_unit_count and not unresolved:
         status = RepairPlanStatus.READY
         confidence = IntegrityConfidence.HIGH
         reasons = (ReconstructionReason.ALL_INTERVALS_READY,)
@@ -137,7 +157,7 @@ def build_course_repair_plan(
         course,
         status=status,
         confidence=confidence,
-        detected_interval_count=len(intervals),
+        detected_interval_count=planning_unit_count,
         interval_plans=tuple(interval_plans),
         unresolved=tuple(unresolved),
         reasons=reasons,
@@ -160,18 +180,33 @@ def _reconstruct_interval(
             return _unresolved(interval, refined)
         interval, boundary_refinement = refined
     safety = assess_interval_safety(activity, integrity, interval, config)
+    composite_region: MixedGnssRegion | None = None
     if not safety.anchors_stable:
-        reasons: list[ReconstructionReason] = []
-        if not safety.anchor_before.stable:
-            reasons.append(ReconstructionReason.ANCHOR_BEFORE_UNSTABLE)
-        if not safety.anchor_after.stable:
-            reasons.append(ReconstructionReason.ANCHOR_AFTER_UNSTABLE)
-        reasons.append(ReconstructionReason.MIXED_GNSS_REGION)
-        return _unresolved(
-            interval,
-            tuple(reasons),
-            safety=safety,
-        )
+        if safety.mixed_region is not None and safety.mixed_region.reconstructable:
+            composite_region = safety.mixed_region
+            interval = _composite_interval(activity, interval, composite_region)
+            if (
+                composite_region.outer_anchor_before is None
+                or composite_region.outer_anchor_after is None
+            ):
+                raise AssertionError("reconstructable composite region must have outer anchors")
+            safety = IntervalSafetyAssessment(
+                anchor_before=composite_region.outer_anchor_before,
+                anchor_after=composite_region.outer_anchor_after,
+                mixed_region=composite_region,
+            )
+        else:
+            reasons: list[ReconstructionReason] = []
+            if not safety.anchor_before.stable:
+                reasons.append(ReconstructionReason.ANCHOR_BEFORE_UNSTABLE)
+            if not safety.anchor_after.stable:
+                reasons.append(ReconstructionReason.ANCHOR_AFTER_UNSTABLE)
+            reasons.append(ReconstructionReason.MIXED_GNSS_REGION)
+            return _unresolved(
+                interval,
+                tuple(reasons),
+                safety=safety,
+            )
     matching_config = _matching_config(interval, config)
     before_record = activity.records[interval.trusted_before_record_index]
     after_record = activity.records[interval.trusted_after_record_index]
@@ -242,9 +277,9 @@ def _reconstruct_interval(
         best,
         fractions,
     )
-    if (
-        interval.detection_kind is IntervalDetectionKind.ONE_SIDED_CLUSTER
-        and _has_abnormal_candidate_transition(activity, interval, updates, integrity)
+    updates = _filter_composite_updates(updates, composite_region)
+    if _uses_anchor_connectors(interval) and _has_abnormal_candidate_transition(
+        activity, interval, updates, integrity
     ):
         timestamp_fractions = _timestamp_fractions(
             activity.records[
@@ -262,9 +297,9 @@ def _reconstruct_interval(
                 best,
                 timestamp_fractions,
             )
-    if (
-        interval.detection_kind is IntervalDetectionKind.ONE_SIDED_CLUSTER
-        and _has_impossible_candidate_transition(activity, interval, updates, integrity)
+            updates = _filter_composite_updates(updates, composite_region)
+    if _uses_anchor_connectors(interval) and _has_impossible_candidate_transition(
+        activity, interval, updates, integrity
     ):
         return _unresolved(
             interval,
@@ -309,15 +344,63 @@ def _reconstruct_interval(
             ReconstructionReason.COURSE_SPEED_PLAUSIBLE,
             *(
                 (ReconstructionReason.ANCHOR_CONNECTORS_PLAUSIBLE,)
-                if interval.detection_kind is IntervalDetectionKind.ONE_SIDED_CLUSTER
+                if _uses_anchor_connectors(interval)
                 else ()
             ),
             _allocation_reason(method),
             *((ReconstructionReason.ONE_SIDED_BOUNDARIES_REFINED,) if boundary_refinement else ()),
+            *(
+                (
+                    ReconstructionReason.COMPOSITE_REGION_EXPANDED,
+                    ReconstructionReason.MISSING_COORDINATES_INFERRED,
+                )
+                if composite_region is not None
+                else ()
+            ),
         ),
         anchor_before_stability=safety.anchor_before,
         anchor_after_stability=safety.anchor_after,
         boundary_refinement=boundary_refinement,
+        composite_region=composite_region,
+        reconstruction_scope_ranges=_update_ranges(updates),
+    )
+
+
+def _composite_interval(
+    activity: ActivityData,
+    interval: CorruptedInterval,
+    region: MixedGnssRegion,
+) -> CorruptedInterval:
+    """Expand one detected core to a course-independent composite diagnostic region."""
+    before_index = region.proposed_trusted_before_record_index
+    after_index = region.proposed_trusted_after_record_index
+    if (
+        before_index is None
+        or after_index is None
+        or region.bridge_elapsed_seconds is None
+        or region.bridge_distance_m is None
+        or region.bridge_speed_mps is None
+    ):
+        raise AssertionError("reconstructable composite region must have a measured bridge")
+    bridge = BridgeResult(
+        from_record_index=before_index,
+        to_record_index=after_index,
+        elapsed_seconds=region.bridge_elapsed_seconds,
+        distance_m=region.bridge_distance_m,
+        apparent_speed_mps=region.bridge_speed_mps,
+        maximum_plausible_speed_mps=region.bridge_speed_limit_mps,
+    )
+    return replace(
+        interval,
+        start_record_index=region.start_record_index,
+        end_record_index=region.end_record_index,
+        start_timestamp=activity.records[region.start_record_index].timestamp,
+        end_timestamp=activity.records[region.end_record_index].timestamp,
+        trusted_before_record_index=before_index,
+        trusted_after_record_index=after_index,
+        bridge=bridge,
+        confidence=IntegrityConfidence.MEDIUM,
+        detection_kind=IntervalDetectionKind.COMPOSITE_REGION,
     )
 
 
@@ -507,7 +590,7 @@ def _reconstruction_path_distance(
     pair: _CoursePair,
     interval: CorruptedInterval,
 ) -> float:
-    if interval.detection_kind is not IntervalDetectionKind.ONE_SIDED_CLUSTER:
+    if not _uses_anchor_connectors(interval):
         return pair.span_distance_m
     return pair.before.anchor_distance_m + pair.span_distance_m + pair.after.anchor_distance_m
 
@@ -724,7 +807,10 @@ def _candidate_coordinate_for_pair(
     fraction: float,
     detection_kind: IntervalDetectionKind,
 ) -> CandidateCoordinate:
-    if detection_kind is not IntervalDetectionKind.ONE_SIDED_CLUSTER:
+    if detection_kind not in {
+        IntervalDetectionKind.ONE_SIDED_CLUSTER,
+        IntervalDetectionKind.COMPOSITE_REGION,
+    }:
         return _candidate_coordinate(
             record,
             segment,
@@ -781,6 +867,52 @@ def _candidate_coordinate_for_pair(
         candidate_longitude=longitude,
         course_distance_m=course_distance_m,
     )
+
+
+def _uses_anchor_connectors(interval: CorruptedInterval) -> bool:
+    return interval.detection_kind in {
+        IntervalDetectionKind.ONE_SIDED_CLUSTER,
+        IntervalDetectionKind.COMPOSITE_REGION,
+    }
+
+
+def _filter_composite_updates(
+    updates: tuple[CandidateCoordinate, ...],
+    region: MixedGnssRegion | None,
+) -> tuple[CandidateCoordinate, ...]:
+    if region is None:
+        return updates
+    allowed_indices = {
+        record_index
+        for component in region.components
+        if component.kind is GnssComponentKind.MISSING
+        or component.state
+        in {
+            GnssComponentState.PROVEN_CORRUPTED,
+            GnssComponentState.TAINTED,
+        }
+        for record_index in range(component.start_record_index, component.end_record_index + 1)
+    }
+    return tuple(update for update in updates if update.record_index in allowed_indices)
+
+
+def _update_ranges(
+    updates: tuple[CandidateCoordinate, ...],
+) -> tuple[tuple[int, int], ...]:
+    if not updates:
+        return ()
+    ranges: list[tuple[int, int]] = []
+    start = updates[0].record_index
+    end = start
+    for update in updates[1:]:
+        if update.record_index == end + 1:
+            end = update.record_index
+            continue
+        ranges.append((start, end))
+        start = update.record_index
+        end = start
+    ranges.append((start, end))
+    return tuple(ranges)
 
 
 def _candidate_updates(
@@ -872,22 +1004,19 @@ def _candidate_transition_measurements(
     interval: CorruptedInterval,
     updates: tuple[CandidateCoordinate, ...],
 ) -> tuple[tuple[float, float], ...] | None:
-    coordinates = [
-        (
-            activity.records[interval.trusted_before_record_index].timestamp,
-            activity.records[interval.trusted_before_record_index].latitude,
-            activity.records[interval.trusted_before_record_index].longitude,
-        ),
-        *(
-            (update.timestamp, update.candidate_latitude, update.candidate_longitude)
-            for update in updates
-        ),
-        (
-            activity.records[interval.trusted_after_record_index].timestamp,
-            activity.records[interval.trusted_after_record_index].latitude,
-            activity.records[interval.trusted_after_record_index].longitude,
-        ),
-    ]
+    update_by_index = {update.record_index: update for update in updates}
+    coordinates = []
+    for record in activity.records[
+        interval.trusted_before_record_index : interval.trusted_after_record_index + 1
+    ]:
+        update = update_by_index.get(record.index)
+        coordinates.append(
+            (
+                record.timestamp,
+                update.candidate_latitude if update is not None else record.latitude,
+                update.candidate_longitude if update is not None else record.longitude,
+            )
+        )
     measurements: list[tuple[float, float]] = []
     for previous, current in pairwise(coordinates):
         previous_timestamp, previous_latitude, previous_longitude = previous

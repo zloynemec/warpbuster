@@ -371,3 +371,32 @@ barometric/device-fused altitude может ошибиться независи�
 course-independent доказательству coordinate corruption.
 
 Статус: Accepted.
+
+## ADR-024 — Composite diagnostics and reconstruction scope are separate
+
+Unsafe immediate anchors могут означать, что один GNSS failure состоит из нескольких
+positioned и missing components. Pipeline запускает composite analysis только вокруг
+уже найденного course-independent `CorruptedInterval` и расширяет bounded diagnostic
+region существующими abnormal/missing evidence. Reference course не участвует ни в
+границах, ни в component states.
+
+Каждая максимальная positioned/missing component получает отдельное состояние.
+Полностью покрытая detected core component является `PROVEN_CORRUPTED`; component,
+затронутая abnormal transition, но не покрытая core целиком, — `TAINTED`; достаточный
+чистый NORMAL context даёт `PLAUSIBLE`, иначе используется `UNKNOWN`. Stable outer
+anchors и plausible bridge разрешают только попытку reconstruction и не повышают
+detection confidence.
+
+Diagnostic region, detected cores и reconstruction scope хранятся раздельно. Course
+candidate может обновлять `PROVEN_CORRUPTED`, `TAINTED` и `MISSING` components;
+`PLAUSIBLE/UNKNOWN` coordinates сохраняются. Поэтому scope может быть разрывным. Все
+candidate-to-preserved connectors проходят physical post-check, а remaining impossible
+transition блокирует candidate. Composite confidence ограничен `MEDIUM`, так что default
+`HIGH` ничего не применяет.
+
+Byte-preserving writer требует, чтобы updates точно покрывали объявленные непересекающиеся
+scope ranges. Missing coordinate заполняется только при наличии position fields с FIT
+invalid value в исходном message definition; добавление fields или изменение definition
+запрещено lossless policy.
+
+Статус: Accepted.

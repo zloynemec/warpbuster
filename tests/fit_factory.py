@@ -104,6 +104,8 @@ def write_synthetic_activity(path: Path) -> bytes:
 def write_trajectory_activity(
     path: Path,
     observations: list[tuple[int, float | None, float | None]],
+    *,
+    retain_invalid_position_fields: bool = False,
 ) -> bytes:
     """Write a valid FIT containing a caller-supplied synthetic trajectory."""
     start = datetime(2026, 1, 1, 8, 0, tzinfo=UTC)
@@ -128,6 +130,9 @@ def write_trajectory_activity(
         if latitude is not None and longitude is not None:
             record["position_lat"] = _semicircles(latitude)
             record["position_long"] = _semicircles(longitude)
+        elif retain_invalid_position_fields:
+            record["position_lat"] = 0x7FFFFFFF
+            record["position_long"] = 0x7FFFFFFF
         encoder.on_mesg(Profile["mesg_num"]["RECORD"], record)
 
     duration = float(observations[-1][0]) if observations else 0.0

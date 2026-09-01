@@ -17,6 +17,10 @@ from warpbuster.models.integrity import (
 from warpbuster.models.reconstruction import (
     AnchorDirection,
     AnchorStabilityDiagnostic,
+    GnssComponentKind,
+    GnssComponentReason,
+    GnssComponentState,
+    GnssRegionComponent,
     MixedGnssRegion,
     ReconstructionReason,
 )
@@ -261,6 +265,45 @@ def _mixed_region(
         reasons.append(ReconstructionReason.STABLE_OUTER_ANCHORS)
     if bridge_plausible:
         reasons.append(ReconstructionReason.PLAUSIBLE_OUTER_BRIDGE)
+    components = _region_components(
+        activity,
+        integrity,
+        region_transitions,
+        start_index,
+        end_index,
+        config,
+    )
+    positioned_components = tuple(
+        component for component in components if component.kind is GnssComponentKind.POSITIONED
+    )
+    all_positioned_tainted = bool(positioned_components) and all(
+        component.state
+        in {
+            GnssComponentState.PROVEN_CORRUPTED,
+            GnssComponentState.TAINTED,
+        }
+        for component in positioned_components
+    )
+    if all_positioned_tainted:
+        reasons.append(ReconstructionReason.ALL_POSITIONED_COMPONENTS_TAINTED)
+    else:
+        reasons.append(ReconstructionReason.UNTAINTED_POSITION_COMPONENT)
+    detected_core_ranges = tuple(
+        (candidate.start_record_index, candidate.end_record_index)
+        for candidate in integrity.corrupted_intervals
+        if candidate.end_record_index >= start_index and candidate.start_record_index <= end_index
+    )
+    reconstructable = (
+        outer_stable
+        and bridge_plausible
+        and missing_count > 0
+        and len(components) > 1
+        and bool(detected_core_ranges)
+    )
+    if reconstructable:
+        reasons.append(ReconstructionReason.COMPOSITE_REGION_RECONSTRUCTABLE)
+        if not all_positioned_tainted:
+            reasons.append(ReconstructionReason.COMPONENT_WISE_RECONSTRUCTION_REQUIRED)
     reasons.append(ReconstructionReason.MIXED_REGION_REQUIRES_REVIEW)
     confidence = (
         IntegrityConfidence.MEDIUM if outer_stable and bridge_plausible else IntegrityConfidence.LOW
@@ -283,6 +326,158 @@ def _mixed_region(
         bridge_plausible=bridge_plausible,
         confidence=confidence,
         repair_eligible=False,
+        reasons=tuple(reasons),
+        components=components,
+        detected_core_ranges=detected_core_ranges,
+        all_positioned_components_tainted=all_positioned_tainted,
+        reconstructable=reconstructable,
+    )
+
+
+def _region_components(
+    activity: ActivityData,
+    integrity: IntegrityReport,
+    region_transitions: tuple[TransitionResult, ...],
+    start_index: int,
+    end_index: int,
+    config: CourseReconstructionConfig,
+) -> tuple[GnssRegionComponent, ...]:
+    """Describe contiguous positioned/missing components without using course data."""
+    ranges: list[tuple[int, int, GnssComponentKind]] = []
+    component_start = start_index
+    current_kind = (
+        GnssComponentKind.POSITIONED
+        if _has_position(activity.records[start_index])
+        else GnssComponentKind.MISSING
+    )
+    for index in range(start_index + 1, end_index + 1):
+        kind = (
+            GnssComponentKind.POSITIONED
+            if _has_position(activity.records[index])
+            else GnssComponentKind.MISSING
+        )
+        if kind is current_kind:
+            continue
+        ranges.append((component_start, index - 1, current_kind))
+        component_start = index
+        current_kind = kind
+    ranges.append((component_start, end_index, current_kind))
+    return tuple(
+        _component_diagnostic(
+            activity,
+            integrity,
+            region_transitions,
+            component_start,
+            component_end,
+            kind,
+            config,
+        )
+        for component_start, component_end, kind in ranges
+    )
+
+
+def _component_diagnostic(
+    activity: ActivityData,
+    integrity: IntegrityReport,
+    region_transitions: tuple[TransitionResult, ...],
+    start_index: int,
+    end_index: int,
+    kind: GnssComponentKind,
+    config: CourseReconstructionConfig,
+) -> GnssRegionComponent:
+    record_count = end_index - start_index + 1
+    start_timestamp = activity.records[start_index].timestamp
+    end_timestamp = activity.records[end_index].timestamp
+    duration_seconds = (
+        (end_timestamp - start_timestamp).total_seconds()
+        if start_timestamp is not None and end_timestamp is not None
+        else None
+    )
+    if kind is GnssComponentKind.MISSING:
+        return GnssRegionComponent(
+            start_record_index=start_index,
+            end_record_index=end_index,
+            record_count=record_count,
+            start_timestamp=start_timestamp,
+            end_timestamp=end_timestamp,
+            duration_seconds=duration_seconds,
+            kind=kind,
+            state=GnssComponentState.MISSING,
+            confidence=IntegrityConfidence.LOW,
+            positioned_record_count=0,
+            missing_position_record_count=record_count,
+            suspicious_transition_count=0,
+            impossible_transition_count=0,
+            detected_core_record_count=0,
+            reasons=(GnssComponentReason.POSITION_UNAVAILABLE,),
+        )
+
+    adjacent = tuple(
+        transition
+        for transition in region_transitions
+        if transition.to_record_index == transition.from_record_index + 1
+        and (
+            start_index <= transition.from_record_index <= end_index
+            or start_index <= transition.to_record_index <= end_index
+        )
+    )
+    suspicious_count = sum(
+        transition.classification is TransitionClassification.SUSPICIOUS for transition in adjacent
+    )
+    impossible_count = sum(
+        transition.classification is TransitionClassification.IMPOSSIBLE for transition in adjacent
+    )
+    detected_core_count = sum(
+        any(
+            interval.start_record_index <= record_index <= interval.end_record_index
+            for interval in integrity.corrupted_intervals
+        )
+        for record_index in range(start_index, end_index + 1)
+    )
+    reasons: list[GnssComponentReason] = []
+    if detected_core_count == record_count:
+        state = GnssComponentState.PROVEN_CORRUPTED
+        confidence = IntegrityConfidence.HIGH
+        reasons.append(GnssComponentReason.COVERED_BY_DETECTED_CORE)
+    elif impossible_count or suspicious_count:
+        state = GnssComponentState.TAINTED
+        confidence = IntegrityConfidence.MEDIUM
+        if detected_core_count:
+            reasons.append(GnssComponentReason.OVERLAPS_DETECTED_CORE)
+        if impossible_count:
+            reasons.append(GnssComponentReason.CONTAINS_IMPOSSIBLE_TRANSITION)
+        if suspicious_count:
+            reasons.append(GnssComponentReason.CONTAINS_SUSPICIOUS_TRANSITION)
+    else:
+        internal_normal_count = sum(
+            transition.classification is TransitionClassification.NORMAL
+            and start_index <= transition.from_record_index
+            and transition.to_record_index <= end_index
+            for transition in adjacent
+        )
+        if internal_normal_count >= config.anchor_stability_min_normal_transitions:
+            state = GnssComponentState.PLAUSIBLE
+            confidence = IntegrityConfidence.HIGH
+            reasons.append(GnssComponentReason.SUFFICIENT_NORMAL_CONTEXT)
+        else:
+            state = GnssComponentState.UNKNOWN
+            confidence = IntegrityConfidence.LOW
+            reasons.append(GnssComponentReason.INSUFFICIENT_COMPONENT_EVIDENCE)
+    return GnssRegionComponent(
+        start_record_index=start_index,
+        end_record_index=end_index,
+        record_count=record_count,
+        start_timestamp=start_timestamp,
+        end_timestamp=end_timestamp,
+        duration_seconds=duration_seconds,
+        kind=kind,
+        state=state,
+        confidence=confidence,
+        positioned_record_count=record_count,
+        missing_position_record_count=0,
+        suspicious_transition_count=suspicious_count,
+        impossible_transition_count=impossible_count,
+        detected_core_record_count=detected_core_count,
         reasons=tuple(reasons),
     )
 

@@ -88,6 +88,18 @@ Roadmap следует порядку milestone из [`docs/MILESTONES.md`](docs
   - altitude-rate warnings показываются отдельно и сами по себе не доказывают порчу
     координат.
 
+- [x] **M5C / Task 006C — Composite GNSS Failure Regions**
+  ([task](tasks/006c-composite-gnss-failure-regions.md))
+  - общая component-level модель для чередующихся corrupted, missing, plausible и
+    unknown участков внутри одного GNSS failure;
+  - course-independent detected evidence отдельно от diagnostic region и
+    reconstruction scope;
+  - bounded stable-anchor search и безопасная component-wise reconstruction;
+  - private Andromeda `8820..9580` используется только как regression fixture;
+  - disjoint reconstruction scope сохраняет `PLAUSIBLE/UNKNOWN` positioned components;
+  - missing coordinates и replacements существующих координат аудируются отдельно;
+  - default `HIGH` не применяет composite candidate, явный `MEDIUM` включает его.
+
 - [x] **M6 / Task 007 — FIT Writer, Preservation, Validate, Diff**
   ([task](tasks/007-fit-writer-validation.md))
   - byte-preserving writer, CRC, atomic output, default no-overwrite и явный

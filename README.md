@@ -140,6 +140,14 @@ anchor считается unsafe, а отчёт показывает bounded `mi
 диагностические anchors и прямой bridge. Такой регион остаётся `MEDIUM/LOW` и никогда не
 становится auto-repairable только из-за подходящего course.
 
+Для составного региона отчёт отдельно показывает detected cores, ordered
+`POSITIONED/MISSING` components и точный reconstruction scope. Явный `MEDIUM` может
+восстановить доказанно затронутые/tainted components и заполнить missing coordinates,
+но физически правдоподобные или неизвестные positioned components остаются byte-identical.
+Каждый connector к сохранённому component проходит physical post-check. Lossless writer
+может заполнить missing coordinate только если соответствующие FIT fields присутствуют
+в исходном message definition как invalid values.
+
 Если impossible entry сопровождается missing-position gaps, но классический impossible
 exit скрыт dropout-ом, detector выполняет отдельный bounded one-sided scan. Interval
 создаётся только при stable outer anchors, plausible direct bridge и abnormal evidence

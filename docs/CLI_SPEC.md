@@ -132,7 +132,11 @@ reconstruction path, detected core и refined repair scope. Refinement выпо�
 Для каждого proposed anchor report также содержит directional NORMAL-context count и
 blocking evidence. При unsafe anchors выводится bounded `mixed GNSS region`: границы,
 число missing/suspicious/impossible evidence, proposed outer anchors и скорость прямого
-outer bridge. Эти данные диагностические; region всегда `repair_eligible=false`.
+outer bridge. Composite report дополнительно содержит ordered component states,
+detected core ranges и отдельные `reconstruction_scope_ranges`. `PLAUSIBLE/UNKNOWN`
+positioned components не включаются в updates; disjoint scope проверяется вместе с
+внутренними connectors. Composite candidate имеет максимум `MEDIUM`, поэтому region
+всегда `repair_eligible=false` при default threshold.
 
 Plan statuses описывают coverage:
 - `READY` — все intervals имеют HIGH candidate;

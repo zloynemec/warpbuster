@@ -13,6 +13,7 @@ from warpbuster.models.reconstruction import (
     CourseAnchorMatch,
     CourseBoundaryRefinement,
     CourseData,
+    GnssRegionComponent,
     IntervalRepairPlan,
     MixedGnssRegion,
     RepairIntervalAction,
@@ -240,6 +241,10 @@ def _interval_report(
     plan: IntervalRepairPlan,
     decision: RepairIntervalDecision,
 ) -> dict[str, object]:
+    missing_coordinate_update_count = sum(
+        coordinate.original_latitude is None or coordinate.original_longitude is None
+        for coordinate in plan.coordinate_updates
+    )
     return {
         "start_record_index": plan.interval.start_record_index,
         "end_record_index": plan.interval.end_record_index,
@@ -266,6 +271,18 @@ def _interval_report(
             if plan.boundary_refinement is not None
             else None
         ),
+        "composite_gnss_region": (
+            _mixed_region_report(plan.composite_region)
+            if plan.composite_region is not None
+            else None
+        ),
+        "reconstruction_scope_ranges": [
+            list(bounds) for bounds in plan.reconstruction_scope_ranges
+        ],
+        "existing_coordinate_update_count": (
+            len(plan.coordinate_updates) - missing_coordinate_update_count
+        ),
+        "missing_coordinate_update_count": missing_coordinate_update_count,
         "fields_to_change": list(plan.fields_to_change),
         "dependent_fields_to_recalculate": list(plan.dependent_fields_to_recalculate),
         "reasons": [reason.value for reason in plan.reasons],
@@ -391,7 +408,35 @@ def _mixed_region_report(region: MixedGnssRegion) -> dict[str, object]:
         "bridge_plausible": region.bridge_plausible,
         "confidence": region.confidence.value,
         "repair_eligible": region.repair_eligible,
+        "reconstructable": region.reconstructable,
+        "all_positioned_components_tainted": region.all_positioned_components_tainted,
+        "detected_core_ranges": [list(bounds) for bounds in region.detected_core_ranges],
+        "components": [_component_report(component) for component in region.components],
         "reasons": [reason.value for reason in region.reasons],
+    }
+
+
+def _component_report(component: GnssRegionComponent) -> dict[str, object]:
+    return {
+        "start_record_index": component.start_record_index,
+        "end_record_index": component.end_record_index,
+        "record_count": component.record_count,
+        "start_timestamp": (
+            component.start_timestamp.isoformat() if component.start_timestamp is not None else None
+        ),
+        "end_timestamp": (
+            component.end_timestamp.isoformat() if component.end_timestamp is not None else None
+        ),
+        "duration_seconds": component.duration_seconds,
+        "kind": component.kind.value,
+        "state": component.state.value,
+        "confidence": component.confidence.value,
+        "positioned_record_count": component.positioned_record_count,
+        "missing_position_record_count": component.missing_position_record_count,
+        "suspicious_transition_count": component.suspicious_transition_count,
+        "impossible_transition_count": component.impossible_transition_count,
+        "detected_core_record_count": component.detected_core_record_count,
+        "reasons": [reason.value for reason in component.reasons],
     }
 
 
@@ -413,6 +458,18 @@ def _interval_console(
             f", detected_core={detected.detected_start_record_index}.."
             f"{detected.detected_end_record_index}, corridor_refined=yes"
         )
+    composite = ""
+    if plan.composite_region is not None:
+        scope = ";".join(f"{start}..{end}" for start, end in plan.reconstruction_scope_ranges)
+        composite = (
+            f", composite_components={len(plan.composite_region.components)}, "
+            f"detected_cores={len(plan.composite_region.detected_core_ranges)}, "
+            f"scope={scope or 'none'}"
+        )
+    missing_update_count = sum(
+        update.original_latitude is None or update.original_longitude is None
+        for update in plan.coordinate_updates
+    )
     return (
         f"  - records {plan.interval.start_record_index}..{plan.interval.end_record_index}: "
         f"{decision.action.value.upper()}, confidence={plan.confidence.value.upper()}, "
@@ -422,11 +479,13 @@ def _interval_console(
         f"connectors={plan.anchor_connector_distance_m:.2f} m, "
         f"path={plan.reconstruction_path_distance_m:.2f} m, "
         f"direction={plan.direction.value}, allocation={plan.allocation_method.value}, "
-        f"updates={len(plan.coordinate_updates)}, "
+        f"updates={len(plan.coordinate_updates)} "
+        f"(existing={len(plan.coordinate_updates) - missing_update_count}, "
+        f"missing={missing_update_count}), "
         "anchor_stability="
         f"{plan.anchor_before_stability.consecutive_normal_transition_count}/"
         f"{plan.anchor_after_stability.consecutive_normal_transition_count}"
-        f"{refinement}"
+        f"{refinement}{composite}"
     )
 
 
@@ -463,6 +522,18 @@ def _unresolved_console(
             f"{region.proposed_trusted_after_record_index}, "
             f"evidence=missing:{region.missing_position_record_count},"
             f"suspicious:{region.suspicious_transition_count},"
-            f"impossible:{region.impossible_transition_count}, bridge={bridge}"
+            f"impossible:{region.impossible_transition_count}, bridge={bridge}, "
+            f"components={len(region.components)}, "
+            f"reconstructable={'yes' if region.reconstructable else 'no'}"
         )
+        for component in region.components:
+            line += (
+                f"\n      component {component.start_record_index}.."
+                f"{component.end_record_index}: {component.kind.value}, "
+                f"state={component.state.value}, confidence={component.confidence.value.upper()}, "
+                f"evidence=missing:{component.missing_position_record_count},"
+                f"suspicious:{component.suspicious_transition_count},"
+                f"impossible:{component.impossible_transition_count},"
+                f"core:{component.detected_core_record_count}"
+            )
     return line

@@ -160,14 +160,26 @@ def _patch_requests(
         raise FitWriteError("repair plan contains duplicate coordinate updates")
 
     for interval in interval_plans:
-        allowed_indices = set(
-            range(
+        scope_ranges = interval.reconstruction_scope_ranges or (
+            (
                 interval.interval.start_record_index,
-                interval.interval.end_record_index + 1,
-            )
+                interval.interval.end_record_index,
+            ),
         )
+        allowed_indices: set[int] = set()
+        for start_index, end_index in scope_ranges:
+            if (
+                start_index > end_index
+                or start_index < interval.interval.start_record_index
+                or end_index > interval.interval.end_record_index
+            ):
+                raise FitWriteError("reconstruction scope is outside its diagnostic interval")
+            indices = set(range(start_index, end_index + 1))
+            if allowed_indices.intersection(indices):
+                raise FitWriteError("reconstruction scope ranges overlap")
+            allowed_indices.update(indices)
         if {update.record_index for update in interval.coordinate_updates} != allowed_indices:
-            raise FitWriteError("coordinate updates must cover exactly one corrupted interval")
+            raise FitWriteError("coordinate updates must exactly cover reconstruction scope")
 
     for record_index, update in coordinate_updates.items():
         if not 0 <= record_index < len(activity.records):

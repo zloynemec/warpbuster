@@ -208,6 +208,31 @@ Task: `tasks/006b-one-sided-gnss-failure-clusters.md`
 
 ---
 
+## M5C — Composite GNSS Failure Regions
+
+**Цель:** добавить общую диагностику и консервативную reconstruction для GNSS failures,
+в которых corrupted, missing, plausible и unknown components чередуются, а ближайшие
+формальные anchors могут быть unsafe.
+
+Результат:
+- component-level course-independent diagnostics;
+- отдельные detected evidence, mixed region и reconstruction scope;
+- bounded stable outer-anchor search без доверия к anchors внутри failure;
+- component-wise course candidates без изменения plausible/unknown movement;
+- однозначный course match и physical post-check либо явный unresolved отказ;
+- synthetic/private/performance regressions и полный console/JSON/HTML audit.
+
+Composite candidate ограничен `MEDIUM`, а `reconstruction_scope_ranges` отделены от
+полного diagnostic region. `PLAUSIBLE/UNKNOWN` positioned components не попадают в
+updates; writer умеет применять разрывный scope без изменения сохранённых компонентов.
+
+Private Andromeda `8820..9580` остаётся одним regression fixture и не определяет модель,
+proof rules или thresholds.
+
+Task: `tasks/006c-composite-gnss-failure-regions.md`
+
+---
+
 ## M6 — FIT Repair Writer + Validate + Diff
 
 **Цель:** применить RepairPlan к FIT, сохранив исходные данные.

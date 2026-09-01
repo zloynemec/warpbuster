@@ -134,6 +134,12 @@
     </section>
 
     <section>
+      <h2>Composite GNSS regions</h2>
+      <div id="composite-regions"></div>
+      <p class="hint">Components are classified without the reference course. A diagnostic region may contain proven-corrupted, tainted, plausible, unknown and missing data; inclusion in the region alone does not authorize coordinate changes.</p>
+    </section>
+
+    <section>
       <h2>Detected intervals</h2>
       <div id="intervals"></div>
     </section>
@@ -166,7 +172,7 @@
     const analysis = data.analysis;
     const repair = data.repair;
     const writeResult = data.write_result;
-    const colors = { original: "#64748b", repaired: "#1d6fb8", candidate: "#0f766e", course: "#6b46c1", corrupted: "#c53030", skipped: "#b7791f", missing: "#d97706", recorded: "#2f855a", blue: "#176b87", purple: "#6b46c1", grid: "#dedbd2", ink: "#17202a", muted: "#65717d" };
+    const colors = { original: "#64748b", repaired: "#1d6fb8", candidate: "#0f766e", course: "#6b46c1", corrupted: "#c53030", tainted: "#dd6b20", plausible: "#2f855a", unknown: "#64748b", skipped: "#b7791f", missing: "#d97706", recorded: "#2f855a", blue: "#176b87", purple: "#6b46c1", grid: "#dedbd2", ink: "#17202a", muted: "#65717d" };
 
     const text = (value, fallback = "n/a") => value === null || value === undefined || value === "" ? fallback : String(value);
     const number = (value, digits = 2) => typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "n/a";
@@ -229,6 +235,28 @@
       [...item.selection_reasons, ...item.reconstruction_reasons].join(", "),
     ]) : [];
     document.getElementById("repair-decisions").appendChild(table(["Records", "Action", "Confidence", "Candidate", "Updates", "Reasons"], decisionRows));
+
+    const compositeEntries = repair ? [
+      ...repair.interval_plans.map((item) => ({ region: item.composite_gnss_region, scope: item.reconstruction_scope_ranges || [] })),
+      ...repair.unresolved_intervals.map((item) => ({ region: item.mixed_gnss_region, scope: [] })),
+    ].filter((item) => item.region && Array.isArray(item.region.components) && item.region.components.length) : [];
+    const compositeRegions = compositeEntries.map((item) => item.region);
+    const compositeRows = compositeEntries.flatMap(({ region, scope }) => region.components.map((component) => [
+      `${region.start_record_index}..${region.end_record_index}`,
+      scope.length ? scope.map((bounds) => `${bounds[0]}..${bounds[1]}`).join("; ") : "none",
+      `${component.start_record_index}..${component.end_record_index}`,
+      component.duration_seconds === null ? "n/a" : `${number(component.duration_seconds)} s`,
+      component.kind,
+      badge(component.state),
+      component.confidence.toUpperCase(),
+      `${component.positioned_record_count}/${component.missing_position_record_count}`,
+      `${component.impossible_transition_count}/${component.suspicious_transition_count}`,
+      component.reasons.join(", "),
+    ]));
+    document.getElementById("composite-regions").appendChild(table(
+      ["Region", "Reconstruction scope", "Component", "Duration", "Kind", "State", "Confidence", "Positioned / missing", "Impossible / suspicious", "Reasons"],
+      compositeRows,
+    ));
 
     const intervalRows = analysis.corrupted_intervals.map((item) => [
       `${item.start_record_index}..${item.end_record_index}`,
@@ -380,6 +408,11 @@
     addOverlay("Corrupted intervals", corruptedSegments, { color: colors.corrupted, weight: 6, opacity: 0.9 }, !hasRepaired);
     const skippedSegments = repair ? repair.selection.intervals.filter((item) => item.action === "skipped").flatMap((item) => splitTrack(layers.original, [item.start_record_index, item.end_record_index])) : [];
     addOverlay("Skipped intervals", skippedSegments, { color: colors.skipped, weight: 6, opacity: 0.9 }, false);
+    const compositeSegments = (state) => compositeRegions.flatMap((region) => region.components.filter((component) => component.kind === "positioned" && component.state === state).flatMap((component) => splitTrack(layers.original, [component.start_record_index, component.end_record_index])));
+    addOverlay("Composite proven corrupted", compositeSegments("proven_corrupted"), { color: colors.corrupted, weight: 7, opacity: 0.9 }, false);
+    addOverlay("Composite tainted", compositeSegments("tainted"), { color: colors.tainted, weight: 6, opacity: 0.9 }, false);
+    addOverlay("Composite plausible", compositeSegments("plausible"), { color: colors.plausible, weight: 5, opacity: 0.85 }, false);
+    addOverlay("Composite unknown", compositeSegments("unknown"), { color: colors.unknown, weight: 5, opacity: 0.8, dashArray: "4 5" }, false);
     addOverlay("Missing-data bridges", missingBridges(primaryRows), { color: colors.missing, weight: 3, opacity: 0.9, dashArray: "7 7" });
 
     const markerLayers = [];

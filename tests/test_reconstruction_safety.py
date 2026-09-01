@@ -118,6 +118,9 @@ def test_mixed_region_finds_stable_outer_anchors_but_is_not_repairable() -> None
     assert region.bridge_plausible is True
     assert region.confidence is IntegrityConfidence.MEDIUM
     assert region.repair_eligible is False
+    assert region.reconstructable is True
+    assert region.all_positioned_components_tainted is True
+    assert len(region.components) == 2
     assert ReconstructionReason.MIXED_REGION_REQUIRES_REVIEW in region.reasons
 
 
@@ -161,16 +164,21 @@ def test_mixed_region_is_exposed_in_json_and_console(tmp_path: Path) -> None:
 
     plan = build_course_repair_plan(activity, integrity, course, config)
     report = repair_report(plan, course, config)
-    unresolved = report["unresolved_intervals"]
-    assert isinstance(unresolved, list)
-    mixed = unresolved[0]["mixed_gnss_region"]
+    interval_plans = report["interval_plans"]
+    assert isinstance(interval_plans, list)
+    mixed = interval_plans[0]["composite_gnss_region"]
     assert mixed["start_record_index"] == 3
     assert mixed["end_record_index"] == 9
     assert mixed["repair_eligible"] is False
+    assert mixed["reconstructable"] is True
+    assert [component["kind"] for component in mixed["components"]] == [
+        "positioned",
+        "missing",
+    ]
 
     console = repair_console(plan, course, config)
-    assert "anchor_before_unstable,anchor_after_unstable,mixed_gnss_region" in console
-    assert "mixed GNSS region 3..9: MEDIUM, eligible=no" in console
+    assert "kind=composite_region" in console
+    assert "composite_components=2" in console
 
 
 def _safety_config() -> CourseReconstructionConfig:
