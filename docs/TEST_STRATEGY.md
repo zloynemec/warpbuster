@@ -189,3 +189,57 @@ Expected changed:
 Private `Orion_Artyom.gpx` acceptance выполняется только при наличии локального файла и
 не коммитит пользовательский GPX. Из-за отсутствия timestamps ожидается общий status
 `UNKNOWN` и advisory warning на известном длинном chord, но не corruption.
+
+## 11. Course reconstruction dry-run regression
+
+Публичные synthetic fixtures проверяют:
+
+- GPX track/route course parsing и cumulative distance;
+- forward и reverse traversal;
+- unique HIGH anchor match и candidate coordinates только внутри interval;
+- приоритет пригодных distance/speed signals и fallback на timestamps/order;
+- отказ при self-intersection ambiguity, unmatched anchors и implausible traversal;
+- clean activity как `NOT_NEEDED`;
+- отсутствие output FIT в любом M5 workflow;
+- CLI JSON/console, exit `2` для invalid input и `3` для insufficient confidence.
+
+Trusted-anchor safety regression дополнительно проверяет:
+
+- isolated spike со stable NORMAL context с обеих сторон;
+- блокировку anchor соседним impossible/suspicious transition;
+- остановку context scan на missing position и continuity boundary;
+- bounded mixed-region grouping без присоединения далёкой аномалии;
+- stable outer anchors и plausible bridge как `MEDIUM`, `repair_eligible=false`;
+- отсутствие GPX course в API построения safety boundary;
+- console/JSON diagnostics original anchors и mixed region.
+
+Private Andromeda acceptance проверяет основной HIGH candidate независимо от reference
+fixed FIT. Reference-fixed файл используется только тестом качества: median coordinate
+deviation `< 20 m`, maximum `< 40 m`. Для малого interval `8841..8854` оба исходных
+anchors должны быть unsafe; диагностический mixed region `8820..9580` находит stable
+outer anchors, но остаётся `MEDIUM` и не eligible. Итоговый plan — `PARTIAL`; это
+запрещает автоматическое применение всего plan.
+
+## 12. FIT writer, validation и diff regression
+
+Публичный synthetic READY fixture проверяет:
+
+- fixed-size byte patch без изменения размера FIT и definitions;
+- новый footer CRC и успешный strict decode;
+- coordinates меняются только внутри planned interval;
+- cumulative distance больше не содержит teleport increments;
+- lap/session total distance и existing average speed согласованы;
+- timestamps, altitude, record speed, HR, cadence, power, temperature и developer fields
+  сохраняются на 100%;
+- semantic diff содержит только expected changes;
+- default/explicit output, atomic no-overwrite и stale-source refusal;
+- `validate` exit `0/4`, `diff` unexpected changes и bounded reports;
+- default `HIGH` отбрасывает MEDIUM candidate, а явные `MEDIUM`/`LOW` допускают его;
+- `PARTIAL` plan применяет выбранные candidates и оставляет skipped intervals без
+  изменения coordinates;
+- write report перечисляет все detected intervals как applied/skipped с reasons.
+
+Private Andromeda regression применяет основной HIGH interval из `PARTIAL` plan и
+оставляет mixed region `8820..9580` неизменным. Output проходит validation/diff;
+timestamps, sensors, developer и unknown fields сохраняются на 100%. Ручной
+Garmin/Strava upload остаётся вне automated CI.

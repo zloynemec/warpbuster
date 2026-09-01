@@ -217,3 +217,75 @@ continuity boundaries и ограничен window size, stride и retention cap
 repair по этому evidence запрещён.
 
 Статус: Accepted.
+
+## ADR-018 — RepairPlan status describes reconstruction coverage
+
+M5 использует GPX course только после завершённого Integrity Detection. Reader принимает
+track и route geometry как отдельные continuous segments. Trusted anchors проецируются
+на один segment; направление может быть forward или reverse. Несколько равноценных
+course paths, unmatched anchor или неправдоподобная traversal speed не разрешаются
+эвристическим выбором и остаются unresolved.
+
+Candidate coordinates создаются только для records внутри `CorruptedInterval`.
+Распределение использует первый пригодный signal из recorded distance, integrated speed,
+timestamps и record order; distance/speed проходят consistency check относительно course
+span и не считаются безусловной истиной.
+
+Только plan, где все detected intervals имеют HIGH candidates, получает `READY`. Наличие
+хотя бы одного unresolved или MEDIUM candidate даёт `PARTIAL`. Эти статусы описывают
+полноту reconstruction evidence и не являются самостоятельной политикой writer-а.
+M5 всегда dry-run: timestamps, trusted coordinates и исходный FIT не изменяются.
+Reconstruction без course, OSM/DEM и FIT writer остаются вне Task 006.
+
+Статус: Accepted.
+
+## ADR-019 — Trusted anchors require course-independent normal context
+
+Граница `CorruptedInterval`, найденная парой impossible transitions и plausible bridge,
+ещё не доказывает, что соседний record является надёжным reconstruction anchor. Внутри
+одного GNSS failure могут чередоваться jumps, короткие правдоподобные фрагменты и missing
+positions; projection такого record на course способна дать убедительный, но неверный
+candidate.
+
+Поэтому до course matching каждый before/after anchor проходит directional bounded scan
+по последовательным `NORMAL` transitions с внешней стороны interval. Missing position,
+continuity/activity boundary и non-normal transition останавливают scan. Minimum context
+и все bounds находятся в `CourseReconstructionConfig`.
+
+При unsafe anchor близкие `IMPOSSIBLE`/`SUSPICIOUS` transitions и missing-position records
+группируются в course-independent `MixedGnssRegion`. Stable outer anchors и plausible
+direct bridge являются диагностическим evidence и могут дать не выше `MEDIUM`, но region
+всегда остаётся `repair_eligible=false`: эти признаки не доказывают повреждение каждой
+физически правдоподобной точки внутри. Course не участвует ни в stability check, ни в
+построении boundaries.
+
+Статус: Accepted.
+
+## ADR-020 — FIT repair uses fixed-width byte patches and pre-publish diff
+
+Полная re-encoding исходного FIT через текущий profile может потерять unknown messages,
+fields, developer data или vendor-specific ordering. Поэтому M6 сохраняет original raw
+container и патчит только payload существующих fixed-width scalar definitions. Размер,
+definitions и порядок messages остаются неизменными; после patch пересчитывается footer
+CRC.
+
+Writer применяет каждый доступный interval candidate с confidence не ниже явно
+выбранного minimum. Значения minimum — `LOW`, `MEDIUM`, `HIGH`; default — `HIGH`.
+Поэтому `PARTIAL` plan может дать частичный output: выбранные intervals изменяются, а
+unresolved intervals и candidates ниже threshold остаются byte-identical по coordinates.
+Если не выбран ни один candidate, output не создаётся. Dry-run preview и итоговый write
+report обязаны перечислять каждый detected interval с action `APPLIED`/`SKIPPED`,
+confidence, наличием candidate, числом updates и стабильными reasons.
+
+Cumulative record distance исправляется заменой increments на edges, затронутых новыми
+coordinates; поддерживаемые lap/session totals и existing average speeds получают
+согласованную correction. Record speed сохраняется, потому что без provenance он может
+происходить от footpod/Stryd или device fusion и не является доказанно
+coordinate-derived.
+
+Output сначала создаётся как temporary file в destination directory. До atomic publish
+он повторно декодируется с CRC check, проходит normalized validation и semantic diff.
+Любое изменение definitions/structure или unexpected field блокирует publish. Existing
+destination не перезаписывается.
+
+Статус: Accepted.

@@ -1,0 +1,144 @@
+"""Optional Task 006 acceptance against ignored private Andromeda data."""
+
+from pathlib import Path
+from statistics import median
+from typing import cast
+
+import pytest
+
+from warpbuster.fit.reader import read_fit
+from warpbuster.fit.writer import write_repaired_fit
+from warpbuster.geo import geodesic_distance_m
+from warpbuster.gpx.course import read_gpx_course
+from warpbuster.integrity import analyze_integrity
+from warpbuster.models.integrity import IntegrityConfidence
+from warpbuster.models.reconstruction import (
+    ReconstructionReason,
+    RepairIntervalAction,
+    RepairPlanStatus,
+)
+from warpbuster.reconstruction import build_course_repair_plan
+from warpbuster.report.fit import write_result_report
+
+_ORIGINAL = Path("tests/private/tracks/Andromeda_Taras.fit")
+_REFERENCE_FIXED = Path("tests/private/tracks/Andromeda_Taras_FIXED.fit")
+_COURSE = Path("tests/private/tracks/Andromeda_2026.gpx")
+_PRIVATE_FILES = (_ORIGINAL, _REFERENCE_FIXED, _COURSE)
+
+
+@pytest.mark.private
+@pytest.mark.skipif(
+    not all(path.exists() for path in _PRIVATE_FILES),
+    reason="private Andromeda original/fixed/course fixtures are unavailable",
+)
+def test_private_andromeda_main_interval_has_high_course_candidate(tmp_path: Path) -> None:
+    """The known long island matches course; off-course short anomaly stays unresolved."""
+    activity = read_fit(_ORIGINAL)
+    reference = read_fit(_REFERENCE_FIXED)
+    plan = build_course_repair_plan(
+        activity,
+        analyze_integrity(activity),
+        read_gpx_course(_COURSE),
+    )
+
+    main = max(plan.interval_plans, key=lambda candidate: candidate.interval.record_count)
+    assert plan.status is RepairPlanStatus.PARTIAL
+    assert main.confidence is IntegrityConfidence.HIGH
+    assert main.repair_eligible is True
+    assert main.interval.start_record_index == 1_794
+    assert main.interval.end_record_index == 3_254
+    assert len(main.coordinate_updates) == main.interval.record_count
+    assert all(
+        update.timestamp == activity.records[update.record_index].timestamp
+        for update in main.coordinate_updates
+    )
+    assert main.anchor_before_stability.stable is True
+    assert main.anchor_after_stability.stable is True
+
+    unresolved = plan.unresolved_intervals[0]
+    assert unresolved.reasons == (
+        ReconstructionReason.ANCHOR_BEFORE_UNSTABLE,
+        ReconstructionReason.ANCHOR_AFTER_UNSTABLE,
+        ReconstructionReason.MIXED_GNSS_REGION,
+    )
+    assert unresolved.anchor_before_stability is not None
+    assert unresolved.anchor_before_stability.consecutive_normal_transition_count == 0
+    assert unresolved.anchor_after_stability is not None
+    assert unresolved.anchor_after_stability.consecutive_normal_transition_count == 11
+    region = unresolved.mixed_region
+    assert region is not None
+    assert (region.start_record_index, region.end_record_index) == (8_820, 9_580)
+    assert (
+        region.proposed_trusted_before_record_index,
+        region.proposed_trusted_after_record_index,
+    ) == (8_819, 9_581)
+    assert region.outer_anchor_before is not None and region.outer_anchor_before.stable
+    assert region.outer_anchor_after is not None and region.outer_anchor_after.stable
+    assert region.bridge_plausible is True
+    assert region.bridge_speed_mps == pytest.approx(1.3046, abs=0.001)
+    assert region.confidence is IntegrityConfidence.MEDIUM
+    assert region.repair_eligible is False
+    output_path = tmp_path / "andromeda.fixed.fit"
+    result = write_repaired_fit(activity, plan, output_path)
+    fixed = read_fit(output_path)
+
+    assert output_path.exists()
+    assert result.selection.minimum_confidence is IntegrityConfidence.HIGH
+    assert result.selection.is_partial is True
+    assert result.selection.applied_interval_count == 1
+    assert result.selection.skipped_interval_count == 1
+    assert [decision.action for decision in result.selection.decisions] == [
+        RepairIntervalAction.APPLIED,
+        RepairIntervalAction.SKIPPED,
+    ]
+    report = write_result_report(result)
+    selection_report = cast(dict[str, object], report["selection"])
+    interval_reports = cast(list[dict[str, object]], selection_report["intervals"])
+    assert [item["action"] for item in interval_reports] == [
+        "applied",
+        "skipped",
+    ]
+    assert result.validation.valid is True
+    assert result.diff.unexpected_changed_field_count == 0
+    assert result.diff.timestamps.percentage == 100.0
+    assert result.diff.sensors.percentage == 100.0
+    assert result.diff.developer_fields.percentage == 100.0
+    assert result.diff.unknown_fields.percentage == 100.0
+    assert activity.records[-1].distance is not None
+    assert fixed.records[-1].distance is not None
+    assert activity.records[-1].distance - fixed.records[-1].distance > 80_000.0
+    assert fixed.records[-1].distance == pytest.approx(34_431.02, abs=0.05)
+    assert tuple(record.timestamp for record in fixed.records) == tuple(
+        record.timestamp for record in activity.records
+    )
+    assert all(
+        (fixed_record.latitude, fixed_record.longitude)
+        == (original_record.latitude, original_record.longitude)
+        for original_record, fixed_record in zip(activity.records, fixed.records, strict=True)
+        if not (
+            main.interval.start_record_index
+            <= original_record.index
+            <= main.interval.end_record_index
+        )
+    )
+    assert all(
+        fixed.records[update.record_index].latitude
+        == pytest.approx(update.candidate_latitude, abs=1e-7)
+        and fixed.records[update.record_index].longitude
+        == pytest.approx(update.candidate_longitude, abs=1e-7)
+        for update in main.coordinate_updates
+    )
+
+    deviations = [
+        geodesic_distance_m(
+            update.candidate_latitude,
+            update.candidate_longitude,
+            reference_record.latitude,
+            reference_record.longitude,
+        )
+        for update in main.coordinate_updates
+        if (reference_record := reference.records[update.record_index]).latitude is not None
+        and reference_record.longitude is not None
+    ]
+    assert median(deviations) < 20.0
+    assert max(deviations) < 40.0

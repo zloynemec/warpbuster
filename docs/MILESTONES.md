@@ -135,22 +135,57 @@ Task: `tasks/005b-geometry-gap-diagnostics.md`
 
 ---
 
+## M4C — Coordinate / Odometer Consistency Diagnostics
+
+**Цель:** сопоставлять GNSS geometry с recorded distance stream как независимым, но не
+авторитетным evidence.
+
+Результат после получения подходящего private FIT:
+- документированные semantics доступных FIT distance fields;
+- bounded coordinate/odometer comparison;
+- advisory warning и corroborating metrics;
+- отсутствие самостоятельного влияния на corruption status;
+- false-positive и performance regressions.
+
+Milestone пока не реализуется: GPX export и скриншот недостаточны для проверки
+происхождения и поведения device-recorded distance.
+
+Task: `tasks/005c-coordinate-odometer-consistency.md`
+
+---
+
 ## M5 — GPX Course Matching + Repair Plan (без записи FIT)
 
 **Цель:** после HIGH-confidence corruption научиться строить безопасный план реконструкции по course.
 
 Результат:
-- GPX reader;
-- course geometry;
-- trusted anchors;
-- ambiguity handling;
-- reconstructed coordinates candidate;
-- RepairPlan;
-- `repair --dry-run`.
+- отдельный GPX course reader для `trk` и `rte` geometry;
+- projection trusted anchors на continuous course segments;
+- forward/reverse direction и ambiguity handling;
+- reconstructed coordinates candidate только внутри corrupted interval;
+- `READY/PARTIAL/REFUSED/NOT_NEEDED` RepairPlan;
+- console/JSON `repair --dry-run`.
 
-FIT пока не изменяется.
+FIT не изменяется. Безопасный candidate может существовать внутри `PARTIAL` plan;
+политику выбора и записи определяет M6.
 
 Task: `tasks/006-course-repair-plan.md`
+
+---
+
+## M5A — Trusted Anchor Safety + Mixed GNSS Regions
+
+**Цель:** не разрешать reconstruction доверять формальным границам island detector-а,
+если эти records сами находятся внутри более широкого GNSS failure.
+
+Результат:
+- directional stability scan по NORMAL transitions до и после anchors;
+- отдельные причины unsafe before/after anchor;
+- bounded mixed-region grouping по jumps и missing positions без course;
+- diagnostic stable outer anchors и direct bridge;
+- `MEDIUM/LOW`, `repair_eligible=false` для mixed regions.
+
+Task: `tasks/006a-trusted-anchor-safety.md`
 
 ---
 
@@ -165,6 +200,12 @@ Task: `tasks/006-course-repair-plan.md`
 - validation;
 - diff;
 - Andromeda fixed FIT acceptance.
+
+Writer/validate/diff и synthetic preservation реализованы. Writer выбирает available
+candidates по minimum confidence (`HIGH` default), допускает частичную запись и явно
+отчитывается по каждому applied/skipped interval. Private Andromeda regression проверяет
+запись основного HIGH interval без изменения unresolved region. Ручная Garmin/Strava
+compatibility остаётся вне CI.
 
 Task: `tasks/007-fit-writer-validation.md`
 

@@ -103,6 +103,9 @@ warpbuster analyze activity.fit -vv
 warpbuster analyze activity.fit --json
 warpbuster analyze activity.gpx
 warpbuster analyze activity.gpx --json
+warpbuster repair activity.fit --course race.gpx --dry-run
+warpbuster repair activity.fit --course race.gpx --dry-run --json
+warpbuster repair activity.fit --course race.gpx --min-confidence medium
 ```
 
 Exit code `1` означает, что найдены `SUSPICIOUS` или `IMPOSSIBLE` переходы;
@@ -120,6 +123,26 @@ Exit code `1` означает, что найдены `SUSPICIOUS` или `IMPOS
 участков, похожих на интерполяцию. Такое предупреждение не меняет integrity status или
 exit code, не создаёт corrupted interval и всегда имеет `repair_eligible=false`.
 
+`repair --dry-run` строит course-based `RepairPlan`, но не изменяет и не создаёт FIT.
+`READY` означает, что все corrupted intervals получили однозначные HIGH candidates;
+`PARTIAL` означает, что candidate существует только для части intervals. Статус плана
+описывает полноту reconstruction, а не запрет записи.
+Перед course matching каждый proposed trusted anchor проходит независимую проверку
+локального NORMAL-контекста. Если рядом продолжаются jumps или missing-position gaps,
+anchor считается unsafe, а отчёт показывает bounded `mixed GNSS region`, внешние
+диагностические anchors и прямой bridge. Такой регион остаётся `MEDIUM/LOW` и никогда не
+становится auto-repairable только из-за подходящего course.
+
+Команда без `--dry-run` выбирает все доступные interval candidates с confidence не ниже
+`--min-confidence`; default — `high`. Поэтому безопасная HIGH-часть `PARTIAL` plan может
+быть записана, а unresolved и кандидаты ниже порога остаются неизменными. Значения
+параметра: `low`, `medium`, `high`. Если не выбран ни один candidate, output не создаётся.
+Writer создаёт `<stem>.fixed.fit` либо путь из `--output`, сохраняет исходные FIT frames,
+пересчитывает CRC, проверяет output и отказывается от overwrite. Dry-run preview и
+итоговый write report перечисляют каждый interval как `APPLIED` или `SKIPPED` с причиной.
+`warpbuster validate` проверяет FIT/CRC и базовые invariants, а `warpbuster diff`
+показывает expected/unexpected changes и preservation percentages.
+
 Полный набор проверок:
 
 ```bash
@@ -132,6 +155,7 @@ python -m mypy src tests
 На текущем этапе реализованы чтение FIT, инспекция, локальный анализ соседних GNSS
 observations, GPX activity input, bounded-поиск spoofing islands по impossible entry/exit
 и plausible bridge, geometry gap diagnostics, а также false-positive regressions и
-bounded diagnostics.
-Reconstruction и repair намеренно отложены до следующих milestones согласно
-`docs/MILESTONES.md`.
+bounded diagnostics. M5 также добавляет GPX course matching и dry-run RepairPlan.
+Task 006A добавляет course-independent trusted-anchor safety gate. Фактическая запись
+FIT, validation и diff реализованы в M6. Private Andromeda regression подтверждает
+частичную запись основного HIGH interval с сохранением unresolved mixed region.

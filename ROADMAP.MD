@@ -52,17 +52,36 @@ Roadmap следует порядку milestone из [`docs/MILESTONES.md`](docs
   - bounded scan, configurable thresholds и false-positive regressions;
   - private acceptance для Strava GPX без timestamps.
 
-- [ ] **M5 / Task 006 — GPX Course Matching + Dry Repair Plan**
+- [ ] **M4C / Task 005C — Coordinate / Odometer Consistency Diagnostics**
+  ([task](tasks/005c-coordinate-odometer-consistency.md)) — ожидает приватный FIT fixture
+  - сравнение GNSS geometry с независимо записанной distance stream;
+  - advisory/corroborating evidence без самостоятельного повышения status;
+  - неизвестный источник distance не приписывается Garmin, Stryd или другому vendor-у;
+  - реализация отложена до исследования реального FIT.
+
+- [x] **M5 / Task 006 — GPX Course Matching + Dry Repair Plan**
   ([task](tasks/006-course-repair-plan.md))
   - GPX course reader, trusted anchors и ambiguity handling;
   - reconstruction candidates и `RepairPlan`;
-  - `repair --dry-run` без изменения исходного FIT.
+  - `repair --dry-run` без изменения исходного FIT;
+  - writer и политика применения оставлены следующему milestone M6.
 
-- [ ] **M6 / Task 007 — FIT Writer, Preservation, Validate, Diff**
+- [x] **M5A / Task 006A — Trusted Anchor Safety + Mixed GNSS Regions**
+  ([task](tasks/006a-trusted-anchor-safety.md))
+  - directional NORMAL-context validation до обращения к course;
+  - bounded grouping соседних jumps и missing-position gaps;
+  - внешние stable anchors и plausible bridge только как диагностика;
+  - mixed region остаётся `MEDIUM/LOW`, `repair_eligible=false`.
+
+- [x] **M6 / Task 007 — FIT Writer, Preservation, Validate, Diff**
   ([task](tasks/007-fit-writer-validation.md))
-  - безопасное применение `RepairPlan`;
-  - сохранение timestamps, sensors и неизвестных данных;
-  - повторная валидация FIT и подробный diff изменений.
+  - byte-preserving writer, CRC, atomic output и no-overwrite реализованы;
+  - timestamps, sensors, developer/unknown data проверяются semantic diff;
+  - `validate` и `diff` реализованы, synthetic preservation regression зелёный;
+  - partial repair выбирает candidates по `--min-confidence` (`HIGH` по умолчанию), а
+    отчёт перечисляет applied/skipped intervals;
+  - private Andromeda regression записывает основной HIGH interval и сохраняет
+    unresolved region; ручная Garmin/Strava compatibility остаётся внешней проверкой.
 
 - [ ] **M7 / Task 008 — HTML Report + v0.1 Stabilization**
   ([task](tasks/008-html-report-release.md))

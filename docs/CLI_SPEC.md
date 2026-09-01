@@ -88,15 +88,8 @@ HTML добавляется отдельным milestone.
 
 Появляется только после завершения detector milestones.
 
-```bash
-warpbuster repair activity.fit --course race.gpx
-```
-
-Default output:
-
-`activity.fixed.fit`
-
-Запрещён silent overwrite original.
+Dry-run остаётся planning mode для исходного FIT и reference GPX course. На M6 команда
+без `--dry-run` применяет только полный `READY` plan.
 
 ### Dry run
 
@@ -106,11 +99,46 @@ warpbuster repair activity.fit --course race.gpx --dry-run
 
 Показывает RepairPlan, не пишет FIT.
 
+Опции:
+
+```bash
+warpbuster repair activity.fit --course race.gpx --dry-run --json
+warpbuster repair activity.fit --course race.gpx --dry-run -v
+warpbuster repair activity.fit --course race.gpx --min-confidence medium
+```
+
+Report содержит anchor matches, direction, course span/speed, allocation method,
+candidate coordinates, fields to change/recalculate, unresolved intervals и safety
+flags. Course участвует только в reconstruction; `detection_used_course=false`.
+Для каждого proposed anchor report также содержит directional NORMAL-context count и
+blocking evidence. При unsafe anchors выводится bounded `mixed GNSS region`: границы,
+число missing/suspicious/impossible evidence, proposed outer anchors и скорость прямого
+outer bridge. Эти данные диагностические; region всегда `repair_eligible=false`.
+
+Plan statuses описывают coverage:
+- `READY` — все intervals имеют HIGH candidate;
+- `PARTIAL` — candidate существует только для части intervals или имеет более низкий
+  confidence;
+- `REFUSED` — reconstruction candidate отсутствует;
+- `NOT_NEEDED` — reconstructable intervals отсутствуют.
+
+`--min-confidence {low,medium,high}` выбирает доступные candidates указанного confidence
+и выше; default — `high`. Dry-run возвращает `0`, если при выбранном threshold есть хотя
+бы один candidate либо plan имеет `NOT_NEEDED`, иначе `3`. Write mode допускает partial
+application: выбранные intervals записываются, остальные остаются неизменными. При
+нулевом выборе output не создаётся и команда возвращает `3`. Preview и write report
+перечисляют каждый interval с action, confidence, candidate availability, update count и
+reasons. GPX activity вместо оригинального FIT и malformed course возвращают `2`.
+
 ### Explicit output
 
 ```bash
 warpbuster repair activity.fit --course race.gpx --output out.fit
 ```
+
+Если `--output` не указан, используется `<stem>.fixed.fit`. Existing output никогда не
+перезаписывается. Запись атомарно публикуется только после validation и diff без
+unexpected changes.
 
 ## 4. `warpbuster validate`
 
@@ -126,6 +154,8 @@ warpbuster validate activity.fixed.fit
 - monotonic distance, где это ожидается;
 - basic FIT consistency.
 
+Valid report возвращает `0`, invalid — `4`. Доступен `--json`.
+
 ## 5. `warpbuster diff`
 
 ```bash
@@ -133,6 +163,11 @@ warpbuster diff original.fit fixed.fit
 ```
 
 Показывает изменённые/сохранённые поля.
+
+Report содержит changed records/fields, expected/unexpected changes, неизменность
+definitions и preservation percentages для timestamps, sensors, developer и unknown
+fields. `-v` показывает не более 20 field changes, `--json` — bounded detail до 200.
+Structural или unexpected changes возвращают `4`.
 
 ## 6. Verbosity
 

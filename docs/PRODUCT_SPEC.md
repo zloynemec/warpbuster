@@ -142,6 +142,26 @@ Requirements:
 - не выбирать автоматически неоднозначный segment;
 - LOW confidence → не auto-repair.
 
+M5 реализует только dry-run `RepairPlan`. Course anchors проецируются на одну continuous
+polyline; traversal с неправдоподобной скоростью или несколько равноценных matches
+отклоняются. Candidate coordinates создаются только для records внутри уже доказанного
+corrupted interval. M5 сам не пишет FIT; selection policy определяется writer-ом M6.
+
+До projection каждый anchor обязан подтвердить устойчивость последовательными локальными
+`NORMAL` transitions с внешней стороны interval. Неустойчивые anchors блокируют course
+candidate. Близкие jumps/dropouts могут быть показаны как более широкий
+`MixedGnssRegion`; даже при stable outer anchors и plausible bridge он не ремонтируется
+автоматически, потому что внутри могут оставаться физически правдоподобные реальные точки.
+
+Пригодная recorded distance или speed может использоваться для распределения points по
+course, но только после consistency check; иначе используются timestamps или record
+order. Без GPX course восстановление в M5 не выполняется.
+
+На стадии write доступные interval candidates выбираются по явному minimum confidence:
+`LOW`, `MEDIUM` или `HIGH` (`HIGH` по умолчанию). Частичная запись разрешена: каждый
+detected interval получает отдельный результат `APPLIED` или `SKIPPED`; отсутствие
+candidate нельзя обойти снижением threshold.
+
 ## 7. FIT preservation
 
 При repair необходимо по возможности сохранить:
@@ -159,6 +179,15 @@ Requirements:
 - неизвестные vendor fields/messages.
 
 После изменения position пересчитать только необходимые зависимые поля.
+
+Writer применяет только полный `READY` plan. Он сохраняет исходные FIT frames и
+definitions, патчит fixed-width coordinate/distance/поддерживаемые summary fields и
+публикует output только после CRC validation и diff без unexpected changes. Existing
+output не перезаписывается.
+
+Record speed по умолчанию сохраняется: без знания producer-а нельзя считать его
+coordinate-derived. Average-speed summaries пересчитываются из corrected distance и
+timer time только если соответствующие FIT fields уже существуют.
 
 ## 8. Не входит в v0.1
 

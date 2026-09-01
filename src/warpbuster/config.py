@@ -149,3 +149,72 @@ class IntegrityConfig:
             raise ValueError("geometry_max_bearing_change_degrees must not exceed 180")
         if self.geometry_max_warnings < 0:
             raise ValueError("geometry_max_warnings must not be negative")
+
+
+@dataclass(frozen=True, slots=True)
+class CourseReconstructionConfig:
+    """Named thresholds and bounds for GPX course reconstruction.
+
+    These values affect only optional reconstruction after integrity detection.
+    They are deliberately separate from ``IntegrityConfig``.
+
+    ``anchor_stability_min_normal_transitions`` is the required consecutive local
+    NORMAL-transition count on each outward side of an anchor. The default 15 gives
+    meaningful context for typical one-second running samples without assuming a time
+    interval. ``anchor_stability_scan_max_records`` caps each directional scan at 60
+    records. ``mixed_region_search_max_records`` limits evidence lookup to 1,500 records
+    on each side of a detected interval. ``mixed_region_max_clean_gap_records`` allows
+    at most 15 clean records between evidence items joined into one diagnostic region.
+    """
+
+    anchor_match_tolerance_m: float = 75.0
+    high_confidence_anchor_distance_m: float = 50.0
+    anchor_candidate_deduplication_m: float = 25.0
+    ambiguity_score_margin_m: float = 10.0
+    minimum_course_span_m: float = 10.0
+    signal_course_length_ratio_min: float = 0.5
+    signal_course_length_ratio_max: float = 2.0
+    maximum_anchor_candidates: int = 32
+    maximum_reconstruction_intervals: int = 100
+    anchor_stability_min_normal_transitions: int = 15
+    anchor_stability_scan_max_records: int = 60
+    mixed_region_search_max_records: int = 1_500
+    mixed_region_max_clean_gap_records: int = 15
+
+    def __post_init__(self) -> None:
+        """Reject unsafe or contradictory reconstruction bounds."""
+        positive_values = {
+            "anchor_match_tolerance_m": self.anchor_match_tolerance_m,
+            "high_confidence_anchor_distance_m": self.high_confidence_anchor_distance_m,
+            "anchor_candidate_deduplication_m": self.anchor_candidate_deduplication_m,
+            "ambiguity_score_margin_m": self.ambiguity_score_margin_m,
+            "minimum_course_span_m": self.minimum_course_span_m,
+            "signal_course_length_ratio_min": self.signal_course_length_ratio_min,
+            "signal_course_length_ratio_max": self.signal_course_length_ratio_max,
+        }
+        for name, value in positive_values.items():
+            if value <= 0:
+                raise ValueError(f"{name} must be greater than zero")
+        if self.high_confidence_anchor_distance_m > self.anchor_match_tolerance_m:
+            raise ValueError(
+                "high_confidence_anchor_distance_m must not exceed anchor_match_tolerance_m"
+            )
+        if self.signal_course_length_ratio_min > self.signal_course_length_ratio_max:
+            raise ValueError(
+                "signal_course_length_ratio_min must not exceed signal_course_length_ratio_max"
+            )
+        if self.maximum_anchor_candidates < 1:
+            raise ValueError("maximum_anchor_candidates must be at least one")
+        if self.maximum_reconstruction_intervals < 1:
+            raise ValueError("maximum_reconstruction_intervals must be at least one")
+        if self.anchor_stability_min_normal_transitions < 1:
+            raise ValueError("anchor_stability_min_normal_transitions must be at least one")
+        if self.anchor_stability_scan_max_records < self.anchor_stability_min_normal_transitions:
+            raise ValueError(
+                "anchor_stability_scan_max_records must not be less than "
+                "anchor_stability_min_normal_transitions"
+            )
+        if self.mixed_region_search_max_records < 1:
+            raise ValueError("mixed_region_search_max_records must be at least one")
+        if self.mixed_region_max_clean_gap_records < 0:
+            raise ValueError("mixed_region_max_clean_gap_records must not be negative")
