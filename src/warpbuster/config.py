@@ -44,6 +44,25 @@ class IntegrityConfig:
             deriving the bridge limit.
         diagnostic_max_candidate_details: Maximum bridge candidate details retained
             for reports; aggregate counters are never truncated.
+        one_sided_search_max_records: Maximum records inspected after an unpaired
+            impossible transition when looking for missing-exit cluster evidence.
+        one_sided_max_clean_gap_records: Maximum records without new suspicious or
+            missing-position evidence that may join evidence into one cluster.
+        one_sided_anchor_min_normal_transitions: Consecutive NORMAL transitions
+            required outside each proposed one-sided cluster boundary.
+        one_sided_anchor_scan_max_records: Maximum records inspected outward from
+            either proposed trusted anchor.
+        one_sided_max_diagnostics: Maximum candidate diagnostics retained; aggregate
+            counters are never truncated.
+        vertical_warning_speed_mps: Sustained absolute vertical speed in metres per
+            second that merits a sensor-consistency warning. ``None`` disables the
+            scan for activity types without a justified profile.
+        vertical_warning_single_transition_speed_mps: Higher absolute vertical speed
+            that can create a warning from one transition.
+        vertical_warning_min_delta_m: Minimum absolute altitude change per transition.
+        vertical_warning_min_consecutive_transitions: Consecutive lower-threshold
+            transitions required for a sustained warning.
+        vertical_warning_max_count: Maximum warnings retained in a report.
         geometry_min_chord_distance_m: Minimum endpoint distance in metres for a
             near-collinear geometry warning.
         geometry_min_position_count: Minimum positioned observations in a warning.
@@ -74,6 +93,16 @@ class IntegrityConfig:
     bridge_speed_floor_mps: float = 5.0
     bridge_baseline_multiplier: float = 3.0
     diagnostic_max_candidate_details: int = 100
+    one_sided_search_max_records: int = 512
+    one_sided_max_clean_gap_records: int = 32
+    one_sided_anchor_min_normal_transitions: int = 15
+    one_sided_anchor_scan_max_records: int = 60
+    one_sided_max_diagnostics: int = 100
+    vertical_warning_speed_mps: float | None = None
+    vertical_warning_single_transition_speed_mps: float = 10.0
+    vertical_warning_min_delta_m: float = 4.0
+    vertical_warning_min_consecutive_transitions: int = 3
+    vertical_warning_max_count: int = 100
     geometry_min_chord_distance_m: float = 1_000.0
     geometry_min_position_count: int = 100
     geometry_max_cross_track_deviation_m: float = 0.5
@@ -90,6 +119,7 @@ class IntegrityConfig:
             profile=IntegrityProfile.RUNNING,
             absolute_impossible_speed_mps=25.0,
             bridge_max_speed_mps=12.0,
+            vertical_warning_speed_mps=4.0,
         )
 
     @classmethod
@@ -113,6 +143,10 @@ class IntegrityConfig:
             "geometry_min_chord_distance_m": self.geometry_min_chord_distance_m,
             "geometry_max_cross_track_deviation_m": (self.geometry_max_cross_track_deviation_m),
             "geometry_max_bearing_change_degrees": (self.geometry_max_bearing_change_degrees),
+            "vertical_warning_single_transition_speed_mps": (
+                self.vertical_warning_single_transition_speed_mps
+            ),
+            "vertical_warning_min_delta_m": self.vertical_warning_min_delta_m,
         }
         for name, value in positive_values.items():
             if value <= 0:
@@ -124,6 +158,16 @@ class IntegrityConfig:
             raise ValueError("absolute_impossible_speed_mps must be greater than zero")
         if self.bridge_max_speed_mps is not None and self.bridge_max_speed_mps <= 0:
             raise ValueError("bridge_max_speed_mps must be greater than zero")
+        if self.vertical_warning_speed_mps is not None and self.vertical_warning_speed_mps <= 0:
+            raise ValueError("vertical_warning_speed_mps must be greater than zero")
+        if (
+            self.vertical_warning_speed_mps is not None
+            and self.vertical_warning_single_transition_speed_mps < self.vertical_warning_speed_mps
+        ):
+            raise ValueError(
+                "vertical_warning_single_transition_speed_mps must not be less than "
+                "vertical_warning_speed_mps"
+            )
         if (
             self.bridge_max_speed_mps is not None
             and self.bridge_speed_floor_mps > self.bridge_max_speed_mps
@@ -135,6 +179,23 @@ class IntegrityConfig:
             raise ValueError("island_search_max_exit_candidates must be at least one")
         if self.diagnostic_max_candidate_details < 0:
             raise ValueError("diagnostic_max_candidate_details must not be negative")
+        if self.one_sided_search_max_records < 1:
+            raise ValueError("one_sided_search_max_records must be at least one")
+        if self.one_sided_max_clean_gap_records < 0:
+            raise ValueError("one_sided_max_clean_gap_records must not be negative")
+        if self.one_sided_anchor_min_normal_transitions < 1:
+            raise ValueError("one_sided_anchor_min_normal_transitions must be at least one")
+        if self.one_sided_anchor_scan_max_records < self.one_sided_anchor_min_normal_transitions:
+            raise ValueError(
+                "one_sided_anchor_scan_max_records must not be less than "
+                "one_sided_anchor_min_normal_transitions"
+            )
+        if self.one_sided_max_diagnostics < 0:
+            raise ValueError("one_sided_max_diagnostics must not be negative")
+        if self.vertical_warning_min_consecutive_transitions < 2:
+            raise ValueError("vertical_warning_min_consecutive_transitions must be at least two")
+        if self.vertical_warning_max_count < 0:
+            raise ValueError("vertical_warning_max_count must not be negative")
         if self.geometry_min_position_count < 3:
             raise ValueError("geometry_min_position_count must be at least three")
         if self.geometry_scan_max_window_records < self.geometry_min_position_count:
@@ -158,18 +219,34 @@ class CourseReconstructionConfig:
     These values affect only optional reconstruction after integrity detection.
     They are deliberately separate from ``IntegrityConfig``.
 
-    ``anchor_stability_min_normal_transitions`` is the required consecutive local
+    ``one_sided_anchor_match_tolerance_m`` permits a wider, explicitly MEDIUM-only
+    match for a course-independent one-sided failure whose trusted anchor drifted
+    before the impossible edge. ``one_sided_anchor_candidate_deduplication_m`` treats
+    nearby projections on the same course branch as equivalent; ambiguity between
+    distinct branches is still refused. ``anchor_stability_min_normal_transitions``
+    is the required consecutive local
     NORMAL-transition count on each outward side of an anchor. The default 15 gives
     meaningful context for typical one-second running samples without assuming a time
     interval. ``anchor_stability_scan_max_records`` caps each directional scan at 60
     records. ``mixed_region_search_max_records`` limits evidence lookup to 1,500 records
     on each side of a detected interval. ``mixed_region_max_clean_gap_records`` allows
     at most 15 clean records between evidence items joined into one diagnostic region.
+
+    ``one_sided_drift_corridor_tolerance_m`` is the maximum distance from the reference
+    course for records establishing that a one-sided GNSS drift has ended. The course
+    is used here only after course-independent detection and the resulting candidate
+    remains MEDIUM. ``one_sided_drift_stable_record_count`` requires a sustained return
+    to that corridor; ``one_sided_drift_search_max_records`` bounds the outward scan.
     """
 
     anchor_match_tolerance_m: float = 75.0
     high_confidence_anchor_distance_m: float = 50.0
     anchor_candidate_deduplication_m: float = 25.0
+    one_sided_anchor_match_tolerance_m: float = 100.0
+    one_sided_anchor_candidate_deduplication_m: float = 40.0
+    one_sided_drift_corridor_tolerance_m: float = 15.0
+    one_sided_drift_stable_record_count: int = 15
+    one_sided_drift_search_max_records: int = 256
     ambiguity_score_margin_m: float = 10.0
     minimum_course_span_m: float = 10.0
     signal_course_length_ratio_min: float = 0.5
@@ -187,6 +264,11 @@ class CourseReconstructionConfig:
             "anchor_match_tolerance_m": self.anchor_match_tolerance_m,
             "high_confidence_anchor_distance_m": self.high_confidence_anchor_distance_m,
             "anchor_candidate_deduplication_m": self.anchor_candidate_deduplication_m,
+            "one_sided_anchor_match_tolerance_m": self.one_sided_anchor_match_tolerance_m,
+            "one_sided_anchor_candidate_deduplication_m": (
+                self.one_sided_anchor_candidate_deduplication_m
+            ),
+            "one_sided_drift_corridor_tolerance_m": (self.one_sided_drift_corridor_tolerance_m),
             "ambiguity_score_margin_m": self.ambiguity_score_margin_m,
             "minimum_course_span_m": self.minimum_course_span_m,
             "signal_course_length_ratio_min": self.signal_course_length_ratio_min,
@@ -199,6 +281,11 @@ class CourseReconstructionConfig:
             raise ValueError(
                 "high_confidence_anchor_distance_m must not exceed anchor_match_tolerance_m"
             )
+        if self.high_confidence_anchor_distance_m > self.one_sided_anchor_match_tolerance_m:
+            raise ValueError(
+                "high_confidence_anchor_distance_m must not exceed "
+                "one_sided_anchor_match_tolerance_m"
+            )
         if self.signal_course_length_ratio_min > self.signal_course_length_ratio_max:
             raise ValueError(
                 "signal_course_length_ratio_min must not exceed signal_course_length_ratio_max"
@@ -207,6 +294,13 @@ class CourseReconstructionConfig:
             raise ValueError("maximum_anchor_candidates must be at least one")
         if self.maximum_reconstruction_intervals < 1:
             raise ValueError("maximum_reconstruction_intervals must be at least one")
+        if self.one_sided_drift_stable_record_count < 2:
+            raise ValueError("one_sided_drift_stable_record_count must be at least two")
+        if self.one_sided_drift_search_max_records < self.one_sided_drift_stable_record_count:
+            raise ValueError(
+                "one_sided_drift_search_max_records must not be less than "
+                "one_sided_drift_stable_record_count"
+            )
         if self.anchor_stability_min_normal_transitions < 1:
             raise ValueError("anchor_stability_min_normal_transitions must be at least one")
         if self.anchor_stability_scan_max_records < self.anchor_stability_min_normal_transitions:

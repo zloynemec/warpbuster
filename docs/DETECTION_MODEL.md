@@ -29,6 +29,33 @@ WarpBuster не определяет, «правильно ли человек �
 
 Непрерывный блок observations, ограниченный невозможным входом и невозможным выходом, при этом trusted point before → trusted point after образуют физически правдоподобный bridge.
 
+### One-sided GNSS failure cluster
+
+Bounded interval с impossible entry, где exit transition скрыт missing-position run.
+Один jump недостаточен. Для `MEDIUM` interval одновременно требуются:
+
+- adjacent impossible entry;
+- missing-position evidence и missing-terminated boundary;
+- configurable consecutive `NORMAL` context снаружи обоих anchors;
+- plausible direct bridge между anchors;
+- каждый positioned-компонент внутри interval затронут `IMPOSSIBLE`/`SUSPICIOUS`
+  evidence.
+
+Если любое условие не выполнено, остаётся `LOW` unresolved diagnostic. Course, OSM,
+reference fixed FIT и distance-to-course не участвуют ни в proof, ни в boundaries.
+
+### Vertical warning
+
+Running profile выполняет отдельную course-independent проверку altitude rate:
+
+- sustained: не менее 3 последовательных transitions с `|vertical speed| >= 4 м/с`
+  и `|delta altitude| >= 4 м` на transition;
+- single extreme: `|vertical speed| >= 10 м/с` и `|delta altitude| >= 4 м`.
+
+Пороги находятся в `IntegrityConfig`. Warning не является доказательством порчи
+coordinates, потому что barometric/altitude sensor может ошибиться независимо от GNSS.
+Он не меняет integrity status и не создаёт repair interval.
+
 ## 3. Почему локального despike недостаточно
 
 Пример:
@@ -120,6 +147,10 @@ Records без lat/lon:
 - могут формировать interval;
 - reconstruction решает их отдельно.
 
+Missing records могут скрыть обратный impossible transition. One-sided scan запускается
+только от unpaired `IMPOSSIBLE` entry и ограничен числом records. Обычный tunnel/dropout
+без impossible entry не создаёт corrupted interval.
+
 ## 10. Course independence
 
 До конца Integrity Detection алгоритм не должен знать:
@@ -172,6 +203,10 @@ Detector не исправляет время.
 ```
 
 Confidence должен вычисляться из документированных rules, а не из LLM.
+
+Classic island с impossible entry/exit получает `HIGH`. One-sided missing-exit proof
+никогда не получает выше `MEDIUM` и поэтому не применяется writer-ом при default
+`--min-confidence high`.
 
 ## 13. False positives
 

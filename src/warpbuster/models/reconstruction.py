@@ -41,10 +41,12 @@ class ReconstructionReason(StrEnum):
     """Stable reasons supporting or refusing one reconstruction candidate."""
 
     INTERVAL_HIGH_CONFIDENCE = "interval_high_confidence"
+    INTERVAL_MEDIUM_CONFIDENCE = "interval_medium_confidence"
     ANCHORS_MATCHED = "anchors_matched"
     UNIQUE_COURSE_MATCH = "unique_course_match"
     TEMPORAL_ORDER_PRESERVED = "temporal_order_preserved"
     COURSE_SPEED_PLAUSIBLE = "course_speed_plausible"
+    ANCHOR_CONNECTORS_PLAUSIBLE = "anchor_connectors_plausible"
     RECORDED_DISTANCE_ALLOCATION = "recorded_distance_allocation"
     RECORDED_SPEED_ALLOCATION = "recorded_speed_allocation"
     TIMESTAMP_ALLOCATION = "timestamp_allocation"
@@ -54,6 +56,7 @@ class ReconstructionReason(StrEnum):
     ANCHOR_AFTER_NOT_MATCHED = "anchor_after_not_matched"
     COURSE_MATCH_AMBIGUOUS = "course_match_ambiguous"
     COURSE_TRAVERSAL_IMPLAUSIBLE = "course_traversal_implausible"
+    CANDIDATE_TRANSITION_IMPLAUSIBLE = "candidate_transition_implausible"
     RECONSTRUCTION_INTERVAL_LIMIT_EXCEEDED = "reconstruction_interval_limit_exceeded"
     NO_CORRUPTED_INTERVALS = "no_corrupted_intervals"
     DETECTION_HAS_NO_RECONSTRUCTABLE_INTERVAL = "detection_has_no_reconstructable_interval"
@@ -73,6 +76,10 @@ class ReconstructionReason(StrEnum):
     STABLE_OUTER_ANCHORS = "stable_outer_anchors"
     PLAUSIBLE_OUTER_BRIDGE = "plausible_outer_bridge"
     MIXED_REGION_REQUIRES_REVIEW = "mixed_region_requires_review"
+    ONE_SIDED_BOUNDARIES_REFINED = "one_sided_boundaries_refined"
+    ONE_SIDED_BOUNDARY_BEFORE_NOT_FOUND = "one_sided_boundary_before_not_found"
+    ONE_SIDED_BOUNDARY_AFTER_NOT_FOUND = "one_sided_boundary_after_not_found"
+    STABLE_COURSE_CORRIDOR = "stable_course_corridor"
 
 
 class RepairPlanStatus(StrEnum):
@@ -202,6 +209,25 @@ class MixedGnssRegion:
 
 
 @dataclass(frozen=True, slots=True)
+class CourseBoundaryRefinement:
+    """Course-stage expansion from a detected core to stable outer drift boundaries."""
+
+    detected_start_record_index: int
+    detected_end_record_index: int
+    original_trusted_before_record_index: int
+    original_trusted_after_record_index: int
+    refined_start_record_index: int
+    refined_end_record_index: int
+    refined_trusted_before_record_index: int
+    refined_trusted_after_record_index: int
+    expanded_before_record_count: int
+    expanded_after_record_count: int
+    corridor_tolerance_m: float
+    required_stable_record_count: int
+    reasons: tuple[ReconstructionReason, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class IntervalRepairPlan:
     """Declarative coordinate candidate for one corrupted interval."""
 
@@ -211,6 +237,8 @@ class IntervalRepairPlan:
     direction: CourseDirection
     course_span_distance_m: float
     course_apparent_speed_mps: float
+    anchor_connector_distance_m: float
+    reconstruction_path_distance_m: float
     allocation_method: AllocationMethod
     coordinate_updates: tuple[CandidateCoordinate, ...]
     fields_to_change: tuple[str, ...]
@@ -220,6 +248,7 @@ class IntervalRepairPlan:
     reasons: tuple[ReconstructionReason, ...]
     anchor_before_stability: AnchorStabilityDiagnostic
     anchor_after_stability: AnchorStabilityDiagnostic
+    boundary_refinement: CourseBoundaryRefinement | None = None
 
 
 @dataclass(frozen=True, slots=True)

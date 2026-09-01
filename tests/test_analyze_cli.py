@@ -62,7 +62,9 @@ def test_analyze_json_contains_machine_readable_reasons(
     assert report["stages"] == [
         "local_transitions",
         "spoofing_islands",
+        "one_sided_gnss_clusters",
         "geometry_gap_diagnostics",
+        "vertical_plausibility",
     ]
     assert report["activity"] == {"sport": "running", "sub_sport": None}
     assert report["status"] == "corrupted"
@@ -106,7 +108,8 @@ def test_analyze_double_verbose_shows_detector_diagnostics(
     assert main(["analyze", str(fit_path), "-vv"]) == 1
     captured = capsys.readouterr()  # type: ignore[attr-defined]
     assert (
-        "Pipeline: local_transitions -> spoofing_islands -> geometry_gap_diagnostics"
+        "Pipeline: local_transitions -> spoofing_islands -> "
+        "one_sided_gnss_clusters -> geometry_gap_diagnostics -> vertical_plausibility"
         in captured.out
     )
     assert "Detector diagnostics:" in captured.out

@@ -109,6 +109,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="output FIT path (default: <stem>.fixed.fit)",
     )
     repair_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="atomically replace existing FIT and HTML outputs",
+    )
+    repair_parser.add_argument(
         "--min-confidence",
         type=_confidence_argument,
         choices=tuple(IntegrityConfidence),
@@ -211,7 +216,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 2
         if args.html is not None:
             try:
-                ensure_html_output_available(args.html)
+                ensure_html_output_available(args.html, overwrite=args.overwrite)
             except HtmlReportError as error:
                 print(f"error: {error}", file=sys.stderr)
                 return 2
@@ -239,6 +244,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         config,
                         args.html,
                         minimum_confidence=args.min_confidence,
+                        overwrite=args.overwrite,
                     )
                 except (HtmlReportError, OSError) as error:
                     print(f"error: {error}", file=sys.stderr)
@@ -274,6 +280,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         config,
                         args.html,
                         minimum_confidence=args.min_confidence,
+                        overwrite=args.overwrite,
                     )
                 except (HtmlReportError, OSError) as error:
                     print(f"error: {error}", file=sys.stderr)
@@ -307,6 +314,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 plan,
                 args.output,
                 minimum_confidence=args.min_confidence,
+                overwrite=args.overwrite,
             )
         except (FitWriteError, OSError) as error:
             print(f"error: {error}", file=sys.stderr)
@@ -324,6 +332,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     minimum_confidence=args.min_confidence,
                     fixed_activity=fixed_activity,
                     write_result=result,
+                    overwrite=args.overwrite,
                 )
             except (FitReadError, HtmlReportError, OSError) as error:
                 print(

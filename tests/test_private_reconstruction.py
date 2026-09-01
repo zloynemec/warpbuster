@@ -17,13 +17,69 @@ from warpbuster.models.reconstruction import (
     RepairIntervalAction,
     RepairPlanStatus,
 )
-from warpbuster.reconstruction import build_course_repair_plan
+from warpbuster.reconstruction import build_course_repair_plan, select_repair_intervals
 from warpbuster.report.fit import write_result_report
 
 _ORIGINAL = Path("tests/private/tracks/Andromeda_Taras.fit")
 _REFERENCE_FIXED = Path("tests/private/tracks/Andromeda_Taras_FIXED.fit")
 _COURSE = Path("tests/private/tracks/Andromeda_2026.gpx")
 _PRIVATE_FILES = (_ORIGINAL, _REFERENCE_FIXED, _COURSE)
+
+
+@pytest.mark.private
+@pytest.mark.skipif(
+    not (_ORIGINAL.exists() and _COURSE.exists()),
+    reason="private Andromeda original/course fixtures are unavailable",
+)
+def test_private_andromeda_one_sided_cluster_is_explicit_medium_candidate() -> None:
+    """Task 006B proves the residual cluster and keeps application explicitly opt-in."""
+    activity = read_fit(_ORIGINAL)
+    integrity = analyze_integrity(activity)
+
+    interval = next(
+        interval
+        for interval in integrity.corrupted_intervals
+        if interval.start_record_index == 3_627
+    )
+    assert interval.end_record_index == 3_700
+    assert interval.confidence is IntegrityConfidence.MEDIUM
+    cluster = next(
+        cluster
+        for cluster in integrity.one_sided_search_diagnostics.retained_clusters
+        if cluster.start_record_index == 3_627
+    )
+    assert cluster.reconstructable is True
+    assert cluster.positioned_component_count == 2
+    assert cluster.tainted_positioned_component_count == 2
+    assert cluster.bridge is not None
+    assert cluster.bridge.apparent_speed_mps == pytest.approx(2.496, abs=0.01)
+
+    plan = build_course_repair_plan(activity, integrity, read_gpx_course(_COURSE))
+    candidate = next(
+        candidate
+        for candidate in plan.interval_plans
+        if candidate.boundary_refinement is not None
+        and candidate.boundary_refinement.detected_start_record_index == 3_627
+    )
+    assert (candidate.interval.start_record_index, candidate.interval.end_record_index) == (
+        3_582,
+        3_741,
+    )
+    assert (
+        candidate.interval.trusted_before_record_index,
+        candidate.interval.trusted_after_record_index,
+    ) == (3_581, 3_742)
+    assert candidate.confidence is IntegrityConfidence.MEDIUM
+    assert candidate.repair_eligible is False
+    assert candidate.anchor_before.anchor_distance_m == pytest.approx(12.98, abs=0.1)
+    assert candidate.anchor_after.anchor_distance_m == pytest.approx(14.91, abs=0.1)
+    assert candidate.anchor_connector_distance_m == pytest.approx(27.89, abs=0.2)
+    assert candidate.reconstruction_path_distance_m == pytest.approx(235.73, abs=0.3)
+    assert select_repair_intervals(plan).decisions[1].action is RepairIntervalAction.SKIPPED
+    assert (
+        select_repair_intervals(plan, IntegrityConfidence.MEDIUM).decisions[1].action
+        is RepairIntervalAction.APPLIED
+    )
 
 
 @pytest.mark.private
@@ -54,6 +110,15 @@ def test_private_andromeda_main_interval_has_high_course_candidate(tmp_path: Pat
     )
     assert main.anchor_before_stability.stable is True
     assert main.anchor_after_stability.stable is True
+
+    residual = next(
+        candidate
+        for candidate in plan.interval_plans
+        if candidate.boundary_refinement is not None
+        and candidate.boundary_refinement.detected_start_record_index == 3_627
+    )
+    assert residual.confidence is IntegrityConfidence.MEDIUM
+    assert residual.repair_eligible is False
 
     unresolved = plan.unresolved_intervals[0]
     assert unresolved.reasons == (
@@ -86,9 +151,10 @@ def test_private_andromeda_main_interval_has_high_course_candidate(tmp_path: Pat
     assert result.selection.minimum_confidence is IntegrityConfidence.HIGH
     assert result.selection.is_partial is True
     assert result.selection.applied_interval_count == 1
-    assert result.selection.skipped_interval_count == 1
+    assert result.selection.skipped_interval_count == 2
     assert [decision.action for decision in result.selection.decisions] == [
         RepairIntervalAction.APPLIED,
+        RepairIntervalAction.SKIPPED,
         RepairIntervalAction.SKIPPED,
     ]
     report = write_result_report(result)
@@ -96,6 +162,7 @@ def test_private_andromeda_main_interval_has_high_course_candidate(tmp_path: Pat
     interval_reports = cast(list[dict[str, object]], selection_report["intervals"])
     assert [item["action"] for item in interval_reports] == [
         "applied",
+        "skipped",
         "skipped",
     ]
     assert result.validation.valid is True

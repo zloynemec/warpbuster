@@ -133,6 +133,17 @@ Diagnostic pass использует только геометрию самой 
 OSM, DEM и vendor attribution в него не входят. Все thresholds и scan bounds находятся
 в `IntegrityConfig`; число retained warnings ограничено, aggregate counters сохраняются.
 
+После classic island search отдельный `one_sided` pass рассматривает только unpaired
+impossible entries. Bounded evidence grouping объединяет nearby abnormal transitions и
+missing-position runs, проверяет stable outer anchors, direct bridge и taint каждого
+positioned-компонента. Принятый interval имеет `detection_kind=one_sided_cluster` и
+confidence `MEDIUM`; остальные candidates сохраняются как capped diagnostics.
+
+Отдельный O(n) vertical pass проверяет adjacent timestamp/altitude samples. Running
+profile сообщает sustained и single-extreme vertical rates, но warning не классифицирует
+GNSS transition и не создаёт `CorruptedInterval`: altitude sensor может ошибаться
+независимо от coordinates.
+
 ## 6. Reconstruction
 
 Интерфейс provider-а должен позволить позже добавить:
@@ -166,6 +177,14 @@ polyline с configurable tolerance. Candidate pair обязан находить
 Распределение records по matched span выбирает наиболее информативный пригодный signal:
 recorded distance, integrated speed, timestamps или record order. Distance/speed
 проверяются на согласованность с course length и остаются evidence, а не истиной.
+
+Для one-sided interval reconstruction сначала выполняется bounded outward scan до
+configurable stable course corridor. Он может расширить repair scope вокруг уже
+course-independent detected core, но результат остаётся `MEDIUM`; original/refined
+boundaries сохраняются в report. Refined anchors не проецируются в output: geometry
+проходит по плавному connector к course, matched span и connector к after-anchor. Если выбранная
+distance/speed allocation создаёт abnormal local transition, используется timestamp
+fallback. Candidate с оставшимся impossible transition не попадает в RepairPlan.
 
 ## 7. Repair Plan
 
@@ -219,7 +238,9 @@ Summary interval обычно заканчивается в `lap/session.timesta
 
 Output сначала пишется во временный файл в destination directory. До atomic publish он
 обязан пройти CRC decode, normalized validation и semantic diff с нулём unexpected field
-changes. Existing destination не перезаписывается даже при race.
+changes. Existing destination не перезаписывается даже при race, если пользователь не
+передал явный `--overwrite`; тогда validated temporary file заменяет destination одним
+atomic `os.replace`. Source FIT остаётся запрещённой destination.
 
 ## 8A. Validation + Diff
 
@@ -242,8 +263,9 @@ HTML renderer получает готовые domain reports и normalized recor
 preview строится только из выбранных `CandidateCoordinate`; write report повторно читает
 уже validated output FIT.
 
-Report хранит template, application CSS/JavaScript и JSON payload в одном atomic
-no-overwrite output. Интерактивная карта использует Leaflet 1.9.4 с pinned CDN URL и
+Report хранит template, application CSS/JavaScript и JSON payload в одном atomic output
+с default no-overwrite и явным `repair --overwrite`. Интерактивная карта использует
+Leaflet 1.9.4 с pinned CDN URL и
 стандартные OpenStreetMap raster tiles; CSP разрешает только эти map dependencies.
 Telemetry остаётся локальным Canvas. Track geometry до передачи Leaflet разбивается на
 отдельные solid polylines по missing coordinates и смене `continuity_id`. Renderer строит

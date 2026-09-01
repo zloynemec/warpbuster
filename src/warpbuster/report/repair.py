@@ -11,6 +11,7 @@ from warpbuster.models.reconstruction import (
     AnchorStabilityDiagnostic,
     CandidateCoordinate,
     CourseAnchorMatch,
+    CourseBoundaryRefinement,
     CourseData,
     IntervalRepairPlan,
     MixedGnssRegion,
@@ -197,6 +198,7 @@ def repair_console(
                 (
                     "Matching thresholds: "
                     f"anchor<={config.anchor_match_tolerance_m:.2f} m, "
+                    f"one_sided_anchor<={config.one_sided_anchor_match_tolerance_m:.2f} m, "
                     f"HIGH<={config.high_confidence_anchor_distance_m:.2f} m, "
                     f"ambiguity_margin={config.ambiguity_score_margin_m:.2f} m"
                 ),
@@ -244,6 +246,7 @@ def _interval_report(
         "record_count": plan.interval.record_count,
         "trusted_before_record_index": plan.interval.trusted_before_record_index,
         "trusted_after_record_index": plan.interval.trusted_after_record_index,
+        "detection_kind": plan.interval.detection_kind.value,
         "confidence": plan.confidence.value,
         "repair_eligible": decision.action is RepairIntervalAction.APPLIED,
         "default_high_confidence_eligible": plan.repair_eligible,
@@ -251,17 +254,44 @@ def _interval_report(
         "direction": plan.direction.value,
         "course_span_distance_m": plan.course_span_distance_m,
         "course_apparent_speed_mps": plan.course_apparent_speed_mps,
+        "anchor_connector_distance_m": plan.anchor_connector_distance_m,
+        "reconstruction_path_distance_m": plan.reconstruction_path_distance_m,
         "allocation_method": plan.allocation_method.value,
         "anchor_before": _anchor_report(plan.anchor_before),
         "anchor_after": _anchor_report(plan.anchor_after),
         "anchor_before_stability": _stability_report(plan.anchor_before_stability),
         "anchor_after_stability": _stability_report(plan.anchor_after_stability),
+        "boundary_refinement": (
+            _boundary_refinement_report(plan.boundary_refinement)
+            if plan.boundary_refinement is not None
+            else None
+        ),
         "fields_to_change": list(plan.fields_to_change),
         "dependent_fields_to_recalculate": list(plan.dependent_fields_to_recalculate),
         "reasons": [reason.value for reason in plan.reasons],
         "coordinate_updates": [
             _coordinate_report(coordinate) for coordinate in plan.coordinate_updates
         ],
+    }
+
+
+def _boundary_refinement_report(
+    refinement: CourseBoundaryRefinement,
+) -> dict[str, object]:
+    return {
+        "detected_start_record_index": refinement.detected_start_record_index,
+        "detected_end_record_index": refinement.detected_end_record_index,
+        "original_trusted_before_record_index": (refinement.original_trusted_before_record_index),
+        "original_trusted_after_record_index": refinement.original_trusted_after_record_index,
+        "refined_start_record_index": refinement.refined_start_record_index,
+        "refined_end_record_index": refinement.refined_end_record_index,
+        "refined_trusted_before_record_index": (refinement.refined_trusted_before_record_index),
+        "refined_trusted_after_record_index": refinement.refined_trusted_after_record_index,
+        "expanded_before_record_count": refinement.expanded_before_record_count,
+        "expanded_after_record_count": refinement.expanded_after_record_count,
+        "corridor_tolerance_m": refinement.corridor_tolerance_m,
+        "required_stable_record_count": refinement.required_stable_record_count,
+        "reasons": [reason.value for reason in refinement.reasons],
     }
 
 
@@ -301,6 +331,7 @@ def _unresolved_report(interval: UnresolvedInterval) -> dict[str, object]:
         "start_record_index": interval.interval.start_record_index,
         "end_record_index": interval.interval.end_record_index,
         "record_count": interval.interval.record_count,
+        "detection_kind": interval.interval.detection_kind.value,
         "confidence": interval.confidence.value,
         "repair_eligible": False,
         "reasons": [reason.value for reason in interval.reasons],
@@ -375,16 +406,27 @@ def _interval_console(
         if verbosity >= 1
         else ""
     )
+    refinement = ""
+    if plan.boundary_refinement is not None:
+        detected = plan.boundary_refinement
+        refinement = (
+            f", detected_core={detected.detected_start_record_index}.."
+            f"{detected.detected_end_record_index}, corridor_refined=yes"
+        )
     return (
         f"  - records {plan.interval.start_record_index}..{plan.interval.end_record_index}: "
         f"{decision.action.value.upper()}, confidence={plan.confidence.value.upper()}, "
+        f"kind={plan.interval.detection_kind.value}, "
         f"default_high_eligible={'yes' if plan.repair_eligible else 'no'}, "
         f"{details}course={plan.course_span_distance_m:.2f} m, "
+        f"connectors={plan.anchor_connector_distance_m:.2f} m, "
+        f"path={plan.reconstruction_path_distance_m:.2f} m, "
         f"direction={plan.direction.value}, allocation={plan.allocation_method.value}, "
         f"updates={len(plan.coordinate_updates)}, "
         "anchor_stability="
         f"{plan.anchor_before_stability.consecutive_normal_transition_count}/"
         f"{plan.anchor_after_stability.consecutive_normal_transition_count}"
+        f"{refinement}"
     )
 
 
@@ -397,6 +439,7 @@ def _unresolved_console(
         f"  - unresolved records {interval.interval.start_record_index}.."
         f"{interval.interval.end_record_index}: {decision.action.value.upper()}, "
         f"confidence={interval.confidence.value.upper()}, reasons={reasons}, "
+        f"kind={interval.interval.detection_kind.value}, "
         f"anchor_candidates={interval.anchor_before_candidate_count}/"
         f"{interval.anchor_after_candidate_count}"
     )

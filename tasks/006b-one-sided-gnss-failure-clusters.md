@@ -1,6 +1,6 @@
 # Task 006B — One-sided GNSS Failure Clusters
 
-Статус: запланирована; реализация не начата.
+Статус: выполнена.
 
 ## Контекст
 
@@ -63,7 +63,7 @@ course reconstruction построить candidate. Если доказател�
 ## Строгие правила
 
 - GPX course, reference fixed FIT, OSM и DEM не участвуют в corruption detection или
-  boundary construction;
+  построении границ detected core;
 - приватный `Andromeda_Taras_FIXED.fit` используется только как test oracle;
 - один impossible jump сам по себе не доказывает corruption всего соседнего участка;
 - stable outer anchors и plausible bridge являются необходимым evidence, но могут быть
@@ -89,8 +89,42 @@ course reconstruction построить candidate. Если доказател�
 
 ## Не делать
 
-- подбор boundaries по близости к GPX course;
+- подбор границ detected core по близости к GPX course; reconstruction может расширить
+  уже доказанный `MEDIUM` core до устойчивого course corridor с явной диагностикой;
 - принудительное восстановление всего региона только ради визуально красивой линии;
 - использование приватного reference fixed FIT в production pipeline;
 - изменение writer policy, timestamps или sensor fields;
 - OSM/DEM routing и map matching.
+
+## Реализовано
+
+- `integrity/one_sided.py`: bounded scan по unpaired impossible entries;
+- proof rule: missing-terminated cluster, stable outer anchors, plausible bridge и
+  abnormal evidence во всех positioned-компонентах;
+- `MEDIUM` `one_sided_cluster` либо подробный `LOW` unresolved diagnostic;
+- console/JSON/HTML audit: boundaries, anchors, context, bridge, evidence/components,
+  confidence и reasons;
+- existing course pipeline принимает `MEDIUM` interval, но default HIGH его пропускает;
+- MEDIUM-only wider anchor matching, плавные connectors без изменения trusted anchors,
+  timestamp fallback и post-check невозможных candidate transitions;
+- synthetic false-positive/boundary/performance tests и private Andromeda acceptance.
+
+Для private Andromeda доказанный без course core остаётся `3627..3700`, anchors
+`3626/3701`, direct bridge около `187.2 м / 75 с = 2.50 м/с`, два из двух tainted
+positioned-components. Reconstruction больше не принимает эти локально плавные, но уже
+дрейфующие anchors: bounded scan требует 15 устойчивых records в corridor `15 м` и
+расширяет repair scope до `3582..3741`, anchors `3581/3742`. Их расстояния до course
+около `12.98/14.91 м`, connectors `27.89 м`, полный reconstruction path `235.73 м`.
+Detected core и refined scope оба явно присутствуют в report. Candidate остаётся
+`MEDIUM` и применяется только при `--min-confidence medium`. Регион `8820..9580` не
+повышен и остаётся skipped.
+
+Дополнительный линейный altitude scan сообщает sensor warnings, не создавая coordinate
+interval: на private FIT обнаружены sustained `1608..1633` (`+129 м / 25 с`) и single
+extreme `8618..8619` (`-11.8 м / 1 с`). Это не считается самостоятельным доказательством
+порчи GNSS coordinates, поэтому writer altitude не меняет.
+
+Известное ограничение: course corridor подтверждает возврат к reference geometry, но не
+является detector evidence и не повышает confidence выше `MEDIUM`. OSM routing, DEM и
+map matching сознательно не используются. Если stable corridor, matching, ambiguity или
+physical post-check не проходят, регион остаётся unresolved.

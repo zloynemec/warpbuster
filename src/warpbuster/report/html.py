@@ -40,8 +40,10 @@ def write_analyze_html(
     activity: ActivityData,
     integrity: IntegrityReport,
     output_path: str | Path,
+    *,
+    overwrite: bool = False,
 ) -> Path:
-    """Write one interactive integrity-analysis HTML report without overwriting."""
+    """Write one interactive report, optionally replacing its destination atomically."""
     payload = _base_payload(activity, integrity, report_kind="analyze")
     payload["tracks"] = {
         "original": _activity_track(activity, integrity),
@@ -53,7 +55,7 @@ def write_analyze_html(
     payload["write_result"] = None
     payload["metrics_comparison"] = _metrics_comparison(activity)
     payload["missing_position_runs"] = _missing_position_runs(activity)
-    return _write_payload(payload, output_path)
+    return _write_payload(payload, output_path, overwrite=overwrite)
 
 
 def write_repair_html(
@@ -67,8 +69,9 @@ def write_repair_html(
     minimum_confidence: IntegrityConfidence = IntegrityConfidence.HIGH,
     fixed_activity: ActivityData | None = None,
     write_result: FitWriteResult | None = None,
+    overwrite: bool = False,
 ) -> Path:
-    """Write a repair preview or actual before/after report without overwriting."""
+    """Write a repair report, optionally replacing its destination atomically."""
     if (fixed_activity is None) is not (write_result is None):
         raise HtmlReportError("fixed_activity and write_result must be provided together")
     selection = select_repair_intervals(plan, minimum_confidence)
@@ -106,18 +109,24 @@ def write_repair_html(
         if fixed_activity is not None
         else _missing_position_runs(activity, coordinate_overrides)
     )
-    return _write_payload(payload, output_path)
+    return _write_payload(payload, output_path, overwrite=overwrite)
 
 
-def ensure_html_output_available(output_path: str | Path) -> Path:
+def ensure_html_output_available(
+    output_path: str | Path,
+    *,
+    overwrite: bool = False,
+) -> Path:
     """Validate the destination before another operation creates side effects."""
     destination = Path(output_path)
-    if destination.exists():
+    if destination.exists() and not overwrite:
         raise HtmlReportError(f"HTML output already exists: {destination}")
     if not destination.parent.exists():
         raise HtmlReportError(f"HTML output directory does not exist: {destination.parent}")
     if not destination.parent.is_dir():
         raise HtmlReportError(f"HTML output parent is not a directory: {destination.parent}")
+    if destination.is_dir():
+        raise HtmlReportError(f"HTML output is a directory: {destination}")
     return destination
 
 
@@ -584,8 +593,13 @@ def _compact_repair_report(
     return report
 
 
-def _write_payload(payload: Mapping[str, object], output_path: str | Path) -> Path:
-    destination = ensure_html_output_available(output_path)
+def _write_payload(
+    payload: Mapping[str, object],
+    output_path: str | Path,
+    *,
+    overwrite: bool,
+) -> Path:
+    destination = ensure_html_output_available(output_path, overwrite=overwrite)
     template = (
         files("warpbuster.report")
         .joinpath("assets")
@@ -609,11 +623,14 @@ def _write_payload(payload: Mapping[str, object], output_path: str | Path) -> Pa
             temporary.flush()
             os.fsync(temporary.fileno())
             temporary_path = Path(temporary.name)
-        try:
-            os.link(temporary_path, destination)
-        except FileExistsError as error:
-            raise HtmlReportError(f"HTML output already exists: {destination}") from error
-        temporary_path.unlink()
+        if overwrite:
+            os.replace(temporary_path, destination)
+        else:
+            try:
+                os.link(temporary_path, destination)
+            except FileExistsError as error:
+                raise HtmlReportError(f"HTML output already exists: {destination}") from error
+            temporary_path.unlink()
         temporary_path = None
     finally:
         if temporary_path is not None:

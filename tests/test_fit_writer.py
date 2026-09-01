@@ -14,7 +14,7 @@ from warpbuster.fit.reader import read_fit
 from warpbuster.fit.writer import FitWriteError, default_output_path, write_repaired_fit
 from warpbuster.gpx.course import read_gpx_course
 from warpbuster.integrity import analyze_integrity
-from warpbuster.models.activity import ActivityData
+from warpbuster.models.activity import ActivityData, FitPreservationData
 from warpbuster.models.integrity import IntegrityConfidence
 from warpbuster.models.reconstruction import (
     ReconstructionReason,
@@ -123,6 +123,16 @@ def test_writer_refuses_overwrite_and_applies_high_candidate_from_partial_plan(
     with pytest.raises(FitWriteError, match="output already exists"):
         write_repaired_fit(activity, plan, output_path)
     assert output_path.read_bytes() == b"keep me"
+
+    result = write_repaired_fit(activity, plan, output_path, overwrite=True)
+    assert result.output_path == output_path
+    assert output_path.read_bytes() != b"keep me"
+    fixed_preservation = read_fit(output_path).preservation
+    assert isinstance(fixed_preservation, FitPreservationData)
+    assert fixed_preservation.crc_valid is True
+
+    with pytest.raises(FitWriteError, match="must differ from the original"):
+        write_repaired_fit(activity, plan, source_path, overwrite=True)
 
     planned_interval = plan.interval_plans[0].interval
     unresolved = UnresolvedInterval(

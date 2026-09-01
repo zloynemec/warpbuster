@@ -13,6 +13,11 @@ def test_reconstruction_thresholds_are_named_and_serializable() -> None:
         "anchor_match_tolerance_m": 75.0,
         "high_confidence_anchor_distance_m": 50.0,
         "anchor_candidate_deduplication_m": 25.0,
+        "one_sided_anchor_match_tolerance_m": 100.0,
+        "one_sided_anchor_candidate_deduplication_m": 40.0,
+        "one_sided_drift_corridor_tolerance_m": 15.0,
+        "one_sided_drift_stable_record_count": 15,
+        "one_sided_drift_search_max_records": 256,
         "ambiguity_score_margin_m": 10.0,
         "minimum_course_span_m": 10.0,
         "signal_course_length_ratio_min": 0.5,
@@ -32,6 +37,11 @@ def test_reconstruction_thresholds_are_named_and_serializable() -> None:
         ("anchor_match_tolerance_m", 0.0),
         ("high_confidence_anchor_distance_m", 0.0),
         ("anchor_candidate_deduplication_m", 0.0),
+        ("one_sided_anchor_match_tolerance_m", 0.0),
+        ("one_sided_anchor_candidate_deduplication_m", 0.0),
+        ("one_sided_drift_corridor_tolerance_m", 0.0),
+        ("one_sided_drift_stable_record_count", 0),
+        ("one_sided_drift_search_max_records", 0),
         ("ambiguity_score_margin_m", 0.0),
         ("minimum_course_span_m", 0.0),
         ("signal_course_length_ratio_min", 0.0),
@@ -59,6 +69,11 @@ def test_reconstruction_thresholds_reject_contradictory_ranges() -> None:
             anchor_match_tolerance_m=10.0,
             high_confidence_anchor_distance_m=11.0,
         )
+    with pytest.raises(ValueError, match="one_sided_anchor_match_tolerance_m"):
+        CourseReconstructionConfig(
+            high_confidence_anchor_distance_m=50.0,
+            one_sided_anchor_match_tolerance_m=49.0,
+        )
     with pytest.raises(ValueError, match="signal_course_length_ratio_min"):
         CourseReconstructionConfig(
             signal_course_length_ratio_min=2.0,
@@ -68,6 +83,11 @@ def test_reconstruction_thresholds_reject_contradictory_ranges() -> None:
         CourseReconstructionConfig(
             anchor_stability_min_normal_transitions=20,
             anchor_stability_scan_max_records=19,
+        )
+    with pytest.raises(ValueError, match="one_sided_drift_search_max_records"):
+        CourseReconstructionConfig(
+            one_sided_drift_stable_record_count=20,
+            one_sided_drift_search_max_records=19,
         )
 
 

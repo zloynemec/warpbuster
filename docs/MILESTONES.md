@@ -189,6 +189,25 @@ Task: `tasks/006a-trusted-anchor-safety.md`
 
 ---
 
+## M5B — One-sided GNSS Failure Clusters
+
+**Цель:** диагностировать и консервативно реконструировать missing-exit morphology без
+ослабления classic detector-а.
+
+Результат:
+- bounded course-independent one-sided proof rule;
+- `MEDIUM` reconstructable interval либо `LOW` unresolved diagnostic;
+- stable anchors, plausible bridge и tainted-component audit;
+- explicit-MEDIUM course reconstruction с плавными anchor connectors;
+- reconstruction-only expansion от detected core до stable course corridor;
+- отдельные altitude-rate warnings без coordinate repair authority;
+- post-check candidate transitions и timestamp fallback;
+- synthetic/private Andromeda/performance regressions.
+
+Task: `tasks/006b-one-sided-gnss-failure-clusters.md`
+
+---
+
 ## M6 — FIT Repair Writer + Validate + Diff
 
 **Цель:** применить RepairPlan к FIT, сохранив исходные данные.
@@ -225,9 +244,8 @@ Task: `tasks/007-fit-writer-validation.md`
 - wheel resource и clean-install smoke;
 - full v0.1 Definition of Done.
 
-M7 реализован без расширения detector-а. Residual Andromeda cluster из Task 006B
-остаётся известным ограничением: HTML показывает его impossible/suspicious findings и
-GNSS gaps, но не создаёт новый repair interval.
+После завершения Task 006B HTML дополнительно показывает отдельную таблицу one-sided
+clusters; residual Andromeda interval доступен как explicit-MEDIUM candidate.
 
 Task: `tasks/008-html-report-release.md`
 

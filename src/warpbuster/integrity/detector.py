@@ -9,6 +9,8 @@ from warpbuster.config import IntegrityConfig
 from warpbuster.geo import geodesic_distance_m
 from warpbuster.integrity.geometry import detect_geometry_warnings
 from warpbuster.integrity.islands import detect_spoofing_islands
+from warpbuster.integrity.one_sided import detect_one_sided_clusters
+from warpbuster.integrity.vertical import detect_vertical_warnings
 from warpbuster.models.activity import ActivityData, ActivityRecord
 from warpbuster.models.integrity import (
     BaselineStats,
@@ -43,7 +45,15 @@ def analyze_integrity(
         baseline,
         effective_config,
     )
+    one_sided_detection = detect_one_sided_clusters(
+        activity,
+        transitions,
+        baseline,
+        effective_config,
+        island_detection.intervals,
+    )
     geometry_detection = detect_geometry_warnings(activity, effective_config)
+    vertical_detection = detect_vertical_warnings(activity, effective_config)
     missing_position_record_count = len(activity.records) - len(position_records)
     status, confidence = _summarize(
         transitions,
@@ -59,10 +69,18 @@ def analyze_integrity(
         missing_position_record_count=missing_position_record_count,
         baseline=baseline,
         transitions=transitions,
-        corrupted_intervals=island_detection.intervals,
+        corrupted_intervals=tuple(
+            sorted(
+                island_detection.intervals + one_sided_detection.intervals,
+                key=lambda interval: interval.start_record_index,
+            )
+        ),
         island_search_diagnostics=island_detection.diagnostics,
+        one_sided_search_diagnostics=one_sided_detection.diagnostics,
         geometry_warnings=geometry_detection.warnings,
         geometry_scan_diagnostics=geometry_detection.diagnostics,
+        vertical_warnings=vertical_detection.warnings,
+        vertical_scan_diagnostics=vertical_detection.diagnostics,
         config=effective_config,
     )
 

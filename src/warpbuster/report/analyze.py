@@ -13,13 +13,18 @@ from warpbuster.models.integrity import (
     GeometryWarning,
     IntegrityReport,
     IslandSearchDiagnostics,
+    OneSidedClusterDiagnostic,
+    OneSidedSearchDiagnostics,
     TransitionClassification,
     TransitionResult,
+    VerticalWarning,
 )
 
 _MAX_CONSOLE_FINDINGS = 20
 _MAX_CONSOLE_CANDIDATE_DIAGNOSTICS = 20
 _MAX_CONSOLE_GEOMETRY_WARNINGS = 20
+_MAX_CONSOLE_ONE_SIDED_DIAGNOSTICS = 20
+_MAX_CONSOLE_VERTICAL_WARNINGS = 20
 _CLASSIFICATIONS = tuple(TransitionClassification)
 
 
@@ -32,7 +37,9 @@ def analyze_report(activity: ActivityData, integrity: IntegrityReport) -> dict[s
         "stages": [
             "local_transitions",
             "spoofing_islands",
+            "one_sided_gnss_clusters",
             "geometry_gap_diagnostics",
+            "vertical_plausibility",
         ],
         "source": {
             "format": activity.preservation.source_format.value,
@@ -51,6 +58,7 @@ def analyze_report(activity: ActivityData, integrity: IntegrityReport) -> dict[s
             "transition_count": len(integrity.transitions),
             "corrupted_interval_count": len(integrity.corrupted_intervals),
             "geometry_warning_count": integrity.geometry_scan_diagnostics.warning_count,
+            "vertical_warning_count": integrity.vertical_scan_diagnostics.warning_count,
             "classifications": {
                 classification.value: integrity.count(classification)
                 for classification in _CLASSIFICATIONS
@@ -67,14 +75,21 @@ def analyze_report(activity: ActivityData, integrity: IntegrityReport) -> dict[s
         "island_search_diagnostics": _island_diagnostics_report(
             integrity.island_search_diagnostics
         ),
+        "one_sided_search_diagnostics": _one_sided_diagnostics_report(
+            integrity.one_sided_search_diagnostics
+        ),
         "geometry_scan_diagnostics": _geometry_diagnostics_report(
             integrity.geometry_scan_diagnostics
         ),
+        "vertical_scan_diagnostics": asdict(integrity.vertical_scan_diagnostics),
         "corrupted_intervals": [
             _interval_report(interval) for interval in integrity.corrupted_intervals
         ],
         "geometry_warnings": [
             _geometry_warning_report(warning) for warning in integrity.geometry_warnings
+        ],
+        "vertical_warnings": [
+            _vertical_warning_report(warning) for warning in integrity.vertical_warnings
         ],
         "findings": [
             _transition_report(transition)
@@ -141,13 +156,36 @@ def analyze_console(
             f"{_number(baseline.relative_suspicious_threshold_mps)} m/s"
         ),
         f"Corrupted intervals: {len(integrity.corrupted_intervals)}",
+        (
+            "One-sided GNSS clusters: "
+            f"reconstructable="
+            f"{integrity.one_sided_search_diagnostics.reconstructable_cluster_count}, "
+            f"unresolved={integrity.one_sided_search_diagnostics.unresolved_cluster_count}"
+        ),
         f"Geometry warnings: {integrity.geometry_scan_diagnostics.warning_count}",
+        f"Vertical warnings: {integrity.vertical_scan_diagnostics.warning_count}",
     ]
     lines.extend(_interval_console(interval) for interval in integrity.corrupted_intervals)
+    lines.extend(
+        _one_sided_cluster_console(cluster)
+        for cluster in integrity.one_sided_search_diagnostics.retained_clusters[
+            :_MAX_CONSOLE_ONE_SIDED_DIAGNOSTICS
+        ]
+    )
     lines.extend(
         _geometry_warning_console(warning)
         for warning in integrity.geometry_warnings[:_MAX_CONSOLE_GEOMETRY_WARNINGS]
     )
+    lines.extend(
+        _vertical_warning_console(warning)
+        for warning in integrity.vertical_warnings[:_MAX_CONSOLE_VERTICAL_WARNINGS]
+    )
+    hidden_vertical_warnings = (
+        max(0, len(integrity.vertical_warnings) - _MAX_CONSOLE_VERTICAL_WARNINGS)
+        + integrity.vertical_scan_diagnostics.warnings_truncated_count
+    )
+    if hidden_vertical_warnings > 0:
+        lines.append(f"  ... {hidden_vertical_warnings} vertical warnings omitted; use --json")
     hidden_geometry_warnings = (
         max(0, len(integrity.geometry_warnings) - _MAX_CONSOLE_GEOMETRY_WARNINGS)
         + integrity.geometry_scan_diagnostics.warnings_truncated_count
@@ -155,7 +193,10 @@ def analyze_console(
     if hidden_geometry_warnings > 0:
         lines.append(f"  ... {hidden_geometry_warnings} geometry warnings omitted; use --json")
     if verbosity >= 1:
-        lines.append("Pipeline: local_transitions -> spoofing_islands -> geometry_gap_diagnostics")
+        lines.append(
+            "Pipeline: local_transitions -> spoofing_islands -> "
+            "one_sided_gnss_clusters -> geometry_gap_diagnostics -> vertical_plausibility"
+        )
     if verbosity >= 2:
         lines.extend(_diagnostics_console(integrity))
     if not findings:
@@ -167,6 +208,31 @@ def analyze_console(
     if len(findings) > _MAX_CONSOLE_FINDINGS:
         lines.append(f"  ... {len(findings) - _MAX_CONSOLE_FINDINGS} more; use --json")
     return "\n".join(lines)
+
+
+def _vertical_warning_report(warning: VerticalWarning) -> dict[str, object]:
+    return {
+        "start_record_index": warning.start_record_index,
+        "end_record_index": warning.end_record_index,
+        "start_timestamp": warning.start_timestamp.isoformat(),
+        "end_timestamp": warning.end_timestamp.isoformat(),
+        "transition_count": warning.transition_count,
+        "elapsed_seconds": warning.elapsed_seconds,
+        "altitude_delta_m": warning.altitude_delta_m,
+        "maximum_absolute_vertical_speed_mps": (warning.maximum_absolute_vertical_speed_mps),
+        "confidence": warning.confidence.value,
+        "reasons": [reason.value for reason in warning.reasons],
+    }
+
+
+def _vertical_warning_console(warning: VerticalWarning) -> str:
+    reasons = ",".join(reason.value for reason in warning.reasons)
+    return (
+        f"  - vertical records {warning.start_record_index}..{warning.end_record_index}: "
+        f"{warning.altitude_delta_m:+.2f} m / {warning.elapsed_seconds:.2f} s, "
+        f"max={warning.maximum_absolute_vertical_speed_mps:.2f} m/s, reasons={reasons}; "
+        "coordinate corruption not inferred"
+    )
 
 
 def _transition_report(transition: TransitionResult) -> dict[str, object]:
@@ -200,10 +266,15 @@ def _interval_report(interval: CorruptedInterval) -> dict[str, object]:
         ),
         "trusted_before_record_index": interval.trusted_before_record_index,
         "trusted_after_record_index": interval.trusted_after_record_index,
+        "detection_kind": interval.detection_kind.value,
         "confidence": interval.confidence.value,
         "reasons": [reason.value for reason in interval.reasons],
         "entry_transition": _transition_report(interval.entry_transition),
-        "exit_transition": _transition_report(interval.exit_transition),
+        "exit_transition": (
+            _transition_report(interval.exit_transition)
+            if interval.exit_transition is not None
+            else None
+        ),
         "bridge": {
             "from_record_index": interval.bridge.from_record_index,
             "to_record_index": interval.bridge.to_record_index,
@@ -256,6 +327,72 @@ def _candidate_diagnostic_report(detail: BridgeCandidateDiagnostic) -> dict[str,
     }
 
 
+def _one_sided_diagnostics_report(
+    diagnostics: OneSidedSearchDiagnostics,
+) -> dict[str, object]:
+    return {
+        "enabled": diagnostics.enabled,
+        "impossible_entries_considered": diagnostics.impossible_entries_considered,
+        "classic_interval_entries_skipped": diagnostics.classic_interval_entries_skipped,
+        "candidates_with_missing_evidence": diagnostics.candidates_with_missing_evidence,
+        "reconstructable_cluster_count": diagnostics.reconstructable_cluster_count,
+        "unresolved_cluster_count": diagnostics.unresolved_cluster_count,
+        "records_scanned": diagnostics.records_scanned,
+        "retained_clusters": [
+            _one_sided_cluster_report(cluster) for cluster in diagnostics.retained_clusters
+        ],
+        "clusters_truncated_count": diagnostics.clusters_truncated_count,
+    }
+
+
+def _one_sided_cluster_report(cluster: OneSidedClusterDiagnostic) -> dict[str, object]:
+    bridge = cluster.bridge
+    return {
+        "start_record_index": cluster.start_record_index,
+        "end_record_index": cluster.end_record_index,
+        "record_count": cluster.record_count,
+        "trusted_before_record_index": cluster.trusted_before_record_index,
+        "trusted_after_record_index": cluster.trusted_after_record_index,
+        "missing_position_record_count": cluster.missing_position_record_count,
+        "impossible_transition_count": cluster.impossible_transition_count,
+        "suspicious_transition_count": cluster.suspicious_transition_count,
+        "positioned_component_count": cluster.positioned_component_count,
+        "tainted_positioned_component_count": cluster.tainted_positioned_component_count,
+        "anchor_before": {
+            "consecutive_normal_transition_count": (cluster.anchor_before_normal_transition_count),
+            "required_normal_transition_count": cluster.anchor_required_normal_transition_count,
+            "stable": (
+                cluster.anchor_before_normal_transition_count
+                >= cluster.anchor_required_normal_transition_count
+            ),
+        },
+        "anchor_after": {
+            "consecutive_normal_transition_count": cluster.anchor_after_normal_transition_count,
+            "required_normal_transition_count": cluster.anchor_required_normal_transition_count,
+            "stable": (
+                cluster.anchor_after_normal_transition_count
+                >= cluster.anchor_required_normal_transition_count
+            ),
+        },
+        "bridge": (
+            {
+                "from_record_index": bridge.from_record_index,
+                "to_record_index": bridge.to_record_index,
+                "elapsed_seconds": bridge.elapsed_seconds,
+                "distance_m": bridge.distance_m,
+                "apparent_speed_mps": bridge.apparent_speed_mps,
+                "maximum_plausible_speed_mps": bridge.maximum_plausible_speed_mps,
+                "plausible": bridge.apparent_speed_mps <= cluster.bridge_speed_limit_mps,
+            }
+            if bridge is not None and cluster.bridge_speed_limit_mps is not None
+            else None
+        ),
+        "confidence": cluster.confidence.value,
+        "reconstructable": cluster.reconstructable,
+        "reasons": [reason.value for reason in cluster.reasons],
+    }
+
+
 def _geometry_diagnostics_report(diagnostics: GeometryScanDiagnostics) -> dict[str, object]:
     return {
         "continuity_segment_count": diagnostics.continuity_segment_count,
@@ -295,8 +432,31 @@ def _interval_console(interval: CorruptedInterval) -> str:
     return (
         f"  - records {interval.start_record_index}..{interval.end_record_index} "
         f"({interval.record_count}): {interval.confidence.value.upper()}, "
+        f"kind={interval.detection_kind.value}, "
         f"anchors={interval.trusted_before_record_index}->{interval.trusted_after_record_index}, "
         f"bridge={interval.bridge.apparent_speed_mps:.2f} m/s, reasons={reasons}"
+    )
+
+
+def _one_sided_cluster_console(cluster: OneSidedClusterDiagnostic) -> str:
+    end = "?" if cluster.end_record_index is None else str(cluster.end_record_index)
+    after = (
+        "?"
+        if cluster.trusted_after_record_index is None
+        else str(cluster.trusted_after_record_index)
+    )
+    bridge_speed = cluster.bridge.apparent_speed_mps if cluster.bridge is not None else None
+    reasons = ",".join(reason.value for reason in cluster.reasons)
+    return (
+        f"  - one-sided records {cluster.start_record_index}..{end}: "
+        f"{cluster.confidence.value.upper()}, "
+        f"reconstructable={'yes' if cluster.reconstructable else 'no'}, "
+        f"anchors={cluster.trusted_before_record_index}->{after}, "
+        f"normal_context={cluster.anchor_before_normal_transition_count}/"
+        f"{cluster.anchor_after_normal_transition_count}, "
+        f"bridge={_number(bridge_speed)} m/s, "
+        f"components={cluster.tainted_positioned_component_count}/"
+        f"{cluster.positioned_component_count}, reasons={reasons}"
     )
 
 
@@ -314,6 +474,7 @@ def _geometry_warning_console(warning: GeometryWarning) -> str:
 def _diagnostics_console(integrity: IntegrityReport) -> list[str]:
     config = integrity.config
     diagnostics = integrity.island_search_diagnostics
+    one_sided = integrity.one_sided_search_diagnostics
     lines = [
         "Detector diagnostics:",
         (
@@ -340,6 +501,21 @@ def _diagnostics_console(integrity: IntegrityReport) -> list[str]:
             f"time_pruned={diagnostics.time_window_pruned_count}"
         ),
         (
+            "  One-sided bounds: "
+            f"records<={config.one_sided_search_max_records}, "
+            f"clean_gap<={config.one_sided_max_clean_gap_records}, "
+            f"normal_context>={config.one_sided_anchor_min_normal_transitions}, "
+            f"anchor_scan<={config.one_sided_anchor_scan_max_records}"
+        ),
+        (
+            "  One-sided search: "
+            f"entries={one_sided.impossible_entries_considered}, "
+            f"with_missing={one_sided.candidates_with_missing_evidence}, "
+            f"reconstructable={one_sided.reconstructable_cluster_count}, "
+            f"unresolved={one_sided.unresolved_cluster_count}, "
+            f"records_scanned={one_sided.records_scanned}"
+        ),
+        (
             "  Geometry thresholds: "
             f"chord>={config.geometry_min_chord_distance_m:.2f} m, "
             f"positions>={config.geometry_min_position_count}, "
@@ -352,6 +528,14 @@ def _diagnostics_console(integrity: IntegrityReport) -> list[str]:
             f"windows={integrity.geometry_scan_diagnostics.candidate_window_count}, "
             f"qualifying={integrity.geometry_scan_diagnostics.qualifying_window_count}, "
             f"warnings={integrity.geometry_scan_diagnostics.warning_count}"
+        ),
+        (
+            "  Vertical scan: "
+            f"enabled={'yes' if integrity.vertical_scan_diagnostics.enabled else 'no'}, "
+            f"sustained>={_number(config.vertical_warning_speed_mps)} m/s, "
+            f"single>={config.vertical_warning_single_transition_speed_mps:.2f} m/s, "
+            f"delta>={config.vertical_warning_min_delta_m:.2f} m, "
+            f"warnings={integrity.vertical_scan_diagnostics.warning_count}"
         ),
     ]
     lines.extend(

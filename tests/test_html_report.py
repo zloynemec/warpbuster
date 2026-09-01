@@ -58,6 +58,7 @@ def test_analyze_html_is_deterministic_uses_leaflet_and_preserves_gaps(tmp_path:
     assert ".leaflet-tile-pane { filter:" in first
     assert 'id="metrics-comparison"' in first
     assert 'id="missing-runs"' in first
+    assert 'id="one-sided-clusters"' in first
     assert "connect-src https://unpkg.com" in first
     assert "\\u003c/script\\u003e" in first
     payload = _embedded_payload(first)
@@ -122,6 +123,9 @@ def test_html_report_refuses_overwrite_and_missing_parent(tmp_path: Path) -> Non
     with pytest.raises(HtmlReportError, match="already exists"):
         write_analyze_html(activity, integrity, output_path)
     assert output_path.read_text(encoding="utf-8") == "keep"
+
+    write_analyze_html(activity, integrity, output_path, overwrite=True)
+    assert _DATA_PREFIX in output_path.read_text(encoding="utf-8")
 
     with pytest.raises(HtmlReportError, match="directory does not exist"):
         write_analyze_html(activity, integrity, tmp_path / "missing" / "report.html")

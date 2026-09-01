@@ -22,6 +22,7 @@ WarpBuster — локальное Python-ядро и CLI для обнаруже
 - CLI `inspect`, `analyze`, `repair`, `validate` и `diff`;
 - поиск физически невозможных переходов;
 - обнаружение длительных spoofing islands;
+- bounded-детекция one-sided GNSS failure clusters с missing exit;
 - advisory-предупреждения о возможных интерполированных GNSS gaps;
 - confidence/reasons для каждого подозрительного интервала;
 - опциональная реконструкция только уже доказанно повреждённых интервалов по известному GPX course;
@@ -109,6 +110,7 @@ warpbuster repair activity.fit --course race.gpx --dry-run --json
 warpbuster repair activity.fit --course race.gpx --dry-run --html preview.html
 warpbuster repair activity.fit --course race.gpx --min-confidence medium
 warpbuster repair activity.fit --course race.gpx --output activity.fixed.fit --html repair.html
+warpbuster repair activity.fit --course race.gpx --output activity.fixed.fit --html repair.html --overwrite
 warpbuster validate activity.fixed.fit
 warpbuster diff activity.fit activity.fixed.fit
 ```
@@ -138,12 +140,33 @@ anchor считается unsafe, а отчёт показывает bounded `mi
 диагностические anchors и прямой bridge. Такой регион остаётся `MEDIUM/LOW` и никогда не
 становится auto-repairable только из-за подходящего course.
 
+Если impossible entry сопровождается missing-position gaps, но классический impossible
+exit скрыт dropout-ом, detector выполняет отдельный bounded one-sided scan. Interval
+создаётся только при stable outer anchors, plausible direct bridge и abnormal evidence
+в каждом внутреннем positioned-компоненте. Course в этом proof rule не участвует.
+Уверенность всегда не выше `MEDIUM`: default `HIGH` такой candidate пропускает, для
+применения нужен явный `--min-confidence medium`.
+
+Для one-sided reconstruction detected core остаётся неизменным audit evidence, но его
+repair scope расширяется наружу до устойчивого configurable course corridor. Это не
+меняет detector и не повышает confidence выше `MEDIUM`, зато локально плавные точки
+внутри gradual drift больше не становятся trusted anchors. Candidate проходит короткий
+входной connector, matched course span и выходной connector. Неравномерная distance/speed
+allocation, создающая abnormal переходы, заменяется timestamp allocation; физически
+невозможный итоговый candidate отклоняется.
+
+Running profile отдельно ищет sustained и single-extreme vertical rates. Эти findings
+помечаются как sensor-consistency warnings: они не создают coordinate interval, не
+меняют integrity status и не дают writer права менять altitude или GNSS coordinates.
+
 Команда без `--dry-run` выбирает все доступные interval candidates с confidence не ниже
 `--min-confidence`; default — `high`. Поэтому безопасная HIGH-часть `PARTIAL` plan может
 быть записана, а unresolved и кандидаты ниже порога остаются неизменными. Значения
 параметра: `low`, `medium`, `high`. Если не выбран ни один candidate, output не создаётся.
 Writer создаёт `<stem>.fixed.fit` либо путь из `--output`, сохраняет исходные FIT frames,
-пересчитывает CRC, проверяет output и отказывается от overwrite. Dry-run preview и
+пересчитывает CRC и проверяет output. Existing destination защищён по умолчанию;
+`--overwrite` атомарно заменяет FIT и HTML после успешной validation. Исходный FIT этим
+флагом перезаписать нельзя. Dry-run preview и
 итоговый write report перечисляют каждый interval как `APPLIED` или `SKIPPED` с причиной.
 `warpbuster validate` проверяет FIT/CRC и базовые invariants, а `warpbuster diff`
 показывает expected/unexpected changes и preservation percentages.
@@ -155,7 +178,8 @@ course/candidate, applied/skipped intervals, findings, speed/altitude/HR graphs 
 diff после записи. Отдельная таблица сравнивает embedded FIT distance, map geometry,
 solid known geometry и elevation gain для original/course/repaired. Missing-position
 runs перечисляются с anchors, временем, straight chord, recorded distance delta и bridge
-speed.
+speed. Отдельная таблица one-sided GNSS clusters показывает boundaries, confidence,
+reconstructability, anchor context, bridge, tainted components и reasons.
 Report открывается напрямую с диска. Интерактивная карта использует Leaflet 1.9.4 с CDN
 и стандартные OpenStreetMap tiles, поэтому для basemap нужен интернет. Pan, wheel/+/- zoom,
 scale, fit-to-track, start/end, markers через каждый 1 km и переключение слоёв доступны
@@ -171,7 +195,7 @@ Solid track разрывается на missing GNSS coordinates; отдельн
 всегда показана на карте.
 
 `--json` и `--html` можно использовать вместе: JSON остаётся в stdout. Existing HTML
-не перезаписывается. Сам HTML содержит coordinates и telemetry, поэтому его следует
+не перезаписывается без явного `repair --overwrite`. Сам HTML содержит coordinates и telemetry, поэтому его следует
 считать приватным файлом.
 
 Полный набор проверок:
@@ -187,9 +211,9 @@ python -m mypy src tests
 observations, GPX activity input, bounded-поиск spoofing islands по impossible entry/exit
 и plausible bridge, geometry gap diagnostics, а также false-positive regressions и
 bounded diagnostics. M5 также добавляет GPX course matching и dry-run RepairPlan.
-Task 006A добавляет course-independent trusted-anchor safety gate. Фактическая запись
-FIT, validation и diff реализованы в M6. M7 добавляет interactive HTML reports и завершает
-package/release stabilization. Private Andromeda regression подтверждает частичную
-запись основного HIGH interval с сохранением unresolved mixed region. Residual cluster
-около records `3626..3700` зафиксирован отдельной незавершённой Task 006B и показывается
-в HTML как detector findings, но renderer не меняет его classification.
+Task 006A добавляет course-independent trusted-anchor safety gate, а Task 006B —
+missing-exit proof rule и explicit-MEDIUM reconstruction. Фактическая запись FIT,
+validation и diff реализованы в M6. M7 добавляет interactive HTML reports и завершает
+package/release stabilization. Private Andromeda regression подтверждает HIGH repair
+основного interval, course-independent MEDIUM core `3627..3700`, refined repair scope
+`3582..3741` и неизменный unresolved mixed region.

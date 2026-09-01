@@ -63,8 +63,9 @@ def write_repaired_fit(
     output_path: str | Path | None = None,
     *,
     minimum_confidence: IntegrityConfidence = IntegrityConfidence.HIGH,
+    overwrite: bool = False,
 ) -> FitWriteResult:
-    """Atomically apply available candidates at or above a confidence threshold."""
+    """Atomically apply candidates, replacing an existing output only when requested."""
     preservation = activity.preservation
     if not isinstance(preservation, FitPreservationData):
         raise FitWriteError("FIT writer requires original FIT preservation data")
@@ -76,7 +77,7 @@ def write_repaired_fit(
     destination = Path(output_path) if output_path is not None else default_output_path(source_path)
     if destination.resolve() == source_path.resolve():
         raise FitWriteError("output path must differ from the original FIT path")
-    if destination.exists():
+    if destination.exists() and not overwrite:
         raise FitWriteError(f"output already exists: {destination}")
     if not destination.parent.exists():
         raise FitWriteError(f"output directory does not exist: {destination.parent}")
@@ -108,11 +109,14 @@ def write_repaired_fit(
                 "patched FIT contains "
                 f"{diff.unexpected_changed_field_count} unexpected field changes"
             )
-        try:
-            os.link(temporary_path, destination)
-        except FileExistsError as error:
-            raise FitWriteError(f"output already exists: {destination}") from error
-        temporary_path.unlink()
+        if overwrite:
+            os.replace(temporary_path, destination)
+        else:
+            try:
+                os.link(temporary_path, destination)
+            except FileExistsError as error:
+                raise FitWriteError(f"output already exists: {destination}") from error
+            temporary_path.unlink()
         temporary_path = None
     finally:
         if temporary_path is not None:

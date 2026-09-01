@@ -81,6 +81,40 @@ def test_repair_writes_default_output_and_refuses_overwrite(
     assert output_path.read_bytes() == original_output
 
 
+def test_repair_overwrite_atomically_replaces_fit_and_html(
+    tmp_path: Path,
+    capsys: object,
+) -> None:
+    """The explicit flag replaces both outputs while preserving the source FIT."""
+    fit_path, course_path = _repairable_fixture(tmp_path)
+    source_bytes = fit_path.read_bytes()
+    output_path = tmp_path / "original.fixed.fit"
+    html_path = tmp_path / "repair.html"
+    output_path.write_bytes(b"stale fit")
+    html_path.write_text("stale html", encoding="utf-8")
+
+    assert (
+        main(
+            [
+                "repair",
+                str(fit_path),
+                "--course",
+                str(course_path),
+                "--html",
+                str(html_path),
+                "--overwrite",
+            ]
+        )
+        == 0
+    )
+
+    output = capsys.readouterr().out  # type: ignore[attr-defined]
+    assert "Status: WRITTEN" in output
+    assert output_path.read_bytes() != b"stale fit"
+    assert '<script id="warpbuster-report-data"' in html_path.read_text(encoding="utf-8")
+    assert fit_path.read_bytes() == source_bytes
+
+
 def test_repair_rejects_non_fit_activity_and_invalid_course(
     tmp_path: Path,
     capsys: object,
@@ -226,6 +260,25 @@ def test_repair_dry_run_writes_candidate_html_report(
     assert '"candidate":{"record_count":33' in rendered
     assert '"course":{"point_count":33' in rendered
     assert '"write_result":null' in rendered
+
+    html_path.write_text("stale preview", encoding="utf-8")
+    assert (
+        main(
+            [
+                "repair",
+                str(fit_path),
+                "--course",
+                str(course_path),
+                "--dry-run",
+                "--html",
+                str(html_path),
+                "--overwrite",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()  # type: ignore[attr-defined]
+    assert '"report_kind":"repair_dry_run"' in html_path.read_text(encoding="utf-8")
 
 
 def test_repair_write_html_contains_actual_track_and_diff(

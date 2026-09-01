@@ -73,17 +73,25 @@ Roadmap следует порядку milestone из [`docs/MILESTONES.md`](docs
   - внешние stable anchors и plausible bridge только как диагностика;
   - mixed region остаётся `MEDIUM/LOW`, `repair_eligible=false`.
 
-- [ ] **M5B / Task 006B — One-sided GNSS Failure Clusters**
+- [x] **M5B / Task 006B — One-sided GNSS Failure Clusters**
   ([task](tasks/006b-one-sided-gnss-failure-clusters.md))
   - residual Andromeda cluster `3626..3700`, видимый примерно на `6.6..7.0 км`;
   - bounded detection для impossible/suspicious evidence рядом с GNSS dropouts без
     классической пары entry/exit transitions;
-  - course-independent proof rule либо явный unresolved diagnostic region;
-  - реализация пока не начата.
+  - course-independent proof rule и явные reconstructable/unresolved diagnostics;
+  - доказанный interval имеет максимум `MEDIUM` и применяется только при явном
+    `--min-confidence medium`;
+  - плавные anchor connectors не изменяют trusted records, а post-check блокирует
+    candidate с физически невозможными переходами.
+  - reconstruction-only corridor refinement расширяет detected core `3627..3700` до
+    полного drift scope `3582..3741`; исходные и refined boundaries аудируются отдельно;
+  - altitude-rate warnings показываются отдельно и сами по себе не доказывают порчу
+    координат.
 
 - [x] **M6 / Task 007 — FIT Writer, Preservation, Validate, Diff**
   ([task](tasks/007-fit-writer-validation.md))
-  - byte-preserving writer, CRC, atomic output и no-overwrite реализованы;
+  - byte-preserving writer, CRC, atomic output, default no-overwrite и явный
+    `--overwrite` для generated FIT/HTML реализованы;
   - timestamps, sensors, developer/unknown data проверяются semantic diff;
   - `validate` и `diff` реализованы, synthetic preservation regression зелёный;
   - partial repair выбирает candidates по `--min-confidence` (`HIGH` по умолчанию), а
@@ -94,10 +102,11 @@ Roadmap следует порядку milestone из [`docs/MILESTONES.md`](docs
 - [x] **M7 / Task 008 — HTML Report + v0.1 Stabilization**
   ([task](tasks/008-html-report-release.md))
   - локальные analyze/repair HTML reports с картой, графиками и anomaly explanations;
-  - Leaflet/OSM basemap с zoom, safe gap rendering и no-overwrite;
+  - Leaflet/OSM basemap с zoom, safe gap rendering и default no-overwrite;
   - distance/elevation comparison и audit table оставшихся missing-position runs;
   - CLI/docs/packaging cleanup, clean wheel install и regression/performance checks;
-  - WarpBuster Core v0.1 готов с Task 006B как явно зафиксированным ограничением.
+  - WarpBuster Core v0.1 включает завершённую Task 006B и отдельную таблицу one-sided
+    GNSS diagnostics.
 
 ## После v0.1
 

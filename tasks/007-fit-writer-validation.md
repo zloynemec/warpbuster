@@ -52,7 +52,8 @@ unresolved region без изменения coordinates и явно показы
 - исходные FIT definitions и data frames сохраняются в исходном порядке и размере;
 - patch меняет bytes только у явно разрешённых scalar fields;
 - footer CRC пересчитывается, затем temporary output повторно декодируется;
-- публикация выполняется атомарно и без overwrite;
+- публикация выполняется атомарно и без implicit overwrite; явный `--overwrite`
+  разрешает замену generated output, но не source FIT;
 - `record.distance` корректируется заменой increments на edges, затронутых новыми
   coordinates; correction переносится на последующие cumulative values;
 - `lap/session.total_distance` и существующие average-speed summaries пересчитываются;

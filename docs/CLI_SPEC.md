@@ -67,8 +67,9 @@ JSON schema должна быть стабильной внутри minor releas
 
 Report показывает transition counts, robust baseline, thresholds, machine-readable
 findings, corrupted intervals, bridge details и отдельные geometry warnings. Scope
-`integrity_detection` содержит стадии `local_transitions`, `spoofing_islands` и
-`geometry_gap_diagnostics`; entry/exit evidence строится только из физической
+`integrity_detection` содержит стадии `local_transitions`, `spoofing_islands`,
+`one_sided_gnss_clusters`, `geometry_gap_diagnostics`, `vertical_plausibility`;
+entry/exit evidence строится только из физической
 непрерывности GNSS, а не из course.
 Console и JSON также показывают нормализованные `sport/sub_sport` и выбранный threshold
 profile. Для неизвестного sport generic profile не выдаёт `IMPOSSIBLE` только по скорости.
@@ -77,6 +78,15 @@ profile. Для неизвестного sport generic profile не выдаёт
 Geometry warning содержит границы records, chord/path metrics, confidence `LOW`, reasons
 и `repair_eligible=false`. Он не меняет общий integrity status и exit code. Поэтому GPX
 без timestamps может остаться `UNKNOWN` и одновременно содержать geometry warning.
+
+One-sided diagnostics содержат boundaries, reconstructable flag, evidence counts,
+normal context обоих anchors, direct bridge, positioned/tainted component counts и
+machine-readable reasons. Принятый one-sided interval помечается `MEDIUM`; default
+writer threshold его не применяет.
+
+Vertical diagnostics содержат records, elapsed time, altitude delta, maximum absolute
+vertical speed и reasons. Они не создают coordinate interval и явно помечаются как
+неавторитетные для GNSS repair.
 
 ```bash
 warpbuster analyze activity.fit --html report.html
@@ -115,6 +125,10 @@ warpbuster repair activity.fit --course race.gpx --output out.fit --html repair.
 Report содержит anchor matches, direction, course span/speed, allocation method,
 candidate coordinates, fields to change/recalculate, unresolved intervals и safety
 flags. Course участвует только в reconstruction; `detection_used_course=false`.
+Для one-sided candidate report дополнительно содержит общую длину anchor connectors,
+reconstruction path, detected core и refined repair scope. Refinement выполняется только
+после course-independent proof и требует устойчивого course corridor; итоговая geometry
+проходит post-check локальных физических переходов.
 Для каждого proposed anchor report также содержит directional NORMAL-context count и
 blocking evidence. При unsafe anchors выводится bounded `mixed GNSS region`: границы,
 число missing/suspicious/impossible evidence, proposed outer anchors и скорость прямого
@@ -139,11 +153,13 @@ reasons. GPX activity вместо оригинального FIT и malformed c
 
 ```bash
 warpbuster repair activity.fit --course race.gpx --output out.fit
+warpbuster repair activity.fit --course race.gpx --output out.fit --overwrite
 ```
 
-Если `--output` не указан, используется `<stem>.fixed.fit`. Existing output никогда не
-перезаписывается. Запись атомарно публикуется только после validation и diff без
-unexpected changes.
+Если `--output` не указан, используется `<stem>.fixed.fit`. Existing output по умолчанию
+не перезаписывается. Явный `--overwrite` разрешает атомарную замену generated FIT и
+`--html` только после validation и diff без unexpected changes. Source FIT никогда не
+может быть destination.
 
 ### HTML report
 
@@ -206,7 +222,7 @@ Structural или unexpected changes возвращают `4`.
 - candidate bridges;
 - thresholds/config values.
 
-Console показывает не более 20 candidate diagnostics и 20 geometry warnings. JSON сохраняет не более
+Console показывает не более 20 candidate diagnostics, 20 one-sided diagnostics и 20 geometry warnings. JSON сохраняет не более
 `IntegrityConfig.diagnostic_max_candidate_details` деталей (default: 100), но всегда
 содержит полные aggregate counters и число отброшенных деталей. Это не позволяет
 диагностике потреблять неограниченную память на повреждённом файле.
@@ -224,6 +240,7 @@ Geometry warnings отдельно ограничены `IntegrityConfig.geometr
 - `3` — operation refused due to insufficient reconstruction confidence;
 - `4` — validation failed;
 
-HTML destination/no-overwrite errors относятся к `2`. Если FIT уже успешно опубликован,
+HTML destination/no-overwrite errors относятся к `2`. При `--overwrite` существующий
+HTML заменяется атомарно; в dry-run флаг действует только на HTML. Если FIT уже успешно опубликован,
 но последующая HTML generation завершилась ошибкой, repair возвращает `3` и явно
 указывает сохранённый FIT path.

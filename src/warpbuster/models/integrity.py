@@ -33,6 +33,37 @@ class IntervalReason(StrEnum):
     IMPOSSIBLE_TRANSITION_IN = "impossible_transition_in"
     IMPOSSIBLE_TRANSITION_OUT = "impossible_transition_out"
     PLAUSIBLE_BRIDGE = "plausible_bridge"
+    MISSING_EXIT_BOUNDARY = "missing_exit_boundary"
+    STABLE_OUTER_ANCHORS = "stable_outer_anchors"
+    TAINTED_POSITION_COMPONENTS = "tainted_position_components"
+
+
+class IntervalDetectionKind(StrEnum):
+    """Course-independent proof rule that established an interval."""
+
+    CLASSIC_ISLAND = "classic_island"
+    ONE_SIDED_CLUSTER = "one_sided_cluster"
+
+
+class OneSidedClusterReason(StrEnum):
+    """Evidence or rejection reason recorded for one one-sided candidate."""
+
+    IMPOSSIBLE_ENTRY = "impossible_entry"
+    MISSING_POSITION_EVIDENCE = "missing_position_evidence"
+    MISSING_EXIT_BOUNDARY = "missing_exit_boundary"
+    STABLE_OUTER_ANCHORS = "stable_outer_anchors"
+    PLAUSIBLE_OUTER_BRIDGE = "plausible_outer_bridge"
+    ALL_POSITION_COMPONENTS_TAINTED = "all_position_components_tainted"
+    ENTRY_NOT_ADJACENT = "entry_not_adjacent"
+    NO_NEARBY_MISSING_POSITION = "no_nearby_missing_position"
+    CLUSTER_NOT_MISSING_TERMINATED = "cluster_not_missing_terminated"
+    TRUSTED_ANCHOR_UNAVAILABLE = "trusted_anchor_unavailable"
+    CONTINUITY_BOUNDARY = "continuity_boundary"
+    ANCHOR_BEFORE_UNSTABLE = "anchor_before_unstable"
+    ANCHOR_AFTER_UNSTABLE = "anchor_after_unstable"
+    BRIDGE_UNAVAILABLE = "bridge_unavailable"
+    BRIDGE_TOO_FAST = "bridge_too_fast"
+    UNTAINTED_POSITION_COMPONENT = "untainted_position_component"
 
 
 class BridgeCandidateOutcome(StrEnum):
@@ -58,6 +89,13 @@ class GeometryWarningReason(StrEnum):
     LONG_NEAR_COLLINEAR_RUN = "long_near_collinear_run"
     PATH_NEAR_CHORD = "path_near_chord"
     NARROW_CORRIDOR = "narrow_corridor"
+
+
+class VerticalWarningReason(StrEnum):
+    """Course-independent altitude evidence that merits inspection."""
+
+    SUSTAINED_VERTICAL_RATE = "sustained_vertical_rate"
+    SINGLE_EXTREME_VERTICAL_RATE = "single_extreme_vertical_rate"
 
 
 class IntegrityStatus(StrEnum):
@@ -126,10 +164,11 @@ class CorruptedInterval:
     trusted_before_record_index: int
     trusted_after_record_index: int
     entry_transition: TransitionResult
-    exit_transition: TransitionResult
+    exit_transition: TransitionResult | None
     bridge: BridgeResult
     confidence: IntegrityConfidence
     reasons: tuple[IntervalReason, ...]
+    detection_kind: IntervalDetectionKind = IntervalDetectionKind.CLASSIC_ISLAND
 
     @property
     def record_count(self) -> int:
@@ -173,6 +212,51 @@ class IslandSearchDiagnostics:
 
 
 @dataclass(frozen=True, slots=True)
+class OneSidedClusterDiagnostic:
+    """Audit trail for a retained one-sided GNSS cluster candidate."""
+
+    start_record_index: int
+    end_record_index: int | None
+    trusted_before_record_index: int
+    trusted_after_record_index: int | None
+    missing_position_record_count: int
+    impossible_transition_count: int
+    suspicious_transition_count: int
+    positioned_component_count: int
+    tainted_positioned_component_count: int
+    anchor_before_normal_transition_count: int
+    anchor_after_normal_transition_count: int
+    anchor_required_normal_transition_count: int
+    bridge: BridgeResult | None
+    bridge_speed_limit_mps: float | None
+    confidence: IntegrityConfidence
+    reconstructable: bool
+    reasons: tuple[OneSidedClusterReason, ...]
+
+    @property
+    def record_count(self) -> int | None:
+        """Return inclusive candidate size when an end boundary was found."""
+        if self.end_record_index is None:
+            return None
+        return self.end_record_index - self.start_record_index + 1
+
+
+@dataclass(frozen=True, slots=True)
+class OneSidedSearchDiagnostics:
+    """Bounded one-sided cluster search counters and retained details."""
+
+    enabled: bool
+    impossible_entries_considered: int
+    classic_interval_entries_skipped: int
+    candidates_with_missing_evidence: int
+    reconstructable_cluster_count: int
+    unresolved_cluster_count: int
+    records_scanned: int
+    retained_clusters: tuple[OneSidedClusterDiagnostic, ...]
+    clusters_truncated_count: int
+
+
+@dataclass(frozen=True, slots=True)
 class GeometryWarning:
     """Geometry-only warning that never establishes coordinate corruption."""
 
@@ -204,6 +288,33 @@ class GeometryScanDiagnostics:
 
 
 @dataclass(frozen=True, slots=True)
+class VerticalWarning:
+    """Altitude anomaly that does not by itself establish coordinate corruption."""
+
+    start_record_index: int
+    end_record_index: int
+    start_timestamp: datetime
+    end_timestamp: datetime
+    transition_count: int
+    elapsed_seconds: float
+    altitude_delta_m: float
+    maximum_absolute_vertical_speed_mps: float
+    confidence: IntegrityConfidence
+    reasons: tuple[VerticalWarningReason, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class VerticalScanDiagnostics:
+    """Bounded output counters for the linear altitude-consistency scan."""
+
+    enabled: bool
+    measured_transition_count: int
+    warning_count: int
+    retained_warning_count: int
+    warnings_truncated_count: int
+
+
+@dataclass(frozen=True, slots=True)
 class IntegrityReport:
     """Deterministic report for local physical-transition analysis."""
 
@@ -216,8 +327,11 @@ class IntegrityReport:
     transitions: tuple[TransitionResult, ...]
     corrupted_intervals: tuple[CorruptedInterval, ...]
     island_search_diagnostics: IslandSearchDiagnostics
+    one_sided_search_diagnostics: OneSidedSearchDiagnostics
     geometry_warnings: tuple[GeometryWarning, ...]
     geometry_scan_diagnostics: GeometryScanDiagnostics
+    vertical_warnings: tuple[VerticalWarning, ...]
+    vertical_scan_diagnostics: VerticalScanDiagnostics
     config: IntegrityConfig
 
     def count(self, classification: TransitionClassification) -> int:

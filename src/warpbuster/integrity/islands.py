@@ -47,7 +47,7 @@ def detect_spoofing_islands(
         for transition in transitions
         if transition.classification is TransitionClassification.IMPOSSIBLE
     )
-    bridge_speed_limit_mps = _bridge_speed_limit(baseline, config)
+    bridge_speed_limit_mps = bridge_speed_limit(baseline, config)
     if bridge_speed_limit_mps is None:
         return IslandDetectionResult(
             intervals=(),
@@ -250,7 +250,7 @@ def _candidate_detail(
     )
 
 
-def _bridge_speed_limit(
+def bridge_speed_limit(
     baseline: BaselineStats,
     config: IntegrityConfig,
 ) -> float | None:

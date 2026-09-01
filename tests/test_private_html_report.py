@@ -66,8 +66,6 @@ def test_private_repaired_andromeda_lists_remaining_missing_runs(tmp_path: Path)
         for item in runs
     ] == [
         (1768, 1773, 6),
-        (3632, 3640, 9),
-        (3673, 3700, 28),
         (4381, 4399, 19),
         (8410, 8631, 222),
         (8867, 8878, 12),

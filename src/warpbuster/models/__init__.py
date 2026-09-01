@@ -41,6 +41,9 @@ from warpbuster.models.integrity import (
     TransitionClassification,
     TransitionReason,
     TransitionResult,
+    VerticalScanDiagnostics,
+    VerticalWarning,
+    VerticalWarningReason,
 )
 from warpbuster.models.reconstruction import (
     AllocationMethod,
@@ -48,6 +51,7 @@ from warpbuster.models.reconstruction import (
     AnchorStabilityDiagnostic,
     CandidateCoordinate,
     CourseAnchorMatch,
+    CourseBoundaryRefinement,
     CourseData,
     CourseDirection,
     CoursePoint,
@@ -80,6 +84,7 @@ __all__ = [
     "CoordinateBounds",
     "CorruptedInterval",
     "CourseAnchorMatch",
+    "CourseBoundaryRefinement",
     "CourseData",
     "CourseDirection",
     "CoursePoint",
@@ -120,4 +125,7 @@ __all__ = [
     "ValidationIssue",
     "ValidationIssueCode",
     "ValidationSeverity",
+    "VerticalScanDiagnostics",
+    "VerticalWarning",
+    "VerticalWarningReason",
 ]

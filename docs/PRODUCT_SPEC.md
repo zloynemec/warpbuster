@@ -156,6 +156,13 @@ candidate. Близкие jumps/dropouts могут быть показаны к
 course, но только после consistency check; иначе используются timestamps или record
 order. Без GPX course восстановление в M5 не выполняется.
 
+One-sided missing-exit interval создаётся detector-ом только по course-independent proof
+rule и имеет максимум `MEDIUM`. Reconstruction может использовать более широкий
+MEDIUM-only anchor match, но сохраняет trusted coordinates: candidate включает плавные
+anchor connectors и matched course span. Перед выдачей candidate проверяются boundary и
+внутренние transitions; impossible geometry отклоняется. Применение требует явного
+`--min-confidence medium`.
+
 На стадии write доступные interval candidates выбираются по явному minimum confidence:
 `LOW`, `MEDIUM` или `HIGH` (`HIGH` по умолчанию). Частичная запись разрешена: каждый
 detected interval получает отдельный результат `APPLIED` или `SKIPPED`; отсутствие
@@ -183,8 +190,9 @@ Writer применяет available interval candidates не ниже выбра
 (`HIGH` по умолчанию), включая безопасную partial application. Все applied/skipped
 intervals перечисляются в report. Writer сохраняет исходные FIT frames и definitions,
 патчит fixed-width coordinate/distance/поддерживаемые summary fields и публикует output
-только после CRC validation и diff без unexpected changes. Existing output не
-перезаписывается.
+только после CRC validation и diff без unexpected changes. Existing output по умолчанию
+не перезаписывается; явный `repair --overwrite` разрешает атомарную замену generated
+FIT/HTML, но не исходного FIT.
 
 Record speed по умолчанию сохраняется: без знания producer-а нельзя считать его
 coordinate-derived. Average-speed summaries пересчитываются из corrected distance и

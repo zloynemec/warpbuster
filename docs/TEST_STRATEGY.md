@@ -234,7 +234,8 @@ outer anchors, но остаётся `MEDIUM` и не eligible. Итоговый
 - timestamps, altitude, record speed, HR, cadence, power, temperature и developer fields
   сохраняются на 100%;
 - semantic diff содержит только expected changes;
-- default/explicit output, atomic no-overwrite и stale-source refusal;
+- default/explicit output, default no-overwrite, explicit atomic overwrite и
+  stale-source refusal;
 - `validate` exit `0/4`, `diff` unexpected changes и bounded reports;
 - default `HIGH` отбрасывает MEDIUM candidate, а явные `MEDIUM`/`LOW` допускают его;
 - `PARTIAL` plan применяет выбранные candidates и оставляет skipped intervals без
@@ -264,13 +265,18 @@ Garmin/Strava upload остаётся вне automated CI.
   через каждый 1 km;
 - original/course/repaired distance и ascent comparison с provenance;
 - missing-run audit table, chord/speed/distance delta и запрет bridge через continuity;
-- atomic no-overwrite и invalid destination errors;
+- default atomic no-overwrite, explicit overwrite и invalid destination errors;
 - наличие HTML template внутри installed package.
 
 Private Andromeda smoke измеряет `analyze + HTML render` для ~20 000 records с target
 `< 5 s` и report size `< 5 MiB`. Fixed fixture должен перечислять 7 оставшихся
-missing-position runs, включая `8893..9580`. Residual Task 006B evidence `3626 -> 3627`
-должно оставаться видимым finding, но HTML не создаёт новый corrupted interval.
+missing-position runs, включая `8893..9580`. Task 006B acceptance дополнительно требует
+course-independent `MEDIUM` core `3627..3700`, proof diagnostics `2/2` tainted
+components и reconstruction refinement до `3582..3741` с anchors в stable course
+corridor. Candidate применяется только при explicit `MEDIUM` и не должен оставлять
+abnormal transitions на этом участке; поздний mixed region остаётся skipped. Отдельные
+vertical regressions подтверждают, что altitude anomaly видна в отчёте, но не создаёт
+coordinate interval.
 
 Release check отдельно строит wheel, устанавливает его с runtime dependencies в чистый
 temporary Python 3.14 venv и запускает version/resource/analyze HTML smoke.

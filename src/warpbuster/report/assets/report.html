@@ -139,6 +139,12 @@
     </section>
 
     <section>
+      <h2>One-sided GNSS clusters</h2>
+      <div id="one-sided-clusters"></div>
+      <p class="hint">These clusters are detected without the reference course. Reconstructable clusters are capped at MEDIUM confidence and require an explicit MEDIUM repair threshold.</p>
+    </section>
+
+    <section>
       <h2>Findings and geometry warnings</h2>
       <div id="findings"></div>
     </section>
@@ -228,10 +234,26 @@
       `${item.start_record_index}..${item.end_record_index}`,
       item.record_count,
       badge(item.confidence),
+      item.detection_kind,
       `${number(item.bridge.distance_m)} m / ${number(item.bridge.apparent_speed_mps)} m/s`,
       item.reasons.join(", "),
     ]);
-    document.getElementById("intervals").appendChild(table(["Records", "Count", "Confidence", "Bridge", "Reasons"], intervalRows));
+    document.getElementById("intervals").appendChild(table(["Records", "Count", "Confidence", "Kind", "Bridge", "Reasons"], intervalRows));
+
+    const oneSidedRows = analysis.one_sided_search_diagnostics.retained_clusters.map((item) => [
+      `${item.start_record_index}..${text(item.end_record_index, "?")}`,
+      item.reconstructable ? badge("medium") : badge("low"),
+      item.reconstructable ? "yes" : "no",
+      `${item.trusted_before_record_index} → ${text(item.trusted_after_record_index, "?")}`,
+      `${item.anchor_before.consecutive_normal_transition_count}/${item.anchor_after.consecutive_normal_transition_count} (need ${item.anchor_before.required_normal_transition_count})`,
+      item.bridge ? `${number(item.bridge.distance_m)} m / ${number(item.bridge.apparent_speed_mps)} m/s` : "n/a",
+      `${item.tainted_positioned_component_count}/${item.positioned_component_count}`,
+      item.reasons.join(", "),
+    ]);
+    document.getElementById("one-sided-clusters").appendChild(table(
+      ["Records", "Confidence", "Reconstructable", "Anchors", "Normal context", "Bridge", "Tainted components", "Reasons"],
+      oneSidedRows,
+    ));
 
     const findingRows = analysis.findings.map((item) => [
       `${item.from_record_index} → ${item.to_record_index}`,
@@ -246,6 +268,13 @@
       `${number(item.chord_distance_m)} m chord`,
       `deviation ${number(item.max_cross_track_deviation_m)} m`,
       item.reasons.join(", "),
+    ]));
+    analysis.vertical_warnings.forEach((item) => findingRows.push([
+      `${item.start_record_index}..${item.end_record_index}`,
+      badge(item.confidence),
+      `${number(item.altitude_delta_m)} m altitude`,
+      `max |vertical| ${number(item.maximum_absolute_vertical_speed_mps)} m/s`,
+      `${item.reasons.join(", ")} (coordinate corruption not inferred)`,
     ]));
     document.getElementById("findings").appendChild(table(["Records", "Class", "Distance", "Speed / metric", "Reasons"], findingRows));
 

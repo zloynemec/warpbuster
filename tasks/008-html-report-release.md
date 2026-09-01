@@ -18,7 +18,8 @@ warpbuster repair activity.fit --course course.gpx --output fixed.fit --html rep
 ```
 
 `--json` и `--html` совместимы: JSON/console остаётся в stdout, HTML записывается в
-указанный файл. Existing HTML не перезаписывается молча.
+указанный файл. Existing HTML не перезаписывается молча; `repair --overwrite` разрешает
+явную атомарную замену.
 
 Минимальный HTML:
 - summary;

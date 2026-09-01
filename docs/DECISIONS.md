@@ -291,7 +291,9 @@ coordinate-derived.
 Output сначала создаётся как temporary file в destination directory. До atomic publish
 он повторно декодируется с CRC check, проходит normalized validation и semantic diff.
 Любое изменение definitions/structure или unexpected field блокирует publish. Existing
-destination не перезаписывается.
+destination не перезаписывается по умолчанию. Явный CLI-флаг `--overwrite` разрешает
+atomic replacement только после тех же validation/diff checks; source FIT никогда не
+может быть destination.
 
 Статус: Accepted.
 
@@ -328,6 +330,44 @@ gap chords. FIT ascent берётся из `session.total_ascent`, а reference-
 
 Template и application code поставляются package resource. JSON payload экранирует HTML
 control characters, а metadata выводится через DOM `textContent`. Output публикуется
-атомарно и без overwrite; одинаковые inputs/config/version дают одинаковые bytes.
+атомарно и без implicit overwrite; `repair --overwrite` разрешает atomic replacement
+FIT и HTML. Одинаковые inputs/config/version дают одинаковые bytes.
+
+Статус: Accepted.
+
+## ADR-022 — Missing-exit clusters require a complete MEDIUM proof
+
+Один impossible jump рядом с GNSS dropout не доказывает повреждение соседнего
+правдоподобного движения. One-sided detector создаёт interval только если bounded
+cluster заканчивается missing-position run, внешние anchors имеют configurable NORMAL
+context и plausible direct bridge, а каждый positioned-компонент внутри затронут
+abnormal transition evidence. Course и reference fixed FIT запрещены при построении
+границ detected core. Неполное доказательство остаётся `LOW` diagnostic; полное получает
+максимум `MEDIUM`.
+
+Course reconstruction для такого interval требует явного MEDIUM threshold. Локально
+`NORMAL` detector anchors могут уже находиться внутри gradual drift, поэтому
+reconstruction выполняет bounded outward scan до configurable stable course corridor.
+Detected core остаётся неизменным audit evidence, а refined repair scope и новые внешние
+anchors записываются отдельно. Refined anchors не изменяются: candidate использует
+прямой плавный connector к course projection, course span и connector к after-anchor.
+Не найденный с обеих сторон corridor даёт unresolved candidate. Distance/speed
+allocation, создающая abnormal transition, заменяется timestamp allocation; remaining
+impossible transition блокирует candidate.
+
+Статус: Accepted.
+
+## ADR-023 — Altitude anomalies are diagnostics, not coordinate proof
+
+Running profile выполняет линейный scan соседних timestamp/altitude samples. Sustained
+vertical rate и single extreme transition становятся `MEDIUM` warnings с точными
+границами, delta и maximum absolute rate. Все thresholds и retention bound находятся в
+`IntegrityConfig`; generic profile не угадывает универсальный вертикальный потолок.
+
+Altitude warning не меняет integrity status и не создаёт `CorruptedInterval`:
+barometric/device-fused altitude может ошибиться независимо от GNSS coordinates. Writer
+не изменяет altitude на основании такого warning. Course/DEM могут позднее использовать
+эту информацию только как дополнительную reconstruction validation, но не как замену
+course-independent доказательству coordinate corruption.
 
 Статус: Accepted.
