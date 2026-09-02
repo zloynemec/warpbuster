@@ -63,6 +63,26 @@
     .endpoint-marker { border-radius: 50%; background: white; font-size: 9px; }
     .endpoint-start { background: #2f855a; color: white; }
     .endpoint-end { background: #c53030; color: white; }
+    .diagnostic-marker {
+      display: grid;
+      place-items: center;
+      width: 28px !important;
+      height: 28px !important;
+      margin: -14px 0 0 -14px !important;
+      border: 2px solid white;
+      border-radius: 50%;
+      background: #17202a;
+      box-shadow: 0 2px 7px rgb(23 32 42 / 45%);
+      color: white;
+      font: 800 12px/1 ui-sans-serif, system-ui, sans-serif;
+    }
+    .diagnostic-corrupted_interval { background: #c53030; }
+    .diagnostic-one_sided_diagnostic { background: #dd6b20; }
+    .diagnostic-abnormal_transition_run { background: #b7791f; }
+    .diagnostic-geometry_warning { background: #6b46c1; }
+    .diagnostic-vertical_warning { background: #176b87; }
+    .diagnostic-missing_position_run { background: #d97706; }
+    .diagnostic-marker-selected { outline: 3px solid #17202a; outline-offset: 2px; }
     .chart { height: 230px; margin-top: 12px; }
     .legend, .controls { display: flex; flex-wrap: wrap; gap: 9px 16px; align-items: center; margin: 8px 0 13px; }
     .legend span, .controls label { color: var(--muted); font-size: 13px; }
@@ -78,6 +98,13 @@
     th, td { padding: 9px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
     th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
     td.reasons { min-width: 260px; overflow-wrap: anywhere; }
+    tr.diagnostic-region-row { cursor: pointer; }
+    tr.diagnostic-region-row:hover td { background: #f7fafc; }
+    tr.diagnostic-region-selected td { background: #fff3c4; }
+    .diagnostic-number { font-size: 16px; font-weight: 800; text-align: center; }
+    .diagnostic-evidence summary { cursor: pointer; color: var(--blue); }
+    .diagnostic-evidence p { margin: 5px 0; overflow-wrap: anywhere; }
+    .reference-note { margin: 10px 0; padding: 10px 12px; border-left: 4px solid var(--purple); background: #f5f0ff; color: #4a3480; }
     .empty { color: var(--muted); padding: 10px 0; }
     footer { color: var(--muted); padding: 20px 0 38px; font-size: 12px; }
     @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -96,6 +123,7 @@
     <section>
       <h2>Track geometry</h2>
       <div class="controls"><button id="fit-map" type="button">Fit whole track</button></div>
+      <p class="reference-note" id="course-reference" hidden></p>
       <div class="legend">
         <span><i class="swatch" style="background:#64748b"></i>Original</span>
         <span><i class="swatch" style="background:#1d6fb8"></i>Repaired</span>
@@ -110,13 +138,19 @@
     </section>
 
     <section>
+      <h2>Numbered detector regions</h2>
+      <p class="hint">A number identifies a display region, not its severity. The GPX course is a reference overlay only and is excluded from integrity detection. MISSING does not mean CORRUPTED. A visually unusual unnumbered FIT section may simply lack sufficient course-independent evidence.</p>
+      <div id="diagnostic-regions"></div>
+    </section>
+
+    <section>
       <h2>Distance &amp; elevation comparison</h2>
       <div id="metrics-comparison"></div>
       <div class="hint" id="metrics-notes"></div>
     </section>
 
     <section>
-      <h2>Repaired FIT pace &amp; elevation</h2>
+      <h2 id="activity-performance-title">Activity pace &amp; elevation</h2>
       <div class="grid" id="repaired-performance-summary"></div>
       <canvas class="chart" id="split-pace-chart" aria-label="Pace by recorded kilometre histogram"></canvas>
       <canvas class="chart" id="split-elevation-chart" aria-label="Ascent and descent by recorded kilometre histogram"></canvas>
@@ -136,18 +170,18 @@
       <canvas class="chart" id="hr-chart" aria-label="Heart-rate chart"></canvas>
     </section>
 
-    <section>
+    <section class="repair-only">
       <h2>Repair decisions</h2>
       <div id="repair-decisions"></div>
     </section>
 
-    <section>
+    <section class="repair-only">
       <h2>Missing-position completion</h2>
       <div id="missing-completion"></div>
       <p class="hint">This opt-in reconstruction fills only absent coordinates. Existing GPS coordinates, timestamps, telemetry and a plausible recorded-distance stream remain unchanged.</p>
     </section>
 
-    <section>
+    <section class="repair-only">
       <h2>Composite GNSS regions</h2>
       <div id="composite-regions"></div>
       <p class="hint">Components are classified without the reference course. A diagnostic region may contain proven-corrupted, tainted, plausible, unknown and missing data; inclusion in the region alone does not authorize coordinate changes.</p>
@@ -169,7 +203,7 @@
       <div id="findings"></div>
     </section>
 
-    <section>
+    <section class="repair-only">
       <h2>FIT preservation and diff</h2>
       <div id="diff"></div>
     </section>
@@ -186,7 +220,13 @@
     const analysis = data.analysis;
     const repair = data.repair;
     const writeResult = data.write_result;
-    const repairedPerformance = data.repaired_performance;
+    const repairedPerformance = data.activity_performance || data.repaired_performance;
+    const diagnosticRegions = data.diagnostic_regions || [];
+    const diagnosticRegionsById = new Map(diagnosticRegions.map((region) => [region.display_id, region]));
+    const diagnosticRegionRows = new Map();
+    const diagnosticRegionMarkers = new Map();
+    let map = null;
+    let focusDiagnosticRegion = (region) => selectDiagnosticRegion(region.display_id, true);
     const colors = { original: "#64748b", repaired: "#1d6fb8", candidate: "#0f766e", course: "#6b46c1", corrupted: "#c53030", tainted: "#dd6b20", plausible: "#2f855a", unknown: "#64748b", skipped: "#b7791f", missing: "#d97706", recorded: "#2f855a", blue: "#176b87", purple: "#6b46c1", grid: "#dedbd2", ink: "#17202a", muted: "#65717d" };
 
     const text = (value, fallback = "n/a") => value === null || value === undefined || value === "" ? fallback : String(value);
@@ -225,6 +265,7 @@
     document.title = `WarpBuster — ${text(data.inspect.source.path)}`;
     document.getElementById("source-path").textContent = `${data.report_kind.replaceAll("_", " ")} · ${text(data.inspect.source.path)}`;
     document.getElementById("footer").textContent = `Generated locally by WarpBuster ${data.generator.version}. This file contains embedded activity coordinates and telemetry; treat it as private data. The map loads Leaflet from unpkg.com and visible tiles from tile.openstreetmap.org.`;
+    if (!repair) document.querySelectorAll(".repair-only").forEach((node) => { node.hidden = true; });
 
     const summaryItems = [
       ["Integrity", analysis.status, true],
@@ -236,6 +277,11 @@
       ["Intervals", analysis.summary.corrupted_interval_count, false],
       ["Missing positions", analysis.summary.missing_position_record_count, false],
     ];
+    if (data.tracks.course) summaryItems.push([
+      "Reference course",
+      `${number(data.tracks.course.total_distance_m / 1000, 2)} km / ${data.tracks.course.point_count} points`,
+      false,
+    ]);
     if (repair) summaryItems.splice(2, 0, ["Repair plan", repair.status, true], ["Application", repair.selection.application_status, true]);
     const summary = document.getElementById("summary");
     for (const [label, value, asBadge] of summaryItems) {
@@ -244,6 +290,11 @@
       const valueNode = document.createElement("div"); valueNode.className = "value";
       asBadge ? valueNode.appendChild(badge(value)) : appendText(valueNode, value);
       card.append(labelNode, valueNode); summary.appendChild(card);
+    }
+    if (data.tracks.course) {
+      const courseReference = document.getElementById("course-reference");
+      courseReference.hidden = false;
+      courseReference.textContent = `Reference only — excluded from integrity detection. ${text(data.tracks.course.source_path)} · ${data.tracks.course.segment_count} segment(s) · ${data.tracks.course.point_count} points · ${distance(data.tracks.course.total_distance_m)}.`;
     }
 
     const table = (headers, rows) => {
@@ -255,6 +306,97 @@
       rows.forEach((row) => { const tr = document.createElement("tr"); row.forEach((value, index) => { const td = document.createElement("td"); if (index === row.length - 1) td.className = "reasons"; if (value instanceof Node) td.appendChild(value); else td.textContent = text(value); tr.appendChild(td); }); body.appendChild(tr); });
       node.appendChild(body); wrap.appendChild(node); return wrap;
     };
+
+    const diagnosticKindLabel = (kind) => ({
+      corrupted_interval: "Corrupted interval",
+      one_sided_diagnostic: "One-sided diagnostic",
+      abnormal_transition_run: "Abnormal transitions",
+      geometry_warning: "Geometry warning",
+      vertical_warning: "Vertical warning",
+      missing_position_run: "Missing positions",
+    })[kind] || kind.replaceAll("_", " ");
+    const diagnosticMetricSummary = (region) => {
+      const metrics = region.metrics || {};
+      if (region.kind === "corrupted_interval") {
+        const bridge = metrics.bridge || {};
+        return `${text(metrics.detection_kind)}; bridge ${metres(bridge.distance_m)} / ${number(bridge.apparent_speed_mps)} m/s; anchors ${text(metrics.trusted_before_record_index)} → ${text(metrics.trusted_after_record_index)}`;
+      }
+      if (region.kind === "one_sided_diagnostic") {
+        const bridge = metrics.bridge || {};
+        return `${text(metrics.tainted_positioned_component_count)}/${text(metrics.positioned_component_count)} tainted; normal context ${text(metrics.anchor_before_normal_transition_count)}/${text(metrics.anchor_after_normal_transition_count)} (need ${text(metrics.anchor_required_normal_transition_count)}); bridge ${metres(bridge.distance_m)} / ${number(bridge.apparent_speed_mps)} m/s`;
+      }
+      if (region.kind === "abnormal_transition_run") {
+        return `${text(metrics.transition_count)} transition(s); Σ ${metres(metrics.total_transition_distance_m)} / ${elapsed(metrics.total_elapsed_seconds)}; max ${number(metrics.maximum_apparent_speed_mps)} m/s`;
+      }
+      if (region.kind === "geometry_warning") {
+        return `${metres(metrics.path_distance_m)} path / ${metres(metrics.chord_distance_m)} chord; ratio ${number(metrics.path_to_chord_ratio, 4)}; deviation ${metres(metrics.max_cross_track_deviation_m)}`;
+      }
+      if (region.kind === "vertical_warning") {
+        return `${number(metrics.altitude_delta_m)} m / ${elapsed(metrics.elapsed_seconds)}; max |vertical| ${number(metrics.maximum_absolute_vertical_speed_mps)} m/s`;
+      }
+      if (region.kind === "missing_position_run") {
+        return `${text(metrics.missing_record_count)} missing; anchors ${text(metrics.anchor_before_record_index)} → ${text(metrics.anchor_after_record_index)}; chord ${metres(metrics.straight_line_distance_m)}; recorded Δ ${metres(metrics.recorded_distance_delta_m)}`;
+      }
+      return "n/a";
+    };
+    const selectDiagnosticRegion = (displayId, scrollToRow = false) => {
+      diagnosticRegionRows.forEach((row) => row.classList.remove("diagnostic-region-selected"));
+      diagnosticRegionMarkers.forEach((marker) => marker.getElement()?.classList.remove("diagnostic-marker-selected"));
+      const row = diagnosticRegionRows.get(displayId);
+      if (!row) return;
+      row.classList.add("diagnostic-region-selected");
+      diagnosticRegionMarkers.get(displayId)?.getElement()?.classList.add("diagnostic-marker-selected");
+      if (scrollToRow) row.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    };
+    const diagnosticEvidence = (region) => {
+      const details = document.createElement("details"); details.className = "diagnostic-evidence";
+      const summaryNode = document.createElement("summary"); summaryNode.textContent = region.reasons.length ? region.reasons.join(", ") : "No reasons";
+      details.appendChild(summaryNode);
+      region.evidence.forEach((item) => {
+        const line = document.createElement("p");
+        line.textContent = item.entity === "transition"
+          ? `${item.from_record_index} → ${item.to_record_index}: ${text(item.classification)}, ${metres(item.distance_m)}, ${number(item.apparent_speed_mps)} m/s; ${(item.reasons || []).join(", ")}`
+          : Object.entries(item).map(([key, value]) => `${key}=${text(value)}`).join(", ");
+        details.appendChild(line);
+      });
+      if (region.overlaps_display_ids.length) {
+        const overlap = document.createElement("p");
+        overlap.textContent = `Overlaps display region(s): ${region.overlaps_display_ids.map((displayId) => `#${displayId}`).join(", ")}.`;
+        details.appendChild(overlap);
+      }
+      return details;
+    };
+    const diagnosticRoot = document.getElementById("diagnostic-regions");
+    if (!diagnosticRegions.length) {
+      const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = "No numbered detector or missing-data regions."; diagnosticRoot.appendChild(empty);
+    } else {
+      const wrap = document.createElement("div"); wrap.className = "table-wrap";
+      const regionTable = document.createElement("table"); regionTable.id = "diagnostic-region-table";
+      const head = document.createElement("thead"), headRow = document.createElement("tr");
+      ["#", "Type / stage", "Records", "Time / duration", "Positions / missing", "Status", "Confidence", "Repair eligible", "Evidence / reasons", "Metrics", "Map"].forEach((label) => { const th = document.createElement("th"); th.textContent = label; headRow.appendChild(th); });
+      head.appendChild(headRow); regionTable.appendChild(head);
+      const body = document.createElement("tbody");
+      diagnosticRegions.forEach((region) => {
+        const row = document.createElement("tr"); row.className = "diagnostic-region-row"; row.id = `diagnostic-region-${region.display_id}`; row.dataset.displayId = String(region.display_id);
+        const values = [
+          region.display_id,
+          `${diagnosticKindLabel(region.kind)} / ${region.detector_stage}`,
+          `${region.start_record_index}..${region.end_record_index}`,
+          `${text(region.start_timestamp)} → ${text(region.end_timestamp)} / ${elapsed(region.duration_seconds)}`,
+          `${region.position_record_count} / ${region.missing_position_record_count}`,
+          badge(region.status),
+          badge(region.confidence),
+          region.repair_eligible ? "yes" : "no",
+          diagnosticEvidence(region),
+          diagnosticMetricSummary(region),
+        ];
+        values.forEach((value, index) => { const cell = document.createElement("td"); if (index === 0) cell.className = "diagnostic-number"; if (index === 8) cell.classList.add("reasons"); value instanceof Node ? cell.appendChild(value) : cell.textContent = text(value); row.appendChild(cell); });
+        const mapCell = document.createElement("td"), mapButton = document.createElement("button"); mapButton.type = "button"; mapButton.textContent = region.map.mappable ? "Show" : "Not mappable"; mapButton.disabled = !region.map.mappable; mapButton.addEventListener("click", (event) => { event.stopPropagation(); focusDiagnosticRegion(region); }); mapCell.appendChild(mapButton); row.appendChild(mapCell);
+        row.addEventListener("click", (event) => { if (event.target instanceof Element && event.target.closest("button, details, summary")) return; focusDiagnosticRegion(region); });
+        diagnosticRegionRows.set(region.display_id, row); body.appendChild(row);
+      });
+      regionTable.appendChild(body); wrap.appendChild(regionTable); diagnosticRoot.appendChild(wrap);
+    }
 
     const decisionRows = repair ? repair.selection.intervals.map((item) => [
       `${item.start_record_index}..${item.end_record_index}`,
@@ -376,6 +518,7 @@
     document.getElementById("metrics-notes").appendChild(metricsNotes);
 
     const performanceSummary = document.getElementById("repaired-performance-summary");
+    document.getElementById("activity-performance-title").textContent = `${text(repairedPerformance?.source_label, data.report_kind === "analyze" ? "Original activity" : "Repaired FIT")} pace & elevation`;
     if (!repairedPerformance) {
       const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = "Available after a repaired FIT has been written and validated."; performanceSummary.appendChild(empty);
     } else {
@@ -453,7 +596,6 @@
       }
       return bridges;
     };
-    let map = null;
     if (typeof L === "undefined") {
       document.getElementById("map").textContent = "Interactive map unavailable: Leaflet could not be loaded. Check the internet connection and reload this report.";
       document.getElementById("fit-map").disabled = true;
@@ -472,10 +614,11 @@
     const hasRepaired = layers.repaired.length > 0, hasCandidate = layers.candidate.length > 0;
     const primaryRows = hasRepaired ? layers.repaired : (hasCandidate ? layers.candidate : layers.original);
     const primaryFullRows = data.tracks.repaired ? data.tracks.repaired.records : originalRows;
-    addOverlay("Original", splitTrack(layers.original), { color: colors.original, weight: 2.5, opacity: 0.8 }, !hasRepaired && !hasCandidate);
+    const originalLayerLabel = data.inspect.source.format === "fit" ? "Original FIT" : "Original GPX";
+    addOverlay(originalLayerLabel, splitTrack(layers.original), { color: colors.original, weight: 2.5, opacity: 0.8 }, !hasRepaired && !hasCandidate);
     addOverlay("Repaired", splitTrack(layers.repaired), { color: colors.repaired, weight: 3, opacity: 0.95 }, hasRepaired);
     addOverlay("Candidate", splitTrack(layers.candidate), { color: colors.candidate, weight: 3, opacity: 0.95, dashArray: "8 6" }, !hasRepaired && hasCandidate);
-    addOverlay("Course", layers.course.filter((segment) => segment.length), { color: colors.course, weight: 2.5, opacity: 0.8, dashArray: "6 5" }, false);
+    addOverlay("Reference course", layers.course.filter((segment) => segment.length), { color: colors.course, weight: 2.5, opacity: 0.8, dashArray: "6 5" }, data.report_kind === "analyze");
     const corruptedSegments = analysis.corrupted_intervals.flatMap((item) => splitTrack(layers.original, [item.start_record_index, item.end_record_index]));
     addOverlay("Corrupted intervals", corruptedSegments, { color: colors.corrupted, weight: 6, opacity: 0.9 }, !hasRepaired);
     const skippedSegments = repair ? repair.selection.intervals.filter((item) => item.action === "skipped").flatMap((item) => splitTrack(layers.original, [item.start_record_index, item.end_record_index])) : [];
@@ -486,6 +629,19 @@
     addOverlay("Composite plausible", compositeSegments("plausible"), { color: colors.plausible, weight: 5, opacity: 0.85 }, false);
     addOverlay("Composite unknown", compositeSegments("unknown"), { color: colors.unknown, weight: 5, opacity: 0.8, dashArray: "4 5" }, false);
     addOverlay("Missing-data bridges", missingBridges(primaryRows), { color: colors.missing, weight: 3, opacity: 0.9, dashArray: "7 7" });
+
+    const diagnosticLayerDefinitions = {
+      one_sided_diagnostic: { label: "One-sided diagnostics", color: colors.tainted, weight: 6, enabled: true, dashArray: "7 5" },
+      abnormal_transition_run: { label: "Suspicious / impossible transitions", color: colors.skipped, weight: 6, enabled: true },
+      geometry_warning: { label: "Geometry warnings", color: colors.purple, weight: 5, enabled: false, dashArray: "5 5" },
+      vertical_warning: { label: "Vertical warnings", color: colors.blue, weight: 5, enabled: false, dashArray: "3 5" },
+    };
+    Object.entries(diagnosticLayerDefinitions).forEach(([kind, definition]) => {
+      const segments = diagnosticRegions
+        .filter((region) => region.kind === kind)
+        .flatMap((region) => (region.map.geometry_ranges || []).flatMap((bounds) => splitTrack(layers.original, bounds)));
+      addOverlay(definition.label, segments, { color: definition.color, weight: definition.weight, opacity: 0.9, dashArray: definition.dashArray }, definition.enabled);
+    });
 
     const markerLayers = [];
     const validPrimaryRows = primaryFullRows.filter((row) => Number.isFinite(row[2]) && Number.isFinite(row[3]));
@@ -510,14 +666,50 @@
       const markerGroup = L.layerGroup(markerLayers).addTo(map);
       overlayLayers["Distance markers (km)"] = markerGroup;
     }
+    const diagnosticMarkers = [];
+    diagnosticRegions.filter((region) => region.map.mappable).forEach((region) => {
+      const icon = L.divIcon({
+        className: `diagnostic-marker diagnostic-${region.kind}`,
+        html: String(region.display_id),
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+      });
+      const marker = L.marker(region.map.marker, { icon, title: `Region ${region.display_id}: ${diagnosticKindLabel(region.kind)}`, riseOnHover: true });
+      const popup = document.createElement("div");
+      const popupTitle = document.createElement("strong"); popupTitle.textContent = `#${region.display_id} · ${diagnosticKindLabel(region.kind)}`;
+      const popupRecords = document.createElement("div"); popupRecords.textContent = `Records ${region.start_record_index}..${region.end_record_index}`;
+      const popupTime = document.createElement("div"); popupTime.textContent = `${text(region.start_timestamp)} → ${text(region.end_timestamp)} · ${elapsed(region.duration_seconds)}`;
+      const popupStatus = document.createElement("div"); popupStatus.textContent = `${region.status} · ${region.confidence} confidence`;
+      const popupReasons = document.createElement("div"); popupReasons.textContent = region.reasons.length ? region.reasons.join(", ") : "No reasons";
+      popup.append(popupTitle, popupRecords, popupTime, popupStatus, popupReasons);
+      marker.bindPopup(popup);
+      marker.on("click", () => selectDiagnosticRegion(region.display_id, true));
+      diagnosticRegionMarkers.set(region.display_id, marker);
+      diagnosticMarkers.push(marker);
+    });
+    if (diagnosticMarkers.length) {
+      const diagnosticMarkerGroup = L.layerGroup(diagnosticMarkers).addTo(map);
+      overlayLayers["Numbered detector regions"] = diagnosticMarkerGroup;
+    }
     L.control.layers({}, overlayLayers, { collapsed: true }).addTo(map);
     L.control.scale({ imperial: false }).addTo(map);
 
     const mapBounds = L.latLngBounds([]);
     splitTrack(primaryRows).forEach((segment) => segment.forEach((point) => mapBounds.extend(point)));
-    if (!mapBounds.isValid()) layers.course.forEach((segment) => segment.forEach((point) => { if (Number.isFinite(point[0]) && Number.isFinite(point[1])) mapBounds.extend(point); }));
+    layers.course.forEach((segment) => segment.forEach((point) => { if (Number.isFinite(point[0]) && Number.isFinite(point[1])) mapBounds.extend(point); }));
     const fitWholeTrack = () => mapBounds.isValid() ? map.fitBounds(mapBounds, { padding: [28, 28], maxZoom: 17 }) : map.setView([0, 0], 2);
     document.getElementById("fit-map").addEventListener("click", fitWholeTrack);
+    focusDiagnosticRegion = (region) => {
+      selectDiagnosticRegion(region.display_id, false);
+      const marker = diagnosticRegionMarkers.get(region.display_id);
+      const bounds = region.map.bounds;
+      if (bounds && bounds.length === 2 && (bounds[0][0] !== bounds[1][0] || bounds[0][1] !== bounds[1][1])) {
+        map.fitBounds(bounds, { padding: [42, 42], maxZoom: 18 });
+      } else if (region.map.marker) {
+        map.setView(region.map.marker, Math.max(map.getZoom(), 17));
+      }
+      if (marker) marker.openPopup();
+    };
     fitWholeTrack();
     }
 

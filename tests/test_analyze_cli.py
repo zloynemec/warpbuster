@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from tests.fit_factory import write_trajectory_activity
+from tests.gpx_factory import GpxPoint, write_gpx_activity
 from warpbuster.cli import main
 
 
@@ -167,3 +168,138 @@ def test_analyze_writes_html_without_corrupting_json_stdout(
 
     assert main(["analyze", str(fit_path), "--html", str(html_path)]) == 2
     assert "HTML output already exists" in capsys.readouterr().err  # type: ignore[attr-defined]
+
+    html_path.write_text("stale report", encoding="utf-8")
+    assert (
+        main(
+            [
+                "analyze",
+                str(fit_path),
+                "--html",
+                str(html_path),
+                "--overwrite",
+            ]
+        )
+        == 0
+    )
+    assert "HTML report:" in capsys.readouterr().out  # type: ignore[attr-defined]
+    assert '"report_kind":"analyze"' in html_path.read_text(encoding="utf-8")
+
+
+def test_analyze_html_without_path_uses_default_and_supports_overwrite(
+    tmp_path: Path,
+    capsys: object,
+) -> None:
+    """A bare --html remains opt-in and derives a stable path beside the activity."""
+    fit_path = tmp_path / "clean.fit"
+    default_html_path = tmp_path / "clean.analyze.html"
+    write_trajectory_activity(
+        fit_path,
+        [(index, 55.0, 37.0 + index * 0.00005) for index in range(7)],
+    )
+
+    assert main(["analyze", str(fit_path), "--html"]) == 0
+    assert f"HTML report: {default_html_path}" in capsys.readouterr().out  # type: ignore[attr-defined]
+    assert '"report_kind":"analyze"' in default_html_path.read_text(encoding="utf-8")
+
+    assert main(["analyze", str(fit_path), "--html"]) == 2
+    assert "HTML output already exists" in capsys.readouterr().err  # type: ignore[attr-defined]
+
+    default_html_path.write_text("stale report", encoding="utf-8")
+    assert main(["analyze", str(fit_path), "--html", "--overwrite"]) == 0
+    capsys.readouterr()  # type: ignore[attr-defined]
+    assert '"report_kind":"analyze"' in default_html_path.read_text(encoding="utf-8")
+
+
+def test_analyze_reference_course_changes_only_html_display_payload(
+    tmp_path: Path,
+    capsys: object,
+) -> None:
+    """The GPX overlay is loaded after detection and never enters detector JSON."""
+    fit_path = tmp_path / "clean.fit"
+    course_path = tmp_path / "course.gpx"
+    html_path = tmp_path / "detector.html"
+    trajectory: list[tuple[int, float | None, float | None]] = [
+        (index, 55.0, 37.0 + index * 0.00005) for index in range(7)
+    ]
+    write_trajectory_activity(fit_path, trajectory)
+    course_points: list[GpxPoint] = [
+        (latitude, longitude, None, None)
+        for _index, latitude, longitude in trajectory
+        if latitude is not None and longitude is not None
+    ]
+    write_gpx_activity(
+        course_path,
+        [course_points],
+    )
+
+    assert main(["analyze", str(fit_path), "--json"]) == 0
+    detector_without_course = json.loads(capsys.readouterr().out)  # type: ignore[attr-defined]
+
+    assert (
+        main(
+            [
+                "analyze",
+                str(fit_path),
+                "--json",
+                "--course",
+                str(course_path),
+                "--html",
+                str(html_path),
+            ]
+        )
+        == 0
+    )
+    detector_with_course = json.loads(capsys.readouterr().out)  # type: ignore[attr-defined]
+
+    assert detector_with_course == detector_without_course
+    rendered = html_path.read_text(encoding="utf-8")
+    assert '"report_kind":"analyze"' in rendered
+    assert '"reference_only":true' in rendered
+    assert '"source_name":"course.gpx"' in rendered
+    assert '"repair":null' in rendered
+    assert '"write_result":null' in rendered
+
+
+def test_analyze_course_requires_html_and_fit_activity(
+    tmp_path: Path,
+    capsys: object,
+) -> None:
+    """Unsupported course combinations fail explicitly instead of being ignored."""
+    fit_path = tmp_path / "clean.fit"
+    activity_gpx = tmp_path / "activity.gpx"
+    course_path = tmp_path / "course.gpx"
+    html_path = tmp_path / "detector.html"
+    trajectory: list[tuple[int, float | None, float | None]] = [
+        (index, 55.0, 37.0 + index * 0.00005) for index in range(7)
+    ]
+    write_trajectory_activity(fit_path, trajectory)
+    points: list[GpxPoint] = [
+        (latitude, longitude, None, None)
+        for _index, latitude, longitude in trajectory
+        if latitude is not None and longitude is not None
+    ]
+    write_gpx_activity(activity_gpx, [points])
+    write_gpx_activity(course_path, [points])
+
+    assert main(["analyze", str(fit_path), "--course", str(course_path)]) == 2
+    assert "analyze --course requires --html" in capsys.readouterr().err  # type: ignore[attr-defined]
+
+    assert main(["analyze", str(fit_path), "--overwrite"]) == 2
+    assert "analyze --overwrite requires --html" in capsys.readouterr().err  # type: ignore[attr-defined]
+
+    assert (
+        main(
+            [
+                "analyze",
+                str(activity_gpx),
+                "--course",
+                str(course_path),
+                "--html",
+                str(html_path),
+            ]
+        )
+        == 2
+    )
+    assert "analyze --course requires a FIT activity input" in capsys.readouterr().err  # type: ignore[attr-defined]
+    assert not html_path.exists()

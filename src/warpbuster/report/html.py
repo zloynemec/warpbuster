@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from datetime import datetime
 from importlib.resources import files
 from itertools import pairwise
@@ -17,7 +18,13 @@ from warpbuster.config import CourseReconstructionConfig
 from warpbuster.geo import geodesic_distance_m
 from warpbuster.models.activity import ActivityData, ActivityRecord
 from warpbuster.models.fit import FitWriteResult
-from warpbuster.models.integrity import IntegrityConfidence, IntegrityReport
+from warpbuster.models.integrity import (
+    IntegrityConfidence,
+    IntegrityReport,
+    IntervalDetectionKind,
+    TransitionClassification,
+    TransitionResult,
+)
 from warpbuster.models.reconstruction import CourseData, RepairPlan, RepairSelection
 from warpbuster.reconstruction.selection import select_repair_intervals
 from warpbuster.report.analyze import analyze_report
@@ -32,6 +39,32 @@ class _UseActivityDistance:
 
 _USE_ACTIVITY_DISTANCE = _UseActivityDistance()
 
+_DIAGNOSTIC_KIND_PRIORITY = {
+    "corrupted_interval": 0,
+    "one_sided_diagnostic": 1,
+    "abnormal_transition_run": 2,
+    "geometry_warning": 3,
+    "vertical_warning": 4,
+    "missing_position_run": 5,
+}
+
+
+@dataclass(frozen=True, slots=True)
+class _DiagnosticRegionDraft:
+    """One presentation-only projection of existing detector or data-quality evidence."""
+
+    kind: str
+    detector_stage: str
+    start_record_index: int
+    end_record_index: int
+    status: str
+    confidence: str
+    repair_eligible: bool
+    reasons: tuple[str, ...]
+    evidence: tuple[Mapping[str, object], ...]
+    metrics: Mapping[str, object]
+    source_key: str
+
 
 class HtmlReportError(ValueError):
     """Raised when an HTML report cannot be produced without overwriting data."""
@@ -42,20 +75,33 @@ def write_analyze_html(
     integrity: IntegrityReport,
     output_path: str | Path,
     *,
+    course: CourseData | None = None,
     overwrite: bool = False,
 ) -> Path:
     """Write one interactive report, optionally replacing its destination atomically."""
+    missing_position_runs = _missing_position_runs(activity)
     payload = _base_payload(activity, integrity, report_kind="analyze")
     payload["tracks"] = {
         "original": _activity_track(activity, integrity),
         "repaired": None,
         "candidate": None,
-        "course": None,
+        "course": _course_track(course) if course is not None else None,
     }
     payload["repair"] = None
     payload["write_result"] = None
-    payload["metrics_comparison"] = _metrics_comparison(activity)
-    payload["missing_position_runs"] = _missing_position_runs(activity)
+    payload["metrics_comparison"] = _metrics_comparison(activity, course=course)
+    payload["missing_position_runs"] = missing_position_runs
+    payload["diagnostic_regions"] = _diagnostic_regions(
+        activity,
+        integrity,
+        missing_position_runs,
+    )
+    payload["activity_performance"] = {
+        "source_label": (
+            "Original FIT" if activity.preservation.source_format.value == "fit" else "Original GPX"
+        ),
+        **_activity_performance(activity),
+    }
     payload["repaired_performance"] = None
     return _write_payload(payload, output_path, overwrite=overwrite)
 
@@ -115,8 +161,16 @@ def write_repair_html(
         if fixed_activity is not None
         else _missing_position_runs(activity, coordinate_overrides)
     )
+    payload["diagnostic_regions"] = _diagnostic_regions(
+        activity,
+        integrity,
+        _missing_position_runs(activity),
+    )
+    payload["activity_performance"] = None
     payload["repaired_performance"] = (
-        _repaired_performance(fixed_activity) if fixed_activity is not None else None
+        {"source_label": "Repaired FIT", **_activity_performance(fixed_activity)}
+        if fixed_activity is not None
+        else None
     )
     return _write_payload(payload, output_path, overwrite=overwrite)
 
@@ -415,8 +469,8 @@ def _positive_elevation_deltas(
     return gain if edge_count else None
 
 
-def _repaired_performance(activity: ActivityData) -> dict[str, object]:
-    """Summarize actual repaired FIT pace, ascent, and descent by kilometre."""
+def _activity_performance(activity: ActivityData) -> dict[str, object]:
+    """Summarize one actual activity's pace, ascent, and descent by kilometre."""
     timer_duration_seconds, timer_source = _timer_duration(activity)
     distance_m = activity.recorded_distance_m
     average_pace_seconds_per_km = (
@@ -451,6 +505,11 @@ def _repaired_performance(activity: ActivityData) -> dict[str, object]:
             "The final partial kilometre is normalized to min/km and labelled with its actual distance range.",
         ],
     }
+
+
+def _repaired_performance(activity: ActivityData) -> dict[str, object]:
+    """Compatibility wrapper for tests and callers using the original helper name."""
+    return _activity_performance(activity)
 
 
 def _activity_elevation_descent(activity: ActivityData) -> tuple[float | None, str]:
@@ -649,6 +708,552 @@ def _sample_at_distance(
     return samples[-1][1], samples[-1][2]
 
 
+def _diagnostic_regions(
+    activity: ActivityData,
+    integrity: IntegrityReport,
+    missing_position_runs: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Project authoritative findings into stable, numbered presentation regions."""
+    drafts: list[_DiagnosticRegionDraft] = []
+    covered_transition_pairs: set[tuple[int, int]] = set()
+
+    for interval in integrity.corrupted_intervals:
+        interval_pairs = _covered_transition_pairs(
+            integrity,
+            interval.start_record_index,
+            interval.end_record_index,
+        )
+        interval_pairs.add(
+            (
+                interval.entry_transition.from_record_index,
+                interval.entry_transition.to_record_index,
+            )
+        )
+        if interval.exit_transition is not None:
+            interval_pairs.add(
+                (
+                    interval.exit_transition.from_record_index,
+                    interval.exit_transition.to_record_index,
+                )
+            )
+        covered_transition_pairs.update(interval_pairs)
+        evidence = tuple(
+            _transition_evidence(transition)
+            for transition in integrity.transitions
+            if (transition.from_record_index, transition.to_record_index) in interval_pairs
+        )
+        drafts.append(
+            _DiagnosticRegionDraft(
+                kind="corrupted_interval",
+                detector_stage=(
+                    "one_sided_gnss_clusters"
+                    if interval.detection_kind is IntervalDetectionKind.ONE_SIDED_CLUSTER
+                    else "spoofing_islands"
+                ),
+                start_record_index=interval.start_record_index,
+                end_record_index=interval.end_record_index,
+                status="corrupted",
+                confidence=interval.confidence.value,
+                repair_eligible=True,
+                reasons=tuple(reason.value for reason in interval.reasons),
+                evidence=evidence,
+                metrics={
+                    "record_count": interval.record_count,
+                    "detection_kind": interval.detection_kind.value,
+                    "trusted_before_record_index": interval.trusted_before_record_index,
+                    "trusted_after_record_index": interval.trusted_after_record_index,
+                    "bridge": {
+                        "elapsed_seconds": interval.bridge.elapsed_seconds,
+                        "distance_m": interval.bridge.distance_m,
+                        "apparent_speed_mps": interval.bridge.apparent_speed_mps,
+                        "maximum_plausible_speed_mps": (
+                            interval.bridge.maximum_plausible_speed_mps
+                        ),
+                    },
+                },
+                source_key=(
+                    f"interval:{interval.detection_kind.value}:"
+                    f"{interval.start_record_index}:{interval.end_record_index}"
+                ),
+            )
+        )
+
+    for cluster_index, cluster in enumerate(
+        integrity.one_sided_search_diagnostics.retained_clusters
+    ):
+        cluster_end = (
+            cluster.end_record_index
+            if cluster.end_record_index is not None
+            else cluster.start_record_index
+        )
+        represented_by_interval = any(
+            interval.detection_kind is IntervalDetectionKind.ONE_SIDED_CLUSTER
+            and interval.start_record_index == cluster.start_record_index
+            and interval.end_record_index == cluster_end
+            for interval in integrity.corrupted_intervals
+        )
+        if represented_by_interval:
+            continue
+        cluster_pairs = _covered_transition_pairs(
+            integrity,
+            cluster.start_record_index,
+            cluster_end,
+        )
+        covered_transition_pairs.update(cluster_pairs)
+        bridge = cluster.bridge
+        drafts.append(
+            _DiagnosticRegionDraft(
+                kind="one_sided_diagnostic",
+                detector_stage="one_sided_gnss_clusters",
+                start_record_index=cluster.start_record_index,
+                end_record_index=cluster_end,
+                status="reconstructable" if cluster.reconstructable else "unresolved",
+                confidence=cluster.confidence.value,
+                repair_eligible=cluster.reconstructable,
+                reasons=tuple(reason.value for reason in cluster.reasons),
+                evidence=(
+                    {
+                        "entity": "one_sided_cluster",
+                        "retained_cluster_index": cluster_index,
+                        "reported_end_record_index": cluster.end_record_index,
+                    },
+                    *(
+                        _transition_evidence(transition)
+                        for transition in integrity.transitions
+                        if (transition.from_record_index, transition.to_record_index)
+                        in cluster_pairs
+                    ),
+                ),
+                metrics={
+                    "reported_end_record_index": cluster.end_record_index,
+                    "record_count": cluster.record_count,
+                    "trusted_before_record_index": cluster.trusted_before_record_index,
+                    "trusted_after_record_index": cluster.trusted_after_record_index,
+                    "missing_position_record_count": cluster.missing_position_record_count,
+                    "impossible_transition_count": cluster.impossible_transition_count,
+                    "suspicious_transition_count": cluster.suspicious_transition_count,
+                    "positioned_component_count": cluster.positioned_component_count,
+                    "tainted_positioned_component_count": (
+                        cluster.tainted_positioned_component_count
+                    ),
+                    "anchor_before_normal_transition_count": (
+                        cluster.anchor_before_normal_transition_count
+                    ),
+                    "anchor_after_normal_transition_count": (
+                        cluster.anchor_after_normal_transition_count
+                    ),
+                    "anchor_required_normal_transition_count": (
+                        cluster.anchor_required_normal_transition_count
+                    ),
+                    "bridge": (
+                        {
+                            "elapsed_seconds": bridge.elapsed_seconds,
+                            "distance_m": bridge.distance_m,
+                            "apparent_speed_mps": bridge.apparent_speed_mps,
+                            "maximum_plausible_speed_mps": (bridge.maximum_plausible_speed_mps),
+                        }
+                        if bridge is not None
+                        else None
+                    ),
+                },
+                source_key=(
+                    f"one-sided:{cluster.start_record_index}:"
+                    f"{cluster.end_record_index}:{cluster_index}"
+                ),
+            )
+        )
+
+    raw_abnormal = tuple(
+        transition
+        for transition in integrity.transitions
+        if transition.classification
+        in (TransitionClassification.SUSPICIOUS, TransitionClassification.IMPOSSIBLE)
+        and (
+            transition.from_record_index,
+            transition.to_record_index,
+        )
+        not in covered_transition_pairs
+    )
+    for run_index, transitions in enumerate(_adjacent_transition_runs(activity, raw_abnormal)):
+        classifications = {transition.classification for transition in transitions}
+        status = (
+            TransitionClassification.IMPOSSIBLE.value
+            if TransitionClassification.IMPOSSIBLE in classifications
+            else TransitionClassification.SUSPICIOUS.value
+        )
+        elapsed_values = tuple(transition.elapsed_seconds for transition in transitions)
+        speeds = tuple(
+            transition.apparent_speed_mps
+            for transition in transitions
+            if transition.apparent_speed_mps is not None
+        )
+        drafts.append(
+            _DiagnosticRegionDraft(
+                kind="abnormal_transition_run",
+                detector_stage="local_transitions",
+                start_record_index=transitions[0].from_record_index,
+                end_record_index=transitions[-1].to_record_index,
+                status=status,
+                confidence=(
+                    IntegrityConfidence.HIGH.value
+                    if status == TransitionClassification.IMPOSSIBLE.value
+                    else IntegrityConfidence.LOW.value
+                ),
+                repair_eligible=False,
+                reasons=_unique_strings(
+                    reason.value for transition in transitions for reason in transition.reasons
+                ),
+                evidence=tuple(_transition_evidence(item) for item in transitions),
+                metrics={
+                    "transition_count": len(transitions),
+                    "classification_counts": {
+                        classification.value: sum(
+                            transition.classification is classification
+                            for transition in transitions
+                        )
+                        for classification in (
+                            TransitionClassification.SUSPICIOUS,
+                            TransitionClassification.IMPOSSIBLE,
+                        )
+                    },
+                    "total_transition_distance_m": sum(
+                        transition.distance_m for transition in transitions
+                    ),
+                    "total_elapsed_seconds": (
+                        sum(float(value) for value in elapsed_values if value is not None)
+                        if all(value is not None for value in elapsed_values)
+                        else None
+                    ),
+                    "maximum_apparent_speed_mps": max(speeds) if speeds else None,
+                },
+                source_key=(
+                    f"transition-run:{transitions[0].from_record_index}:"
+                    f"{transitions[-1].to_record_index}:{run_index}"
+                ),
+            )
+        )
+
+    for warning_index, geometry_warning in enumerate(integrity.geometry_warnings):
+        drafts.append(
+            _DiagnosticRegionDraft(
+                kind="geometry_warning",
+                detector_stage="geometry_gap_diagnostics",
+                start_record_index=geometry_warning.start_record_index,
+                end_record_index=geometry_warning.end_record_index,
+                status=geometry_warning.kind.value,
+                confidence=geometry_warning.confidence.value,
+                repair_eligible=False,
+                reasons=tuple(reason.value for reason in geometry_warning.reasons),
+                evidence=(
+                    {
+                        "entity": "geometry_warning",
+                        "warning_index": warning_index,
+                    },
+                ),
+                metrics={
+                    "position_record_count": geometry_warning.position_record_count,
+                    "chord_distance_m": geometry_warning.chord_distance_m,
+                    "path_distance_m": geometry_warning.path_distance_m,
+                    "path_to_chord_ratio": geometry_warning.path_to_chord_ratio,
+                    "max_cross_track_deviation_m": (geometry_warning.max_cross_track_deviation_m),
+                    "timestamps_available": geometry_warning.timestamps_available,
+                },
+                source_key=(
+                    f"geometry:{geometry_warning.start_record_index}:"
+                    f"{geometry_warning.end_record_index}:{warning_index}"
+                ),
+            )
+        )
+
+    for warning_index, vertical_warning in enumerate(integrity.vertical_warnings):
+        drafts.append(
+            _DiagnosticRegionDraft(
+                kind="vertical_warning",
+                detector_stage="vertical_plausibility",
+                start_record_index=vertical_warning.start_record_index,
+                end_record_index=vertical_warning.end_record_index,
+                status="sensor_consistency_warning",
+                confidence=vertical_warning.confidence.value,
+                repair_eligible=False,
+                reasons=tuple(reason.value for reason in vertical_warning.reasons),
+                evidence=(
+                    {
+                        "entity": "vertical_warning",
+                        "warning_index": warning_index,
+                    },
+                ),
+                metrics={
+                    "transition_count": vertical_warning.transition_count,
+                    "elapsed_seconds": vertical_warning.elapsed_seconds,
+                    "altitude_delta_m": vertical_warning.altitude_delta_m,
+                    "maximum_absolute_vertical_speed_mps": (
+                        vertical_warning.maximum_absolute_vertical_speed_mps
+                    ),
+                },
+                source_key=(
+                    f"vertical:{vertical_warning.start_record_index}:"
+                    f"{vertical_warning.end_record_index}:{warning_index}"
+                ),
+            )
+        )
+
+    for run_index, missing_run in enumerate(missing_position_runs):
+        start_record_index = missing_run["start_record_index"]
+        end_record_index = missing_run["end_record_index"]
+        if not isinstance(start_record_index, int) or not isinstance(end_record_index, int):
+            raise AssertionError("missing-position report must contain integer boundaries")
+        drafts.append(
+            _DiagnosticRegionDraft(
+                kind="missing_position_run",
+                detector_stage="data_quality",
+                start_record_index=start_record_index,
+                end_record_index=end_record_index,
+                status="missing",
+                confidence=IntegrityConfidence.LOW.value,
+                repair_eligible=False,
+                reasons=("position_unavailable",),
+                evidence=(
+                    {
+                        "entity": "missing_position_run",
+                        "missing_run_index": run_index,
+                    },
+                ),
+                metrics=dict(missing_run),
+                source_key=f"missing:{start_record_index}:{end_record_index}:{run_index}",
+            )
+        )
+
+    ordered = sorted(
+        drafts,
+        key=lambda draft: (
+            _continuity_id(activity, draft.start_record_index),
+            draft.start_record_index,
+            draft.end_record_index,
+            _DIAGNOSTIC_KIND_PRIORITY[draft.kind],
+            draft.source_key,
+        ),
+    )
+    reports = [
+        _diagnostic_region_report(activity, display_id, draft)
+        for display_id, draft in enumerate(ordered, start=1)
+    ]
+    overlap_ids: list[list[int]] = [[] for _region in reports]
+    active: list[tuple[int, _DiagnosticRegionDraft]] = []
+    active_continuity_id: int | None = None
+    for region_index, draft in enumerate(ordered):
+        continuity_id = _continuity_id(activity, draft.start_record_index)
+        if continuity_id != active_continuity_id:
+            active = []
+            active_continuity_id = continuity_id
+        active = [
+            (other_index, other_draft)
+            for other_index, other_draft in active
+            if other_draft.end_record_index >= draft.start_record_index
+        ]
+        for other_index, _other_draft in active:
+            overlap_ids[other_index].append(region_index + 1)
+            overlap_ids[region_index].append(other_index + 1)
+        active.append((region_index, draft))
+    for region, display_ids in zip(reports, overlap_ids, strict=True):
+        region["overlaps_display_ids"] = sorted(display_ids)
+    return reports
+
+
+def _covered_transition_pairs(
+    integrity: IntegrityReport,
+    start_record_index: int,
+    end_record_index: int,
+) -> set[tuple[int, int]]:
+    return {
+        (transition.from_record_index, transition.to_record_index)
+        for transition in integrity.transitions
+        if transition.classification
+        in (TransitionClassification.SUSPICIOUS, TransitionClassification.IMPOSSIBLE)
+        and (
+            (
+                transition.from_record_index >= start_record_index
+                and transition.to_record_index <= end_record_index
+            )
+            or transition.to_record_index == start_record_index
+        )
+    }
+
+
+def _adjacent_transition_runs(
+    activity: ActivityData,
+    transitions: tuple[TransitionResult, ...],
+) -> tuple[tuple[TransitionResult, ...], ...]:
+    runs: list[list[TransitionResult]] = []
+    for transition in sorted(
+        transitions,
+        key=lambda item: (item.from_record_index, item.to_record_index),
+    ):
+        if (
+            runs
+            and runs[-1][-1].to_record_index == transition.from_record_index
+            and _continuity_id(activity, runs[-1][0].from_record_index)
+            == _continuity_id(activity, transition.to_record_index)
+        ):
+            runs[-1].append(transition)
+        else:
+            runs.append([transition])
+    return tuple(tuple(run) for run in runs)
+
+
+def _transition_evidence(transition: TransitionResult) -> dict[str, object]:
+    return {
+        "entity": "transition",
+        "from_record_index": transition.from_record_index,
+        "to_record_index": transition.to_record_index,
+        "from_timestamp": (
+            transition.from_timestamp.isoformat() if transition.from_timestamp is not None else None
+        ),
+        "to_timestamp": (
+            transition.to_timestamp.isoformat() if transition.to_timestamp is not None else None
+        ),
+        "elapsed_seconds": transition.elapsed_seconds,
+        "distance_m": transition.distance_m,
+        "apparent_speed_mps": transition.apparent_speed_mps,
+        "classification": transition.classification.value,
+        "reasons": [reason.value for reason in transition.reasons],
+    }
+
+
+def _unique_strings(values: Iterable[object]) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(str(value) for value in values))
+
+
+def _diagnostic_region_report(
+    activity: ActivityData,
+    display_id: int,
+    draft: _DiagnosticRegionDraft,
+) -> dict[str, object]:
+    records = activity.records[draft.start_record_index : draft.end_record_index + 1]
+    start_timestamp = records[0].timestamp if records else None
+    end_timestamp = records[-1].timestamp if records else None
+    position_record_count = sum(_record_has_position(record, None) for record in records)
+    missing_record_count = len(records) - position_record_count
+    bridge_points = _draft_bridge_points(activity, draft)
+    return {
+        "display_id": display_id,
+        "kind": draft.kind,
+        "detector_stage": draft.detector_stage,
+        "start_record_index": draft.start_record_index,
+        "end_record_index": draft.end_record_index,
+        "start_timestamp": start_timestamp.isoformat() if start_timestamp is not None else None,
+        "end_timestamp": end_timestamp.isoformat() if end_timestamp is not None else None,
+        "duration_seconds": (
+            (end_timestamp - start_timestamp).total_seconds()
+            if start_timestamp is not None and end_timestamp is not None
+            else None
+        ),
+        "continuity_id": _continuity_id(activity, draft.start_record_index),
+        "status": draft.status,
+        "confidence": draft.confidence,
+        "repair_eligible": draft.repair_eligible,
+        "reasons": list(draft.reasons),
+        "evidence": [dict(item) for item in draft.evidence],
+        "position_record_count": position_record_count,
+        "missing_position_record_count": missing_record_count,
+        "metrics": dict(draft.metrics),
+        "source_key": draft.source_key,
+        "map": _diagnostic_region_map(
+            activity,
+            draft.start_record_index,
+            draft.end_record_index,
+            bridge_points,
+        ),
+    }
+
+
+def _draft_bridge_points(
+    activity: ActivityData,
+    draft: _DiagnosticRegionDraft,
+) -> tuple[tuple[float, float], ...]:
+    if draft.kind != "missing_position_run":
+        return ()
+    points: list[tuple[float, float]] = []
+    for key in ("anchor_before_record_index", "anchor_after_record_index"):
+        value = draft.metrics.get(key)
+        if not isinstance(value, int) or not 0 <= value < len(activity.records):
+            continue
+        record = activity.records[value]
+        if record.latitude is not None and record.longitude is not None:
+            points.append((record.latitude, record.longitude))
+    return tuple(points)
+
+
+def _diagnostic_region_map(
+    activity: ActivityData,
+    start_record_index: int,
+    end_record_index: int,
+    bridge_points: tuple[tuple[float, float], ...],
+) -> dict[str, object]:
+    geometry_ranges: list[list[int]] = []
+    positioned: list[ActivityRecord] = []
+    range_start: int | None = None
+    previous: ActivityRecord | None = None
+    for record in activity.records[start_record_index : end_record_index + 1]:
+        has_position = _record_has_position(record, None)
+        if not has_position or (
+            previous is not None and previous.continuity_id != record.continuity_id
+        ):
+            if range_start is not None and previous is not None:
+                geometry_ranges.append([range_start, previous.index])
+            range_start = None
+        if has_position:
+            if range_start is None:
+                range_start = record.index
+            positioned.append(record)
+        previous = record if has_position else None
+    if range_start is not None and previous is not None:
+        geometry_ranges.append([range_start, previous.index])
+
+    map_points = [
+        (record.latitude, record.longitude)
+        for record in positioned
+        if record.latitude is not None and record.longitude is not None
+    ]
+    map_points.extend(bridge_points)
+    marker: list[float] | None = None
+    marker_record_index: int | None = None
+    if positioned:
+        record = positioned[len(positioned) // 2]
+        if record.latitude is not None and record.longitude is not None:
+            marker = [record.latitude, record.longitude]
+            marker_record_index = record.index
+    elif len(bridge_points) == 2:
+        marker = [
+            (bridge_points[0][0] + bridge_points[1][0]) / 2.0,
+            (bridge_points[0][1] + bridge_points[1][1]) / 2.0,
+        ]
+    elif len(bridge_points) == 1:
+        marker = [bridge_points[0][0], bridge_points[0][1]]
+
+    bounds = (
+        [
+            [min(point[0] for point in map_points), min(point[1] for point in map_points)],
+            [max(point[0] for point in map_points), max(point[1] for point in map_points)],
+        ]
+        if map_points
+        else None
+    )
+    return {
+        "mappable": marker is not None,
+        "marker": marker,
+        "marker_record_index": marker_record_index,
+        "bounds": bounds,
+        "geometry_ranges": geometry_ranges,
+        "bridge_points": [list(point) for point in bridge_points],
+    }
+
+
+def _continuity_id(activity: ActivityData, record_index: int) -> int:
+    if 0 <= record_index < len(activity.records):
+        return activity.records[record_index].continuity_id
+    return -1
+
+
 def _missing_position_runs(
     activity: ActivityData,
     coordinate_overrides: Mapping[int, tuple[float, float]] | None = None,
@@ -770,8 +1375,12 @@ def _finite_number(value: object) -> float | None:
 
 def _course_track(course: CourseData) -> dict[str, object]:
     return {
+        "source_path": str(course.source_path),
+        "source_name": course.source_path.name,
         "segment_count": len(course.segments),
         "point_count": course.point_count,
+        "total_distance_m": course.total_distance_m,
+        "reference_only": True,
         "segments": [
             [[point.latitude, point.longitude] for point in segment.points]
             for segment in course.segments

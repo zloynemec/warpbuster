@@ -89,13 +89,43 @@ vertical speed и reasons. Они не создают coordinate interval и я�
 неавторитетные для GNSS repair.
 
 ```bash
+warpbuster analyze activity.fit --html
 warpbuster analyze activity.fit --html report.html
 warpbuster analyze activity.gpx --html report.html
+warpbuster analyze activity.fit --course race.gpx --html detector-report.html
+warpbuster analyze activity.fit --course race.gpx --html detector-report.html --overwrite
 ```
 
 `--html` записывает интерактивный local report и совместим с `--json`. Console/JSON
 остаётся в stdout; в console mode дополнительно печатается путь к HTML. Existing report
-не перезаписывается. Ошибка report destination возвращает `2`.
+не перезаписывается по умолчанию. `analyze --overwrite` атомарно заменяет только HTML и
+не даёт права изменять source FIT; без `--html` флаг возвращает `2`. Ошибка report
+destination возвращает `2`.
+
+`--html` принимает необязательный `REPORT`: при bare flag analyze использует
+`<activity-stem>.analyze.html` рядом с source activity. Без флага HTML остаётся
+отключённым; явно переданный path имеет приоритет. Default destination подчиняется той
+же no-overwrite/`--overwrite` политике.
+
+Analysis HTML строит детерминированную reporting-only проекцию `diagnostic_regions` из
+готового `IntegrityReport`: accepted intervals, не представленные ими one-sided
+diagnostics, соседние оставшиеся `SUSPICIOUS/IMPOSSIBLE` transitions, geometry/vertical
+warnings и самостоятельные missing-position runs. Одни и те же номера используются на
+карте и в таблице; missing run не классифицируется как corruption.
+
+Опциональный `--course` поддерживается только для FIT activity и только вместе с
+`--html`. GPX читается после `analyze_integrity()` и сериализуется как display-only
+`Reference course`; detector JSON, status, confidence, reasons и exit code от course не
+зависят. `analyze activity.gpx --course ...`, course без HTML и malformed course
+возвращают `2`. Analyze payload сохраняет `report_kind="analyze"`, а `repair`,
+`write_result`, candidate и repaired tracks остаются `null`.
+
+Analyze HTML показывает performance summary исходной activity: average pace по
+summary distance и timer duration, total ascent/descent и recorded-distance kilometre
+splits для pace/ascent/descent. Эти значения помечаются `Original FIT`/`Original GPX` и
+не используют reference course. Repair write HTML использует тот же renderer, но
+помечает данные validated output как `Repaired FIT`; dry-run не выдаёт candidate за
+фактическую performance activity.
 
 ## 3. `warpbuster repair`
 
@@ -117,6 +147,7 @@ warpbuster repair activity.fit --course race.gpx --dry-run
 ```bash
 warpbuster repair activity.fit --course race.gpx --dry-run --json
 warpbuster repair activity.fit --course race.gpx --dry-run -v
+warpbuster repair activity.fit --course race.gpx --dry-run --html
 warpbuster repair activity.fit --course race.gpx --dry-run --html preview.html
 warpbuster repair activity.fit --course race.gpx --min-confidence medium
 warpbuster repair activity.fit --course race.gpx --fill-missing-from-course --min-confidence medium
@@ -126,6 +157,11 @@ warpbuster repair activity.fit --course race.gpx --output out.fit --html repair.
 Report содержит anchor matches, direction, course span/speed, allocation method,
 candidate coordinates, fields to change/recalculate, unresolved intervals и safety
 flags. Course участвует только в reconstruction; `detection_used_course=false`.
+
+Bare repair `--html` использует `<activity-stem>.repair.html` рядом с original FIT как
+для dry-run, так и для write mode. Явный HTML path переопределяет default; отсутствие
+флага не создаёт report. `--overwrite` одинаково применяется к explicit и default HTML
+destination.
 Для one-sided candidate report дополнительно содержит общую длину anchor connectors,
 reconstruction path, detected core и refined repair scope. Refinement выполняется только
 после course-independent proof и требует устойчивого course corridor; итоговая geometry

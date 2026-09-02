@@ -46,6 +46,37 @@ from warpbuster.report.html import (
 from warpbuster.report.inspect import inspect_console, inspect_json
 from warpbuster.report.repair import repair_console, repair_json
 
+_AUTO_HTML_PATH = object()
+
+
+def default_analyze_html_path(activity_file: str | Path) -> Path:
+    """Return the default opt-in analysis HTML path next to the source activity."""
+    source = Path(activity_file)
+    return source.with_name(f"{source.stem}.analyze.html")
+
+
+def default_repair_html_path(activity_file: str | Path) -> Path:
+    """Return the default opt-in repair HTML path next to the source FIT."""
+    source = Path(activity_file)
+    return source.with_name(f"{source.stem}.repair.html")
+
+
+def _resolve_html_argument(
+    value: object,
+    activity_file: Path,
+    *,
+    repair: bool,
+) -> Path | None:
+    if value is _AUTO_HTML_PATH:
+        return (
+            default_repair_html_path(activity_file)
+            if repair
+            else default_analyze_html_path(activity_file)
+        )
+    if value is None or isinstance(value, Path):
+        return value
+    raise TypeError("invalid --html argument")
+
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the command-line parser."""
@@ -81,9 +112,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     analyze_parser.add_argument(
         "--html",
+        nargs="?",
+        const=_AUTO_HTML_PATH,
         type=Path,
         metavar="REPORT",
-        help="write an interactive HTML report with an online map",
+        help=(
+            "write an interactive HTML report with an online map "
+            "(default: <activity-stem>.analyze.html)"
+        ),
+    )
+    analyze_parser.add_argument(
+        "--course",
+        type=Path,
+        help=("show a reference GPX course in the HTML report without using it for detection"),
+    )
+    analyze_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="atomically replace an existing HTML report",
     )
     analyze_parser.add_argument(
         "-v",
@@ -138,9 +184,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     repair_parser.add_argument(
         "--html",
+        nargs="?",
+        const=_AUTO_HTML_PATH,
         type=Path,
         metavar="REPORT",
-        help="write an interactive repair HTML report with an online map",
+        help=(
+            "write an interactive repair HTML report with an online map "
+            "(default: <activity-stem>.repair.html)"
+        ),
     )
     repair_parser.add_argument(
         "-v",
@@ -193,15 +244,38 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(inspect_json(activity) if args.json else inspect_console(activity))
         return 0
     if args.command == "analyze":
+        args.html = _resolve_html_argument(args.html, args.activity_file, repair=False)
+        if args.course is not None and args.html is None:
+            print("error: analyze --course requires --html", file=sys.stderr)
+            return 2
+        if args.overwrite and args.html is None:
+            print("error: analyze --overwrite requires --html", file=sys.stderr)
+            return 2
+        if args.course is not None and args.activity_file.suffix.casefold() != ".fit":
+            print("error: analyze --course requires a FIT activity input", file=sys.stderr)
+            return 2
         try:
             activity = read_activity(args.activity_file)
         except (ActivityReadError, OSError) as error:
             print(f"error: {error}", file=sys.stderr)
             return 2
         integrity = analyze_integrity(activity)
+        course = None
+        if args.course is not None:
+            try:
+                course = read_gpx_course(args.course)
+            except (GpxCourseReadError, OSError) as error:
+                print(f"error: {error}", file=sys.stderr)
+                return 2
         if args.html is not None:
             try:
-                write_analyze_html(activity, integrity, args.html)
+                write_analyze_html(
+                    activity,
+                    integrity,
+                    args.html,
+                    course=course,
+                    overwrite=args.overwrite,
+                )
             except (HtmlReportError, OSError) as error:
                 print(f"error: {error}", file=sys.stderr)
                 return 2
@@ -215,6 +289,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 1
         return 0
     if args.command == "repair":
+        args.html = _resolve_html_argument(args.html, args.activity_file, repair=True)
         if args.activity_file.suffix.casefold() != ".fit":
             print("error: repair input must be the original FIT file", file=sys.stderr)
             return 2

@@ -118,11 +118,15 @@ warpbuster analyze activity.fit
 warpbuster analyze activity.fit -v
 warpbuster analyze activity.fit -vv
 warpbuster analyze activity.fit --json
+warpbuster analyze activity.fit --html
 warpbuster analyze activity.fit --html analysis.html
+warpbuster analyze activity.fit --course race.gpx --html detector.html
+warpbuster analyze activity.fit --course race.gpx --html detector.html --overwrite
 warpbuster analyze activity.gpx
 warpbuster analyze activity.gpx --json
 warpbuster repair activity.fit --course race.gpx --dry-run
 warpbuster repair activity.fit --course race.gpx --dry-run --json
+warpbuster repair activity.fit --course race.gpx --dry-run --html
 warpbuster repair activity.fit --course race.gpx --dry-run --html preview.html
 warpbuster repair activity.fit --course race.gpx --min-confidence medium
 warpbuster repair activity.fit --course race.gpx --fill-missing-from-course --min-confidence medium
@@ -216,6 +220,21 @@ speed. Missing-completion table отдельно показывает prefix/suf
 connector, allocation, alignment error и сохранение FIT distance. Отдельная таблица
 one-sided GNSS clusters показывает boundaries, confidence,
 reconstructability, anchor context, bridge, tainted components и reasons.
+
+В `analyze` тот же шаблон показывает только исходную activity geometry и не запускает
+reconstruction или FIT writer. Detector intervals, оставшиеся соседние
+`SUSPICIOUS/IMPOSSIBLE` transitions, one-sided diagnostics, geometry/vertical warnings и
+missing-position runs получают стабильные номера на карте и в общей таблице
+расшифровки. `--course race.gpx` разрешён для FIT только вместе с `--html`: GPX
+показывается отдельным `Reference only` слоем после завершения detection и не влияет на
+status, confidence, reasons, repair eligibility или JSON detector report. Отклонение от
+course само по себе не получает номер и не считается corruption.
+
+Analysis report также рассчитывает по исходному FIT беговую сводку: средний темп,
+timer time, total ascent/descent, покилометровый темп и покилометровые набор/спуск.
+Расчёт использует только фактические FIT timestamps, recorded distance и altitude; GPX
+course и отсутствующая candidate geometry в эти показатели не подмешиваются.
+
 После фактической записи отдельный блок показывает средний темп исправленного FIT,
 время, total ascent/descent и покилометровую pace histogram. Высотная гистограмма содержит
 две соседние колонки
@@ -238,8 +257,15 @@ Solid track разрывается на missing GNSS coordinates; отдельн
 всегда показана на карте.
 
 `--json` и `--html` можно использовать вместе: JSON остаётся в stdout. Existing HTML
-не перезаписывается без явного `repair --overwrite`. Сам HTML содержит coordinates и telemetry, поэтому его следует
-считать приватным файлом.
+не перезаписывается без явного `--overwrite`. В режиме `analyze` этот флаг атомарно
+заменяет только HTML report и никогда не изменяет source FIT; без `--html` он является
+ошибкой. Сам HTML содержит coordinates и telemetry, поэтому его следует считать
+приватным файлом.
+
+Значение пути у `--html` опционально. Bare `analyze ... --html` создаёт рядом с source
+activity файл `<stem>.analyze.html`, а bare `repair ... --html` —
+`<stem>.repair.html`. Без самого флага HTML не создаётся; явный путь продолжает иметь
+приоритет над default.
 
 Полный набор проверок:
 

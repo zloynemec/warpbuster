@@ -337,6 +337,66 @@ def test_repair_dry_run_writes_candidate_html_report(
     assert '"report_kind":"repair_dry_run"' in html_path.read_text(encoding="utf-8")
 
 
+def test_repair_html_without_path_uses_source_based_default(
+    tmp_path: Path,
+    capsys: object,
+) -> None:
+    """A bare repair --html derives its report path from the original FIT."""
+    fit_path, course_path = _repairable_fixture(tmp_path)
+    default_html_path = tmp_path / "original.repair.html"
+
+    assert (
+        main(
+            [
+                "repair",
+                str(fit_path),
+                "--course",
+                str(course_path),
+                "--dry-run",
+                "--html",
+            ]
+        )
+        == 0
+    )
+    assert f"HTML report: {default_html_path}" in capsys.readouterr().out  # type: ignore[attr-defined]
+    assert '"report_kind":"repair_dry_run"' in default_html_path.read_text(encoding="utf-8")
+
+    default_html_path.write_text("stale report", encoding="utf-8")
+    assert (
+        main(
+            [
+                "repair",
+                str(fit_path),
+                "--course",
+                str(course_path),
+                "--dry-run",
+                "--html",
+                "--overwrite",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()  # type: ignore[attr-defined]
+    assert '"report_kind":"repair_dry_run"' in default_html_path.read_text(encoding="utf-8")
+
+    assert (
+        main(
+            [
+                "repair",
+                str(fit_path),
+                "--course",
+                str(course_path),
+                "--html",
+                "--overwrite",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()  # type: ignore[attr-defined]
+    assert (tmp_path / "original.fixed.fit").exists()
+    assert '"report_kind":"repair_write"' in default_html_path.read_text(encoding="utf-8")
+
+
 def test_repair_write_html_contains_actual_track_and_diff(
     tmp_path: Path,
     capsys: object,
@@ -378,6 +438,8 @@ def test_repair_write_html_contains_actual_track_and_diff(
         "GPX positive elevation deltas (unsmoothed)"
     )
     performance = payload["repaired_performance"]
+    assert payload["activity_performance"] is None
+    assert performance["source_label"] == "Repaired FIT"
     assert performance["average_pace_seconds_per_km"] == pytest.approx(166.67, abs=0.1)
     assert performance["timer_duration_seconds"] == 32.0
     assert performance["timer_source"] == "FIT session.total_timer_time"

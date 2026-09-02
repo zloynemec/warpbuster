@@ -292,6 +292,18 @@ HTML renderer получает готовые domain reports и normalized recor
 preview строится только из выбранных `CandidateCoordinate`; write report повторно читает
 уже validated output FIT.
 
+Для analysis HTML reporting layer детерминированно проецирует существующие detector
+entities и missing-position runs в `diagnostic_regions` со стабильной нумерацией,
+evidence links и фактически существующей geometry. Это presentation aggregation, а не
+новая detector model: renderer не меняет classification/confidence и не запускает
+reconstruction assessment. Опциональный GPX course читается только после построения
+`IntegrityReport` и попадает исключительно в reference display layer.
+
+Pace/elevation summary является общей reporting projection для фактической activity.
+В analyze она строится из original normalized records/session fields, в repair write —
+из повторно прочитанного validated output. Candidate preview и reference course не
+используются для average pace или kilometre splits.
+
 Report хранит template, application CSS/JavaScript и JSON payload в одном atomic output
 с default no-overwrite и явным `repair --overwrite`. Интерактивная карта использует
 Leaflet 1.9.4 с pinned CDN URL и
