@@ -140,14 +140,23 @@ Roadmap следует порядку milestone из [`docs/MILESTONES.md`](docs
   - все operational limits вынесены в отдельный TOML/config contract;
   - без routing, reconstruction и изменений WarpBuster Core.
 
-- [ ] **M9 / Task 010 — OSM Graph + Pedestrian/Trail Routing** — предварительный план,
-  ТЗ ещё не оформлено
-  - загрузка immutable snapshot через versioned protocol OSM Manager;
-  - детерминированный pedestrian/trail graph с явной интерпретацией access/highway и
-    других необходимых OSM tags;
-  - bounded routing между заданными anchors, включая альтернативные маршруты;
-  - provenance исходного snapshot, routing profile и причин выбора пути;
-  - без FIT repair и без использования OSM в Integrity Detector.
+- [ ] **M9 / Task 010 — Valhalla-backed Pedestrian/Trail Routing**
+  ([task](tasks/010-osm-graph-routing.md)) — выполняется итерациями 010A–010F
+  - [x] **M9A / Task 010A — Valhalla Feasibility Spike**
+    ([task](tasks/010a-valhalla-feasibility-spike.md)) — `GO`, завершена 2026-09-02;
+  - [x] **M9B / Task 010B — Production Snapshot Materialization + Graph Cache**
+    ([task](tasks/010b-production-snapshot-graph-cache.md)) — завершена 2026-09-02;
+  - [ ] **M9C / Task 010C — Versioned Pedestrian/Trail Profile** — ТЗ оформляется после
+    010B;
+  - [ ] **M9D / Task 010D — Audited Snapping + Single-route API** — ТЗ оформляется после
+    010C;
+  - [ ] **M9E / Task 010E — Alternatives + Route Diagnostics** — ТЗ оформляется после
+    010D;
+  - [ ] **M9F / Task 010F — Packaging + Performance Stabilization** — ТЗ оформляется
+    после 010E;
+  - Valhalla заменяет собственные graph/index/pathfinding; OSM Manager остаётся слоем
+    acquisition/cache/snapshot provenance;
+  - OSM не используется в Integrity Detector.
 
 - [ ] **M10 / Task 011 — OSM-backed Reconstruction** — предварительный план,
   ТЗ ещё не оформлено

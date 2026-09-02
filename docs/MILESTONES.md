@@ -320,7 +320,50 @@ Task: `tasks/009-osm-manager.md`
 
 ---
 
-## Что делать после M8
+## M9 — Valhalla-backed Pedestrian/Trail Routing
+
+**Статус:** в работе; M9A и M9B завершены, следующая итерация — M9C.
+
+**Цель:** поверх immutable snapshots из M8 построить отдельный детерминированный adapter
+к Valhalla, который соединяет заданные anchors допустимыми pedestrian/trail paths, но
+не читает FIT и не принимает решений о reconstruction.
+
+Итерации:
+
+1. **M9A / Task 010A — Valhalla Feasibility Spike**: завершена решением `GO`; проверены
+   Python 3.14 wheel, Manager snapshot materialization, offline route, provenance и
+   repeatability;
+2. **M9B / Task 010B — Production Snapshot Materialization + Graph Cache**: завершена;
+   реализованы conflict detection, bounded merge и atomic derived-artifact cache;
+   подробности: `tasks/010b-production-snapshot-graph-cache.md`;
+3. **M9C / Task 010C — Versioned Pedestrian/Trail Profile**: зафиксированная и
+   протестированная Valhalla access/costing policy;
+4. **M9D / Task 010D — Audited Snapping + Single-route API**: stable diagnostics,
+   thresholds, provenance и explicit failure outcomes;
+5. **M9E / Task 010E — Alternatives + Route Diagnostics**: bounded alternatives,
+   overlap/diversity и ambiguity;
+6. **M9F / Task 010F — Packaging + Performance Stabilization**: clean install,
+   benchmarks, compatibility и protocol stabilization.
+
+Каждая итерация оформляется отдельным ТЗ непосредственно перед реализацией. Следующая
+итерация не должна реализовываться внутри текущей. Общая декомпозиция зафиксирована в
+`tasks/010-osm-graph-routing.md`; подробное первое ТЗ — в
+`tasks/010a-valhalla-feasibility-spike.md`.
+
+Результат M9:
+
+- отдельно устанавливаемый routing package, не импортирующий WarpBuster Core;
+- read-only consumption protocol v1 manifests и raw OSM blobs;
+- cached Valhalla graph, versioned routing profile и audit contract;
+- bounded snapping, single-route и alternative-route search;
+- полный snapshot/profile/graph provenance;
+- отсутствие FIT, Integrity Detector и reconstruction logic.
+
+Task: `tasks/010-osm-graph-routing.md`
+
+---
+
+## Что делать после M9
 
 Отдельные будущие epics:
 - OSM + course reconstruction;
@@ -332,4 +375,4 @@ Task: `tasks/009-osm-manager.md`
 - web UI;
 - automatic pipeline.
 
-Их нельзя начинать внутри Task 009.
+Их нельзя начинать внутри Task 010.

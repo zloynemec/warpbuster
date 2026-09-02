@@ -1,0 +1,31 @@
+# WarpBuster Task 010B derived Valhalla graph cache.
+# CLI --cache-dir overrides this value; WARPBUSTER_OSM_ROUTING_CACHE_DIR is used
+# when neither CLI nor TOML specifies a directory.
+[osm_routing]
+cache_directory = "/absolute/path/to/osm-routing-cache"
+
+# Immutable OSM Manager manifest and source ceilings.
+maximum_manifest_bytes = 1048576
+maximum_data_files = 64
+maximum_total_source_bytes = 2147483648
+
+# Streaming OSM normalization ceilings.
+maximum_osm_objects = 5000000
+maximum_total_node_references = 50000000
+maximum_total_tag_bytes = 536870912
+maximum_diagnostic_items = 100
+maximum_output_pbf_bytes = 2147483648
+
+# Derived Valhalla artifact ceilings.
+maximum_tile_files = 250000
+maximum_total_tile_bytes = 8589934592
+build_timeout_seconds = 900.0
+
+# Per-graph filesystem lock behavior.
+cache_lock_timeout_seconds = 60.0
+stale_lock_seconds = 1800.0
+lock_poll_seconds = 0.1
+
+# Hashing and conservative cache pruning.
+io_chunk_bytes = 1048576
+prune_minimum_age_seconds = 604800.0
