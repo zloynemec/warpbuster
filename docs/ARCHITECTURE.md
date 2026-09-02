@@ -1,34 +1,35 @@
 # WarpBuster Core — Architecture v0.1
 
-## 1. Общая схема
+## 1. Карта системы
 
-```text
-FIT ──► FIT Adapter ──┐
-                     ├──► ActivityData
-GPX ──► GPX Adapter ──┘
-                              ├──► Inspect / Reports
-                              │
-                              ▼
-Integrity Detector
-                              │
-                              ▼
-                       IntegrityReport
-                              ├── CLEAN
-                              ├── UNKNOWN
-                              ├── advisory geometry warnings
-                              └── CORRUPTED intervals
-                                      │
-                                      ▼
-                         Reconstruction Provider (optional)
-                                      │
-                                      ▼
-                                Repair Plan
-                                      │
-                                      ▼
-                              FIT Patch/Writer
-                                      │
-                                      ▼
-                              Validation + Diff
+Схема показывает только три текущие точки входа и долговечные артефакты в двух
+end-to-end потоках. Внутренние вызовы намеренно опущены. Valhalla graph пока не
+потребляется Core, что явно отмечено на конечном узле OSM-потока.
+
+```mermaid
+flowchart TB
+    subgraph activity["1. Обработка активности"]
+        direction LR
+        activity_input["FIT / GPX activity<br/>optional GPX course"]
+        core["warpbuster<br/>inspect · analyze · repair · validate · diff"]
+        core_output["Console / JSON / HTML<br/>optional repaired FIT"]
+
+        activity_input --> core --> core_output
+    end
+
+    subgraph osm_pipeline["2. OSM-данные и подготовка маршрутизации"]
+        direction LR
+        region_input["GPX / GeoJSON / BBox<br/>or local OSM file"]
+        manager["warpbuster-osm<br/>fetch · validate · version"]
+        snapshot["Immutable OSM snapshot<br/>protocol v1 manifest"]
+        router["warpbuster-osm-route<br/>normalize · build · verify"]
+        graph_cache["Content-addressed Valhalla graph cache<br/>not yet consumed by Core"]
+
+        region_input --> manager --> snapshot --> router --> graph_cache
+    end
+
+    %% Layout only: the two runtime flows remain independent.
+    activity ~~~ osm_pipeline
 ```
 
 ## 2. Package layout
