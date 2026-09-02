@@ -140,5 +140,28 @@ Roadmap следует порядку milestone из [`docs/MILESTONES.md`](docs
   - все operational limits вынесены в отдельный TOML/config contract;
   - без routing, reconstruction и изменений WarpBuster Core.
 
-OSM-backed reconstruction, DEM, Garmin/COROS/Strava integrations, web UI и automatic
-pipeline остаются отдельными будущими направлениями и не входят в Task 009.
+- [ ] **M9 / Task 010 — OSM Graph + Pedestrian/Trail Routing** — предварительный план,
+  ТЗ ещё не оформлено
+  - загрузка immutable snapshot через versioned protocol OSM Manager;
+  - детерминированный pedestrian/trail graph с явной интерпретацией access/highway и
+    других необходимых OSM tags;
+  - bounded routing между заданными anchors, включая альтернативные маршруты;
+  - provenance исходного snapshot, routing profile и причин выбора пути;
+  - без FIT repair и без использования OSM в Integrity Detector.
+
+- [ ] **M10 / Task 011 — OSM-backed Reconstruction** — предварительный план,
+  ТЗ ещё не оформлено
+  - отдельный `OSMReconstructionProvider`, использующий результат Integrity Detector;
+  - уточнение GPX course по OSM graph и отдельный OSM-only режим, когда эталонного
+    трека нет;
+  - консервативный выбор пути по trusted anchors, времени, distance/pace evidence и
+    физическим post-checks;
+  - существующее правдоподобное движение не меняется, а ambiguous варианты остаются
+    unresolved;
+  - полный audit candidate geometry, confidence, applied/skipped участков и OSM
+    provenance в console/JSON/HTML reports.
+
+Таким образом, OSM-направление состоит из трёх независимых этапов: готового data manager,
+будущего routing graph и только затем интеграции с reconstruction. DEM,
+Garmin/COROS/Strava integrations, web UI и automatic pipeline остаются отдельными
+будущими направлениями и не входят в Tasks 009–011.
