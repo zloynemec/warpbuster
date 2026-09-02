@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/warpbuster-logo.png" alt="WarpBuster logo" width="320">
+</p>
+
 # WarpBuster Core
 
 WarpBuster — локальное Python-ядро и CLI для обнаружения и восстановления физически
