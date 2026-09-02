@@ -233,6 +233,28 @@ Task: `tasks/006c-composite-gnss-failure-regions.md`
 
 ---
 
+## M5D — Course-backed Missing-position Completion
+
+**Цель:** явно и консервативно достраивать отсутствующую endpoint geometry по известному
+course, когда длинный observed GPS run независимо физически правдоподобен и однозначно
+совпадает с course.
+
+Результат:
+- отдельный opt-in provider, не создающий corrupted interval;
+- prefix/suffix targets и однозначная observed-run alignment;
+- recorded distance/course-span consistency и physical post-check;
+- максимум `MEDIUM`, default skip и явное `--fill-missing-from-course`;
+- сохранение existing GPS, timestamps, sensors и embedded FIT distance;
+- объединение providers перед одним atomic writer pass;
+- console/JSON/HTML audit и synthetic/private regressions.
+
+Внутренние clean gaps, reconstruction без course и добавление новых FIT definitions не
+входят в этот milestone.
+
+Task: `tasks/006d-course-backed-missing-position-completion.md`
+
+---
+
 ## M6 — FIT Repair Writer + Validate + Diff
 
 **Цель:** применить RepairPlan к FIT, сохранив исходные данные.

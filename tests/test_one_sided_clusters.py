@@ -17,6 +17,7 @@ from warpbuster.models.integrity import (
     OneSidedClusterReason,
 )
 from warpbuster.models.reconstruction import (
+    IntervalRepairPlan,
     ReconstructionReason,
     RepairIntervalAction,
 )
@@ -149,6 +150,7 @@ def test_medium_one_sided_candidate_requires_explicit_medium_selection(tmp_path:
 
     assert len(plan.interval_plans) == 1
     candidate = plan.interval_plans[0]
+    assert isinstance(candidate, IntervalRepairPlan)
     assert candidate.confidence is IntegrityConfidence.MEDIUM
     assert candidate.repair_eligible is False
     assert candidate.anchor_connector_distance_m > 15.0
@@ -257,6 +259,7 @@ def test_reconstruction_expands_core_to_stable_course_corridor(tmp_path: Path) -
 
     assert len(plan.interval_plans) == 1
     candidate = plan.interval_plans[0]
+    assert isinstance(candidate, IntervalRepairPlan)
     assert (candidate.interval.start_record_index, candidate.interval.end_record_index) == (4, 19)
     assert (
         candidate.interval.trusted_before_record_index,

@@ -400,3 +400,36 @@ invalid value в исходном message definition; добавление field
 запрещено lossless policy.
 
 Статус: Accepted.
+
+## ADR-025 — Missing endpoint completion is an independent opt-in provider
+
+Отсутствующая координата означает неизвестное положение, а не доказанную GNSS
+corruption. Поэтому Integrity Detector не использует reference course и не создаёт
+`CorruptedInterval` только из-за missing prefix/suffix. Course-backed completion
+запускается отдельным reconstruction provider только по явному
+`--fill-missing-from-course`.
+
+Provider требует устойчивый observed positioned run с `NORMAL` transitions и
+однозначное сопоставление его endpoints одному course segment. Для различения branches
+используется consistency recorded distance observed run и course span; course proximity
+сама по себе недостаточна. Traversal и новые boundary transitions проходят physical
+post-check. Candidate ограничен `MEDIUM`, поэтому применение дополнительно требует
+`--min-confidence medium`.
+
+Основной corruption planner и missing provider получают одно исходное activity/integrity
+состояние, выполняются независимо и объединяются до selection. Writer применяет общий
+непересекающийся scope одним атомарным pass; primary corruption candidate имеет приоритет
+при overlap. Inferred coordinates никогда не становятся detector evidence или trusted
+anchors для другого provider в рамках invocation.
+
+В missing-completion mode recorded distance/speed считаются правдоподобными независимыми
+signals: они могут управлять распределением points, но cumulative distance и summaries
+не пересчитываются из сгенерированной geometry. Existing coordinates, timestamps,
+sensors, altitude, developer/unknown fields и definitions сохраняются. Fixed-width
+writer заполняет только уже существующие invalid position fields.
+
+Scope текущего решения ограничен missing prefix/suffix. Internal clean gaps,
+course-less reconstruction, OSM/DEM и изменение existing plausible movement требуют
+отдельных tasks и proof rules.
+
+Статус: Accepted.

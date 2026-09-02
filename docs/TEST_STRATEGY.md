@@ -266,6 +266,8 @@ Garmin/Strava upload остаётся вне automated CI.
 - наличие pan/zoom, scale, fit-to-track, collapsed overlay control, start/end и markers
   через каждый 1 km;
 - original/course/repaired distance и ascent comparison с provenance;
+- repaired FIT average pace, full/partial kilometre split pace и независимые
+  ascent/descent bars, включая холм с одинаковым подъёмом и спуском внутри километра;
 - missing-run audit table, chord/speed/distance delta и запрет bridge через continuity;
 - default atomic no-overwrite, explicit overwrite и invalid destination errors;
 - наличие HTML template внутри installed package.
@@ -285,6 +287,21 @@ Task 006C synthetic regressions отдельно проверяют ordered comp
 deduplication нескольких detected cores в один planning unit, сохранение
 `PLAUSIBLE/UNKNOWN` components, disjoint reconstruction scope, разделение existing и
 missing coordinate updates, default skip и explicit-MEDIUM FIT write.
+
+Task 006D synthetic regressions отдельно проверяют:
+
+- отсутствие нового поведения без `--fill-missing-from-course`;
+- независимые prefix/suffix candidates и default `HIGH` skip;
+- explicit `MEDIUM` selection после однозначной observed-run alignment;
+- refusal при коротком/нестабильном observed run;
+- изменение только исходно invalid position fields;
+- сохранение existing GPS, distance, timestamps, sensors и summaries;
+- missing-completion console/JSON/HTML audit.
+
+Private endpoint-missing regression проверяет два candidates, заполнение всех records,
+valid CRC, ноль unexpected diff, 100% preservation и отсутствие abnormal transitions в
+итоговом FIT. Конкретные record ranges private fixture не являются частью production
+contract.
 
 Release check отдельно строит wheel, устанавливает его с runtime dependencies в чистый
 temporary Python 3.14 venv и запускает version/resource/analyze HTML smoke.

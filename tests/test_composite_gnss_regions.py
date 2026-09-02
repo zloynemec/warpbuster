@@ -18,6 +18,7 @@ from warpbuster.models.reconstruction import (
     CourseData,
     GnssComponentKind,
     GnssComponentState,
+    IntervalRepairPlan,
     RepairPlanStatus,
 )
 from warpbuster.reconstruction import build_course_repair_plan, select_repair_intervals
@@ -70,6 +71,7 @@ def test_composite_course_candidate_is_one_explicit_medium_planning_unit(
     assert len(plan.interval_plans) == 1
     assert plan.unresolved_intervals == ()
     candidate = plan.interval_plans[0]
+    assert isinstance(candidate, IntervalRepairPlan)
     assert candidate.interval.detection_kind is IntervalDetectionKind.COMPOSITE_REGION
     assert (candidate.interval.start_record_index, candidate.interval.end_record_index) == (3, 10)
     assert candidate.confidence is IntegrityConfidence.MEDIUM

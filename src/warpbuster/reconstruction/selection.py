@@ -62,6 +62,18 @@ def select_repair_intervals(
         )
         for unresolved in plan.unresolved_intervals
     )
+    decisions.extend(
+        RepairIntervalDecision(
+            interval=unresolved.interval,
+            confidence=unresolved.confidence,
+            action=RepairIntervalAction.SKIPPED,
+            candidate_available=False,
+            coordinate_update_count=0,
+            selection_reasons=(RepairSelectionReason.NO_RECONSTRUCTION_CANDIDATE,),
+            reconstruction_reasons=unresolved.reasons,
+        )
+        for unresolved in plan.unresolved_missing_runs
+    )
     decisions.sort(key=lambda decision: decision.interval.start_record_index)
     selected.sort(key=lambda candidate: candidate.interval.start_record_index)
     return RepairSelection(

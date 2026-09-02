@@ -106,8 +106,17 @@ def write_trajectory_activity(
     observations: list[tuple[int, float | None, float | None]],
     *,
     retain_invalid_position_fields: bool = False,
+    distances_m: list[float] | None = None,
+    speeds_mps: list[float] | None = None,
+    altitudes_m: list[float] | None = None,
 ) -> bytes:
     """Write a valid FIT containing a caller-supplied synthetic trajectory."""
+    if distances_m is not None and len(distances_m) != len(observations):
+        raise ValueError("distances_m and observations must have equal length")
+    if speeds_mps is not None and len(speeds_mps) != len(observations):
+        raise ValueError("speeds_mps and observations must have equal length")
+    if altitudes_m is not None and len(altitudes_m) != len(observations):
+        raise ValueError("altitudes_m and observations must have equal length")
     start = datetime(2026, 1, 1, 8, 0, tzinfo=UTC)
     encoder = Encoder()
     encoder.on_mesg(
@@ -123,10 +132,16 @@ def write_trajectory_activity(
         Profile["mesg_num"]["EVENT"],
         {"timestamp": start, "event": "timer", "event_type": "start"},
     )
-    for elapsed_seconds, latitude, longitude in observations:
+    for index, (elapsed_seconds, latitude, longitude) in enumerate(observations):
         record: dict[str, Any] = {
             "timestamp": start + timedelta(seconds=elapsed_seconds),
         }
+        if distances_m is not None:
+            record["distance"] = distances_m[index]
+        if speeds_mps is not None:
+            record["enhanced_speed"] = speeds_mps[index]
+        if altitudes_m is not None:
+            record["enhanced_altitude"] = altitudes_m[index]
         if latitude is not None and longitude is not None:
             record["position_lat"] = _semicircles(latitude)
             record["position_long"] = _semicircles(longitude)
@@ -143,6 +158,11 @@ def write_trajectory_activity(
             "start_time": start,
             "total_elapsed_time": duration,
             "total_timer_time": duration,
+            **(
+                {"total_distance": distances_m[-1]}
+                if distances_m is not None and distances_m
+                else {}
+            ),
             "sport": "running",
         },
     )

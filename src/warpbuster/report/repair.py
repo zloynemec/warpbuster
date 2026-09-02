@@ -6,7 +6,7 @@ import json
 from dataclasses import asdict
 
 from warpbuster.config import CourseReconstructionConfig
-from warpbuster.models.integrity import IntegrityConfidence
+from warpbuster.models.integrity import CorruptedInterval, IntegrityConfidence
 from warpbuster.models.reconstruction import (
     AnchorStabilityDiagnostic,
     CandidateCoordinate,
@@ -15,12 +15,15 @@ from warpbuster.models.reconstruction import (
     CourseData,
     GnssRegionComponent,
     IntervalRepairPlan,
+    MissingCourseCompletionPlan,
+    MissingCourseRun,
     MixedGnssRegion,
     RepairIntervalAction,
     RepairIntervalDecision,
     RepairPlan,
     RepairSelection,
     UnresolvedInterval,
+    UnresolvedMissingCourseRun,
 )
 from warpbuster.reconstruction.selection import select_repair_intervals
 
@@ -40,13 +43,7 @@ def repair_report(
     selected_coordinate_update_count = sum(
         len(interval.coordinate_updates) for interval in selection.selected_interval_plans
     )
-    decisions = {
-        (
-            decision.interval.start_record_index,
-            decision.interval.end_record_index,
-        ): decision
-        for decision in selection.decisions
-    }
+    decisions = {_decision_key(decision.interval): decision for decision in selection.decisions}
     return {
         "schema_version": "0.1",
         "scope": "course_reconstruction_dry_run",
@@ -68,7 +65,14 @@ def repair_report(
             "detected_interval_count": plan.detected_interval_count,
             "planned_interval_count": len(plan.interval_plans),
             "eligible_interval_count": selection.applied_interval_count,
-            "unresolved_interval_count": len(plan.unresolved_intervals),
+            "unresolved_interval_count": (
+                len(plan.unresolved_intervals) + len(plan.unresolved_missing_runs)
+            ),
+            "missing_completion_enabled": plan.missing_completion_enabled,
+            "missing_completion_candidate_count": sum(
+                isinstance(candidate, MissingCourseCompletionPlan)
+                for candidate in plan.interval_plans
+            ),
             "candidate_coordinate_update_count": candidate_coordinate_update_count,
             "selected_coordinate_update_count": selected_coordinate_update_count,
         },
@@ -82,17 +86,15 @@ def repair_report(
         "interval_plans": [
             _interval_report(
                 interval,
-                decisions[
-                    (
-                        interval.interval.start_record_index,
-                        interval.interval.end_record_index,
-                    )
-                ],
+                decisions[_decision_key(interval.interval)],
             )
             for interval in plan.interval_plans
         ],
         "unresolved_intervals": [
             _unresolved_report(interval) for interval in plan.unresolved_intervals
+        ],
+        "unresolved_missing_runs": [
+            _unresolved_missing_report(interval) for interval in plan.unresolved_missing_runs
         ],
     }
 
@@ -155,27 +157,17 @@ def repair_console(
         (
             f"Intervals: detected={plan.detected_interval_count}, "
             f"planned={len(plan.interval_plans)}, "
-            f"unresolved={len(plan.unresolved_intervals)}"
+            "unresolved="
+            f"{len(plan.unresolved_intervals) + len(plan.unresolved_missing_runs)}"
         ),
         f"Candidate coordinate updates: {candidate_coordinate_update_count}",
         f"Selected coordinate updates: {selected_coordinate_update_count}",
     ]
-    decisions = {
-        (
-            decision.interval.start_record_index,
-            decision.interval.end_record_index,
-        ): decision
-        for decision in selection.decisions
-    }
+    decisions = {_decision_key(decision.interval): decision for decision in selection.decisions}
     lines.extend(
         _interval_console(
             interval,
-            decisions[
-                (
-                    interval.interval.start_record_index,
-                    interval.interval.end_record_index,
-                )
-            ],
+            decisions[_decision_key(interval.interval)],
             verbosity,
         )
         for interval in plan.interval_plans
@@ -183,14 +175,16 @@ def repair_console(
     lines.extend(
         _unresolved_console(
             interval,
-            decisions[
-                (
-                    interval.interval.start_record_index,
-                    interval.interval.end_record_index,
-                )
-            ],
+            decisions[_decision_key(interval.interval)],
         )
         for interval in plan.unresolved_intervals
+    )
+    lines.extend(
+        _unresolved_missing_console(
+            interval,
+            decisions[_decision_key(interval.interval)],
+        )
+        for interval in plan.unresolved_missing_runs
     )
     if verbosity >= 1:
         lines.extend(
@@ -226,6 +220,7 @@ def _decision_report(decision: RepairIntervalDecision) -> dict[str, object]:
         "action": decision.action.value,
         "candidate_available": decision.candidate_available,
         "coordinate_update_count": decision.coordinate_update_count,
+        "target_kind": _target_kind(decision.interval),
         "selection_reasons": [reason.value for reason in decision.selection_reasons],
         "reconstruction_reasons": [reason.value for reason in decision.reconstruction_reasons],
     }
@@ -238,6 +233,15 @@ def _application_status(selection: RepairSelection) -> str:
 
 
 def _interval_report(
+    plan: IntervalRepairPlan | MissingCourseCompletionPlan,
+    decision: RepairIntervalDecision,
+) -> dict[str, object]:
+    if isinstance(plan, MissingCourseCompletionPlan):
+        return _missing_interval_report(plan, decision)
+    return _corrupted_interval_report(plan, decision)
+
+
+def _corrupted_interval_report(
     plan: IntervalRepairPlan,
     decision: RepairIntervalDecision,
 ) -> dict[str, object]:
@@ -279,12 +283,72 @@ def _interval_report(
         "reconstruction_scope_ranges": [
             list(bounds) for bounds in plan.reconstruction_scope_ranges
         ],
+        "preserve_recorded_distance": plan.preserve_recorded_distance,
         "existing_coordinate_update_count": (
             len(plan.coordinate_updates) - missing_coordinate_update_count
         ),
         "missing_coordinate_update_count": missing_coordinate_update_count,
         "fields_to_change": list(plan.fields_to_change),
         "dependent_fields_to_recalculate": list(plan.dependent_fields_to_recalculate),
+        "reasons": [reason.value for reason in plan.reasons],
+        "coordinate_updates": [
+            _coordinate_report(coordinate) for coordinate in plan.coordinate_updates
+        ],
+    }
+
+
+def _missing_interval_report(
+    plan: MissingCourseCompletionPlan,
+    decision: RepairIntervalDecision,
+) -> dict[str, object]:
+    return {
+        "start_record_index": plan.interval.start_record_index,
+        "end_record_index": plan.interval.end_record_index,
+        "record_count": plan.interval.record_count,
+        "start_timestamp": (
+            plan.interval.start_timestamp.isoformat()
+            if plan.interval.start_timestamp is not None
+            else None
+        ),
+        "end_timestamp": (
+            plan.interval.end_timestamp.isoformat()
+            if plan.interval.end_timestamp is not None
+            else None
+        ),
+        "detection_kind": "missing_course_completion",
+        "missing_run_kind": plan.interval.kind.value,
+        "confidence": plan.confidence.value,
+        "repair_eligible": decision.action is RepairIntervalAction.APPLIED,
+        "default_high_confidence_eligible": plan.repair_eligible,
+        "action": decision.action.value,
+        "direction": plan.direction.value,
+        "course_span_distance_m": plan.course_span_distance_m,
+        "course_apparent_speed_mps": plan.course_apparent_speed_mps,
+        "anchor_connector_distance_m": plan.anchor_connector_distance_m,
+        "reconstruction_path_distance_m": plan.reconstruction_path_distance_m,
+        "allocation_method": plan.allocation_method.value,
+        "observed_run_start_record_index": plan.observed_run_start_record_index,
+        "observed_run_end_record_index": plan.observed_run_end_record_index,
+        "anchor_before_record_index": plan.anchor_before_record_index,
+        "anchor_after_record_index": plan.anchor_after_record_index,
+        "anchor_before": (
+            _anchor_report(plan.anchor_before) if plan.anchor_before is not None else None
+        ),
+        "anchor_after": (
+            _anchor_report(plan.anchor_after) if plan.anchor_after is not None else None
+        ),
+        "observed_distance_m": plan.observed_distance_m,
+        "observed_course_span_distance_m": plan.observed_course_span_distance_m,
+        "observed_distance_ratio_error": plan.observed_distance_ratio_error,
+        "composite_gnss_region": None,
+        "reconstruction_scope_ranges": [
+            list(bounds) for bounds in plan.reconstruction_scope_ranges
+        ],
+        "existing_coordinate_update_count": 0,
+        "missing_coordinate_update_count": len(plan.coordinate_updates),
+        "fields_to_change": list(plan.fields_to_change),
+        "dependent_fields_to_recalculate": list(plan.dependent_fields_to_recalculate),
+        "preserve_recorded_distance": plan.preserve_recorded_distance,
         "reasons": [reason.value for reason in plan.reasons],
         "coordinate_updates": [
             _coordinate_report(coordinate) for coordinate in plan.coordinate_updates
@@ -361,6 +425,21 @@ def _unresolved_report(interval: UnresolvedInterval) -> dict[str, object]:
             if interval.mixed_region is not None
             else None
         ),
+    }
+
+
+def _unresolved_missing_report(
+    interval: UnresolvedMissingCourseRun,
+) -> dict[str, object]:
+    return {
+        "start_record_index": interval.interval.start_record_index,
+        "end_record_index": interval.interval.end_record_index,
+        "record_count": interval.interval.record_count,
+        "detection_kind": "missing_course_completion",
+        "missing_run_kind": interval.interval.kind.value,
+        "confidence": interval.confidence.value,
+        "repair_eligible": False,
+        "reasons": [reason.value for reason in interval.reasons],
     }
 
 
@@ -441,6 +520,16 @@ def _component_report(component: GnssRegionComponent) -> dict[str, object]:
 
 
 def _interval_console(
+    plan: IntervalRepairPlan | MissingCourseCompletionPlan,
+    decision: RepairIntervalDecision,
+    verbosity: int,
+) -> str:
+    if isinstance(plan, MissingCourseCompletionPlan):
+        return _missing_interval_console(plan, decision, verbosity)
+    return _corrupted_interval_console(plan, decision, verbosity)
+
+
+def _corrupted_interval_console(
     plan: IntervalRepairPlan,
     decision: RepairIntervalDecision,
     verbosity: int,
@@ -486,6 +575,32 @@ def _interval_console(
         f"{plan.anchor_before_stability.consecutive_normal_transition_count}/"
         f"{plan.anchor_after_stability.consecutive_normal_transition_count}"
         f"{refinement}{composite}"
+    )
+
+
+def _missing_interval_console(
+    plan: MissingCourseCompletionPlan,
+    decision: RepairIntervalDecision,
+    verbosity: int,
+) -> str:
+    alignment = (
+        f", observed={plan.observed_distance_m:.2f}/"
+        f"{plan.observed_course_span_distance_m:.2f} m, "
+        f"ratio_error={plan.observed_distance_ratio_error:.3f}"
+        if verbosity >= 1
+        else ""
+    )
+    return (
+        f"  - missing {plan.interval.kind.value} records "
+        f"{plan.interval.start_record_index}..{plan.interval.end_record_index}: "
+        f"{decision.action.value.upper()}, confidence={plan.confidence.value.upper()}, "
+        "kind=missing_course_completion, default_high_eligible=no, "
+        f"course={plan.course_span_distance_m:.2f} m, "
+        f"connectors={plan.anchor_connector_distance_m:.2f} m, "
+        f"path={plan.reconstruction_path_distance_m:.2f} m, "
+        f"direction={plan.direction.value}, allocation={plan.allocation_method.value}, "
+        f"updates={len(plan.coordinate_updates)} (existing=0, "
+        f"missing={len(plan.coordinate_updates)}), distance=preserved{alignment}"
     )
 
 
@@ -537,3 +652,32 @@ def _unresolved_console(
                 f"core:{component.detected_core_record_count}"
             )
     return line
+
+
+def _unresolved_missing_console(
+    interval: UnresolvedMissingCourseRun,
+    decision: RepairIntervalDecision,
+) -> str:
+    reasons = ",".join(reason.value for reason in interval.reasons)
+    return (
+        f"  - unresolved missing {interval.interval.kind.value} records "
+        f"{interval.interval.start_record_index}..{interval.interval.end_record_index}: "
+        f"{decision.action.value.upper()}, confidence={interval.confidence.value.upper()}, "
+        f"reasons={reasons}, kind=missing_course_completion"
+    )
+
+
+def _target_kind(interval: object) -> str:
+    if isinstance(interval, MissingCourseRun):
+        return "missing_course_completion"
+    return "corrupted_interval"
+
+
+def _decision_key(interval: object) -> tuple[int, int, str]:
+    if not isinstance(interval, (MissingCourseRun, CorruptedInterval)):
+        raise TypeError("repair decision interval has an unsupported type")
+    return (
+        interval.start_record_index,
+        interval.end_record_index,
+        _target_kind(interval),
+    )

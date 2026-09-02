@@ -116,6 +116,14 @@
     </section>
 
     <section>
+      <h2>Repaired FIT pace &amp; elevation</h2>
+      <div class="grid" id="repaired-performance-summary"></div>
+      <canvas class="chart" id="split-pace-chart" aria-label="Pace by recorded kilometre histogram"></canvas>
+      <canvas class="chart" id="split-elevation-chart" aria-label="Ascent and descent by recorded kilometre histogram"></canvas>
+      <div class="hint" id="repaired-performance-notes"></div>
+    </section>
+
+    <section>
       <h2>Missing-position runs</h2>
       <div id="missing-runs"></div>
       <p class="hint">Straight chord is how map services normally connect the anchors. Recorded distance Δ is the source distance-stream change between the same anchors; neither value reconstructs the unknown path.</p>
@@ -131,6 +139,12 @@
     <section>
       <h2>Repair decisions</h2>
       <div id="repair-decisions"></div>
+    </section>
+
+    <section>
+      <h2>Missing-position completion</h2>
+      <div id="missing-completion"></div>
+      <p class="hint">This opt-in reconstruction fills only absent coordinates. Existing GPS coordinates, timestamps, telemetry and a plausible recorded-distance stream remain unchanged.</p>
     </section>
 
     <section>
@@ -172,6 +186,7 @@
     const analysis = data.analysis;
     const repair = data.repair;
     const writeResult = data.write_result;
+    const repairedPerformance = data.repaired_performance;
     const colors = { original: "#64748b", repaired: "#1d6fb8", candidate: "#0f766e", course: "#6b46c1", corrupted: "#c53030", tainted: "#dd6b20", plausible: "#2f855a", unknown: "#64748b", skipped: "#b7791f", missing: "#d97706", recorded: "#2f855a", blue: "#176b87", purple: "#6b46c1", grid: "#dedbd2", ink: "#17202a", muted: "#65717d" };
 
     const text = (value, fallback = "n/a") => value === null || value === undefined || value === "" ? fallback : String(value);
@@ -186,10 +201,25 @@
     const distance = (value) => Number.isFinite(value) ? `${number(value / 1000, 3)} km` : "n/a";
     const metres = (value) => Number.isFinite(value) ? `${number(value, 1)} m` : "n/a";
     const signedDistance = (value) => Number.isFinite(value) ? `${value >= 0 ? "+" : "−"}${number(Math.abs(value) / 1000, 3)} km` : "n/a";
+    const pace = (value) => {
+      if (!Number.isFinite(value) || value < 0) return "n/a";
+      const rounded = Math.round(value), minutes = Math.floor(rounded / 60), seconds = rounded % 60;
+      return `${minutes}:${String(seconds).padStart(2, "0")} /km`;
+    };
     const elapsed = (value) => {
       if (!Number.isFinite(value)) return "n/a";
       const rounded = Math.round(value), minutes = Math.floor(rounded / 60), seconds = rounded % 60;
       return minutes ? `${minutes}:${String(seconds).padStart(2, "0")}` : `${seconds} s`;
+    };
+    const clockDuration = (value) => {
+      if (!Number.isFinite(value)) return "n/a";
+      const rounded = Math.round(value);
+      const hours = Math.floor(rounded / 3600);
+      const minutes = Math.floor((rounded % 3600) / 60);
+      const seconds = rounded % 60;
+      return hours
+        ? `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+        : `${minutes}:${String(seconds).padStart(2, "0")}`;
     };
 
     document.title = `WarpBuster — ${text(data.inspect.source.path)}`;
@@ -228,13 +258,34 @@
 
     const decisionRows = repair ? repair.selection.intervals.map((item) => [
       `${item.start_record_index}..${item.end_record_index}`,
+      item.target_kind,
       badge(item.action),
       item.confidence.toUpperCase(),
       item.candidate_available ? "yes" : "no",
       item.coordinate_update_count,
       [...item.selection_reasons, ...item.reconstruction_reasons].join(", "),
     ]) : [];
-    document.getElementById("repair-decisions").appendChild(table(["Records", "Action", "Confidence", "Candidate", "Updates", "Reasons"], decisionRows));
+    document.getElementById("repair-decisions").appendChild(table(["Records", "Kind", "Action", "Confidence", "Candidate", "Updates", "Reasons"], decisionRows));
+
+    const missingCompletionRows = repair ? repair.interval_plans
+      .filter((item) => item.detection_kind === "missing_course_completion")
+      .map((item) => [
+        `${item.start_record_index}..${item.end_record_index}`,
+        item.missing_run_kind,
+        badge(item.action),
+        item.confidence.toUpperCase(),
+        item.direction,
+        `${number(item.course_span_distance_m)} m + ${number(item.anchor_connector_distance_m)} m`,
+        item.allocation_method,
+        item.missing_coordinate_update_count,
+        item.preserve_recorded_distance ? "preserved" : "recalculated",
+        `${number(item.observed_distance_m)} / ${number(item.observed_course_span_distance_m)} m`,
+        item.reasons.join(", "),
+      ]) : [];
+    document.getElementById("missing-completion").appendChild(table(
+      ["Records", "Run", "Action", "Confidence", "Direction", "Course + connector", "Allocation", "Filled", "FIT distance", "Observed / course alignment", "Reasons"],
+      missingCompletionRows,
+    ));
 
     const compositeEntries = repair ? [
       ...repair.interval_plans.map((item) => ({ region: item.composite_gnss_region, scope: item.reconstruction_scope_ranges || [] })),
@@ -323,6 +374,27 @@
     const metricsNotes = document.createElement("ul");
     comparison.notes.forEach((note) => { const item = document.createElement("li"); item.textContent = note; metricsNotes.appendChild(item); });
     document.getElementById("metrics-notes").appendChild(metricsNotes);
+
+    const performanceSummary = document.getElementById("repaired-performance-summary");
+    if (!repairedPerformance) {
+      const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = "Available after a repaired FIT has been written and validated."; performanceSummary.appendChild(empty);
+    } else {
+      const performanceItems = [
+        ["Average pace", pace(repairedPerformance.average_pace_seconds_per_km)],
+        ["Time", clockDuration(repairedPerformance.timer_duration_seconds)],
+        ["Total ascent", metres(repairedPerformance.total_ascent_m)],
+        ["Total descent", metres(repairedPerformance.total_descent_m)],
+      ];
+      performanceItems.forEach(([label, value]) => {
+        const card = document.createElement("div"); card.className = "card";
+        const labelNode = document.createElement("div"); labelNode.className = "label"; labelNode.textContent = label;
+        const valueNode = document.createElement("div"); valueNode.className = "value"; valueNode.textContent = value;
+        card.append(labelNode, valueNode); performanceSummary.appendChild(card);
+      });
+      const notes = document.createElement("ul");
+      repairedPerformance.notes.forEach((note) => { const item = document.createElement("li"); item.textContent = note; notes.appendChild(item); });
+      document.getElementById("repaired-performance-notes").appendChild(notes);
+    }
 
     const missingRows = data.missing_position_runs.map((item) => [
       `${item.start_record_index}..${item.end_record_index}`,
@@ -464,7 +536,73 @@
       series.forEach((item) => { ctx.strokeStyle = item.color; ctx.lineWidth = item.width || 1.5; ctx.setLineDash(item.dashed ? [5, 4] : []); ctx.beginPath(); let active = false; for (const row of originalRows) { const value = row[item.field]; if (!Number.isFinite(value)) { active = false; continue; } const x = sx(row[1]), y = sy(value); active ? ctx.lineTo(x, y) : ctx.moveTo(x, y); active = true; } ctx.stroke(); });
       ctx.setLineDash([]); ctx.fillStyle = colors.muted; ctx.fillText(data.chart_axis.label, width / 2 - 45, height - 7);
     };
-    const drawAll = () => { if (map) map.invalidateSize(); drawChart(document.getElementById("speed-chart"), "Speed (m/s) — recorded green, coordinate-derived red", [{ field: 6, color: colors.recorded }, { field: 7, color: colors.corrupted, dashed: true }]); drawChart(document.getElementById("altitude-chart"), "Altitude (m)", [{ field: 4, color: colors.blue }]); drawChart(document.getElementById("hr-chart"), "Heart rate (bpm)", [{ field: 8, color: colors.purple }]); };
+    const splitLabel = (split) => split.complete_kilometre ? `${split.index}` : `${number(split.start_distance_m / 1000, 1)}–${number(split.end_distance_m / 1000, 2)}`;
+    const drawSplitBars = (canvas, title, field, { axisFormatter = (value) => number(value, 1) } = {}) => {
+      const [ctx, width, height] = prepareCanvas(canvas); ctx.clearRect(0, 0, width, height); const pad = { l: 64, r: 18, t: 30, b: 42 };
+      const splits = repairedPerformance ? repairedPerformance.splits : [];
+      const values = splits.map((split) => split[field]).filter(Number.isFinite);
+      ctx.fillStyle = colors.ink; ctx.font = "600 13px system-ui"; ctx.fillText(title, 8, 17);
+      if (!values.length) { ctx.fillStyle = colors.muted; ctx.font = "12px system-ui"; ctx.fillText("Unavailable", 12, 40); return; }
+      const minY = 0; let maxY = Math.max(0, ...values);
+      if (maxY < 1e-9) maxY = 1;
+      const plotWidth = width - pad.l - pad.r, plotHeight = height - pad.t - pad.b;
+      const sy = (value) => pad.t + (1 - (value - minY) / (maxY - minY)) * plotHeight;
+      ctx.strokeStyle = colors.grid; ctx.lineWidth = 1;
+      for (let index = 0; index <= 4; index++) {
+        const value = maxY - index * (maxY - minY) / 4, y = sy(value);
+        ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(width - pad.r, y); ctx.stroke();
+        ctx.fillStyle = colors.muted; ctx.font = "10px system-ui"; ctx.fillText(axisFormatter(value), 4, y + 3);
+      }
+      const zeroY = sy(0); ctx.strokeStyle = colors.ink; ctx.beginPath(); ctx.moveTo(pad.l, zeroY); ctx.lineTo(width - pad.r, zeroY); ctx.stroke();
+      const slot = plotWidth / splits.length, barWidth = Math.max(2, Math.min(34, slot * 0.72));
+      const labelStep = Math.max(1, Math.ceil(splits.length / 14));
+      splits.forEach((split, index) => {
+        const value = split[field], center = pad.l + slot * (index + 0.5);
+        if (Number.isFinite(value)) {
+          const valueY = sy(value); ctx.fillStyle = colors.blue;
+          ctx.fillRect(center - barWidth / 2, Math.min(valueY, zeroY), barWidth, Math.max(1, Math.abs(zeroY - valueY)));
+        }
+        if (index % labelStep === 0 || index === splits.length - 1) {
+          ctx.fillStyle = colors.muted; ctx.font = "10px system-ui"; ctx.textAlign = "center"; ctx.fillText(splitLabel(split), center, height - 18);
+        }
+      });
+      ctx.textAlign = "center"; ctx.fillStyle = colors.muted; ctx.font = "11px system-ui"; ctx.fillText("Recorded distance split (km)", pad.l + plotWidth / 2, height - 4); ctx.textAlign = "start";
+    };
+    const drawElevationSplitBars = (canvas) => {
+      const [ctx, width, height] = prepareCanvas(canvas); ctx.clearRect(0, 0, width, height); const pad = { l: 54, r: 18, t: 36, b: 42 };
+      const splits = repairedPerformance ? repairedPerformance.splits : [];
+      const values = splits.flatMap((split) => [split.ascent_m, split.descent_m]).filter(Number.isFinite);
+      ctx.fillStyle = colors.ink; ctx.font = "600 13px system-ui"; ctx.fillText("Ascent and descent by recorded kilometre (m)", 8, 17);
+      if (!values.length) { ctx.fillStyle = colors.muted; ctx.font = "12px system-ui"; ctx.fillText("Unavailable", 12, 40); return; }
+      let maxY = Math.max(0, ...values); if (maxY < 1e-9) maxY = 1;
+      const plotWidth = width - pad.l - pad.r, plotHeight = height - pad.t - pad.b;
+      const sy = (value) => pad.t + (1 - value / maxY) * plotHeight;
+      ctx.strokeStyle = colors.grid; ctx.lineWidth = 1;
+      for (let index = 0; index <= 4; index++) {
+        const value = maxY - index * maxY / 4, y = sy(value);
+        ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(width - pad.r, y); ctx.stroke();
+        ctx.fillStyle = colors.muted; ctx.font = "10px system-ui"; ctx.fillText(number(value, 0), 5, y + 3);
+      }
+      ctx.fillStyle = colors.recorded; ctx.fillRect(width - 190, 8, 10, 10); ctx.fillStyle = colors.muted; ctx.font = "10px system-ui"; ctx.fillText("ascent", width - 175, 17);
+      ctx.fillStyle = colors.skipped; ctx.fillRect(width - 115, 8, 10, 10); ctx.fillStyle = colors.muted; ctx.fillText("descent", width - 100, 17);
+      const slot = plotWidth / splits.length, barWidth = Math.max(2, Math.min(18, slot * 0.32));
+      const labelStep = Math.max(1, Math.ceil(splits.length / 14));
+      splits.forEach((split, index) => {
+        const center = pad.l + slot * (index + 0.5), ascent = split.ascent_m, descent = split.descent_m;
+        if (Number.isFinite(ascent)) { const y = sy(ascent); ctx.fillStyle = colors.recorded; ctx.fillRect(center - barWidth - 1, y, barWidth, Math.max(1, sy(0) - y)); }
+        if (Number.isFinite(descent)) { const y = sy(descent); ctx.fillStyle = colors.skipped; ctx.fillRect(center + 1, y, barWidth, Math.max(1, sy(0) - y)); }
+        if (index % labelStep === 0 || index === splits.length - 1) { ctx.fillStyle = colors.muted; ctx.font = "10px system-ui"; ctx.textAlign = "center"; ctx.fillText(splitLabel(split), center, height - 18); }
+      });
+      ctx.textAlign = "center"; ctx.fillStyle = colors.muted; ctx.font = "11px system-ui"; ctx.fillText("Recorded distance split (km)", pad.l + plotWidth / 2, height - 4); ctx.textAlign = "start";
+    };
+    const drawAll = () => {
+      if (map) map.invalidateSize();
+      drawChart(document.getElementById("speed-chart"), "Speed (m/s) — recorded green, coordinate-derived red", [{ field: 6, color: colors.recorded }, { field: 7, color: colors.corrupted, dashed: true }]);
+      drawChart(document.getElementById("altitude-chart"), "Altitude (m)", [{ field: 4, color: colors.blue }]);
+      drawChart(document.getElementById("hr-chart"), "Heart rate (bpm)", [{ field: 8, color: colors.purple }]);
+      drawSplitBars(document.getElementById("split-pace-chart"), "Pace by recorded kilometre (min/km)", "pace_seconds_per_km", { axisFormatter: pace });
+      drawElevationSplitBars(document.getElementById("split-elevation-chart"));
+    };
     window.addEventListener("resize", drawAll); drawAll();
   </script>
 </body>

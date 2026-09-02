@@ -151,6 +151,10 @@ Missing records могут скрыть обратный impossible transition. 
 только от unpaired `IMPOSSIBLE` entry и ограничен числом records. Обычный tunnel/dropout
 без impossible entry не создаёт corrupted interval.
 
+Явное course-backed заполнение missing prefix/suffix остаётся отдельной reconstruction
+операцией: оно не меняет эту классификацию, не создаёт detector evidence и не превращает
+сгенерированные coordinates в trusted observations. Его confidence не выше `MEDIUM`.
+
 ## 10. Course independence
 
 До конца Integrity Detection алгоритм не должен знать:

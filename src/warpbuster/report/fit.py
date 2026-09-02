@@ -15,7 +15,11 @@ from warpbuster.models.fit import (
     FitWriteResult,
     PreservationMetric,
 )
-from warpbuster.models.reconstruction import RepairIntervalDecision, RepairSelection
+from warpbuster.models.reconstruction import (
+    MissingCourseRun,
+    RepairIntervalDecision,
+    RepairSelection,
+)
 
 _CONSOLE_CHANGE_LIMIT = 20
 
@@ -205,6 +209,11 @@ def _write_selection_report(selection: RepairSelection) -> dict[str, object]:
                 "action": decision.action.value,
                 "candidate_available": decision.candidate_available,
                 "coordinate_update_count": decision.coordinate_update_count,
+                "target_kind": (
+                    "missing_course_completion"
+                    if isinstance(decision.interval, MissingCourseRun)
+                    else "corrupted_interval"
+                ),
                 "selection_reasons": [reason.value for reason in decision.selection_reasons],
                 "reconstruction_reasons": [
                     reason.value for reason in decision.reconstruction_reasons

@@ -86,6 +86,21 @@ class ReconstructionReason(StrEnum):
     COMPOSITE_REGION_EXPANDED = "composite_region_expanded"
     MISSING_COORDINATES_INFERRED = "missing_coordinates_inferred"
     COMPONENT_WISE_RECONSTRUCTION_REQUIRED = "component_wise_reconstruction_required"
+    MISSING_COMPLETION_ENABLED = "missing_completion_enabled"
+    MISSING_COMPLETION_CANDIDATE = "missing_completion_candidate"
+    MISSING_PREFIX = "missing_prefix"
+    MISSING_SUFFIX = "missing_suffix"
+    OBSERVED_COURSE_ALIGNMENT = "observed_course_alignment"
+    OBSERVED_DISTANCE_CONSISTENT = "observed_distance_consistent"
+    COURSE_ENDPOINT_USED = "course_endpoint_used"
+    RECORDED_DISTANCE_PRESERVED = "recorded_distance_preserved"
+    NO_STABLE_POSITION_RUN = "no_stable_position_run"
+    OBSERVED_COURSE_ALIGNMENT_AMBIGUOUS = "observed_course_alignment_ambiguous"
+    OBSERVED_DISTANCE_INCONSISTENT = "observed_distance_inconsistent"
+    MISSING_RUN_TOO_LARGE = "missing_run_too_large"
+    MISSING_POSITION_FIELDS_UNAVAILABLE = "missing_position_fields_unavailable"
+    MISSING_CANDIDATE_TRANSITION_IMPLAUSIBLE = "missing_candidate_transition_implausible"
+    OVERLAPS_PRIMARY_RECONSTRUCTION = "overlaps_primary_reconstruction"
 
 
 class GnssComponentKind(StrEnum):
@@ -124,6 +139,13 @@ class RepairPlanStatus(StrEnum):
     READY = "ready"
     PARTIAL = "partial"
     REFUSED = "refused"
+
+
+class MissingCourseRunKind(StrEnum):
+    """Supported endpoint morphology for explicit missing-position completion."""
+
+    PREFIX = "prefix"
+    SUFFIX = "suffix"
 
 
 class RepairIntervalAction(StrEnum):
@@ -311,6 +333,66 @@ class IntervalRepairPlan:
     boundary_refinement: CourseBoundaryRefinement | None = None
     composite_region: MixedGnssRegion | None = None
     reconstruction_scope_ranges: tuple[tuple[int, int], ...] = ()
+    preserve_recorded_distance: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class MissingCourseRun:
+    """Inclusive missing-position target; it is not a detected corrupted interval."""
+
+    start_record_index: int
+    end_record_index: int
+    start_timestamp: datetime | None
+    end_timestamp: datetime | None
+    kind: MissingCourseRunKind
+
+    @property
+    def record_count(self) -> int:
+        """Return the number of missing records in the inclusive run."""
+        return self.end_record_index - self.start_record_index + 1
+
+
+@dataclass(frozen=True, slots=True)
+class MissingCourseCompletionPlan:
+    """Course-backed coordinates proposed only for an endpoint missing run."""
+
+    interval: MissingCourseRun
+    observed_run_start_record_index: int
+    observed_run_end_record_index: int
+    anchor_before_record_index: int | None
+    anchor_after_record_index: int | None
+    anchor_before: CourseAnchorMatch | None
+    anchor_after: CourseAnchorMatch | None
+    direction: CourseDirection
+    course_span_distance_m: float
+    course_apparent_speed_mps: float
+    anchor_connector_distance_m: float
+    reconstruction_path_distance_m: float
+    observed_distance_m: float
+    observed_course_span_distance_m: float
+    observed_distance_ratio_error: float
+    allocation_method: AllocationMethod
+    coordinate_updates: tuple[CandidateCoordinate, ...]
+    fields_to_change: tuple[str, ...]
+    dependent_fields_to_recalculate: tuple[str, ...]
+    confidence: IntegrityConfidence
+    repair_eligible: bool
+    reasons: tuple[ReconstructionReason, ...]
+    reconstruction_scope_ranges: tuple[tuple[int, int], ...]
+    preserve_recorded_distance: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class UnresolvedMissingCourseRun:
+    """Missing endpoint run rejected by the explicit completion planner."""
+
+    interval: MissingCourseRun
+    confidence: IntegrityConfidence
+    reasons: tuple[ReconstructionReason, ...]
+
+
+type RepairTarget = CorruptedInterval | MissingCourseRun
+type RepairCandidate = IntervalRepairPlan | MissingCourseCompletionPlan
 
 
 @dataclass(frozen=True, slots=True)
@@ -336,19 +418,21 @@ class RepairPlan:
     status: RepairPlanStatus
     confidence: IntegrityConfidence
     detected_interval_count: int
-    interval_plans: tuple[IntervalRepairPlan, ...]
+    interval_plans: tuple[RepairCandidate, ...]
     unresolved_intervals: tuple[UnresolvedInterval, ...]
     reasons: tuple[ReconstructionReason, ...]
     timestamps_unchanged: bool
     trusted_records_unchanged: bool
     output_written: bool
+    unresolved_missing_runs: tuple[UnresolvedMissingCourseRun, ...] = ()
+    missing_completion_enabled: bool = False
 
 
 @dataclass(frozen=True, slots=True)
 class RepairIntervalDecision:
     """One applied/skipped decision under a selected confidence threshold."""
 
-    interval: CorruptedInterval
+    interval: RepairTarget
     confidence: IntegrityConfidence
     action: RepairIntervalAction
     candidate_available: bool
@@ -363,7 +447,7 @@ class RepairSelection:
 
     minimum_confidence: IntegrityConfidence
     detected_interval_count: int
-    selected_interval_plans: tuple[IntervalRepairPlan, ...]
+    selected_interval_plans: tuple[RepairCandidate, ...]
     decisions: tuple[RepairIntervalDecision, ...]
 
     @property

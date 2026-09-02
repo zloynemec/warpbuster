@@ -193,6 +193,19 @@ boundaries сохраняются в report. Refined anchors не проецир
 distance/speed allocation создаёт abnormal local transition, используется timestamp
 fallback. Candidate с оставшимся impossible transition не попадает в RepairPlan.
 
+Отдельный missing-position completion provider запускается только по явному CLI opt-in
+и не создаёт/расширяет `CorruptedInterval`. Он рассматривает только missing
+prefix/suffix, требует длинный observed positioned run из `NORMAL` transitions и
+однозначное сопоставление его начала/конца одному course segment. Recorded distance
+observed run проверяется против course span и помогает различить ветви loop. Candidate
+имеет максимум `MEDIUM`, заполняет только invalid position fields и проходит
+speed/transition post-check.
+
+Основной corruption provider и missing provider получают исходные activity/integrity
+данные независимо. Их candidates объединяются до selection; overlapping missing scope
+отклоняется в пользу основного repair. Writer выполняет один атомарный pass. Generated
+points не становятся новыми detector evidence или anchors внутри того же запуска.
+
 ## 7. Repair Plan
 
 До записи файла reconstruction формирует декларативный plan:
@@ -212,7 +225,8 @@ Plan имеет status:
 - `NOT_NEEDED` — detector не нашёл reconstructable corruption.
 
 Статус plan описывает coverage и не блокирует writer сам по себе. Candidate updates
-содержат только records внутри interval; timestamps и trusted records неизменны.
+содержат только records внутри своего declared scope; timestamps и trusted records
+неизменны. Opt-in missing target не является detected corruption и имеет отдельный kind.
 
 ## 8. FIT Writer
 
@@ -239,6 +253,11 @@ repaired geometry, а накопленная correction переносится �
 `lap/session.total_distance` и existing average-speed summary fields получают ту же
 correction. Record speed не меняется без доказанного provenance: он может приходить от
 footpod или sensor fusion и не обязан зависеть от GNSS.
+
+Исключение задаётся самим candidate: endpoint missing-completion использует credible
+recorded distance для allocation и выставляет `preserve_recorded_distance=true`.
+Тогда writer не пересчитывает record/lap/session distance для его updates. При смешанном
+plan distance correction применяется только к scopes обычных corruption candidates.
 
 Summary interval обычно заканчивается в `lap/session.timestamp`. Если этот timestamp не
 согласован с `start_time + total_elapsed_time` с учётом секундной точности FIT, writer

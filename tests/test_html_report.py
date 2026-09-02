@@ -9,7 +9,11 @@ import pytest
 
 from tests.activity_factory import make_activity
 from warpbuster.integrity import analyze_integrity
-from warpbuster.report.html import HtmlReportError, write_analyze_html
+from warpbuster.report.html import (
+    HtmlReportError,
+    _repaired_performance,
+    write_analyze_html,
+)
 
 _DATA_PREFIX = '<script id="warpbuster-report-data" type="application/json">'
 _DATA_SUFFIX = "</script>"
@@ -92,6 +96,49 @@ def test_analyze_html_is_deterministic_uses_leaflet_and_preserves_gaps(tmp_path:
     ]
     assert payload["repair"] is None
     assert payload["write_result"] is None
+    assert payload["repaired_performance"] is None
+
+
+def test_repaired_performance_reports_pace_and_kilometre_ascent_descent() -> None:
+    """A hill inside one kilometre contributes to both ascent and descent bars."""
+    activity = make_activity(
+        [
+            (0.0, 55.0, 37.0),
+            (150.0, 55.0, 37.005),
+            (300.0, 55.0, 37.01),
+            (450.0, 55.0, 37.015),
+            (600.0, 55.0, 37.02),
+            (900.0, 55.0, 37.025),
+        ]
+    )
+    distances = (0.0, 500.0, 1_000.0, 1_500.0, 2_000.0, 2_500.0)
+    altitudes = (100.0, 400.0, 100.0, 200.0, 100.0, 80.0)
+    activity = replace(
+        activity,
+        records=tuple(
+            replace(record, distance=distances[index], altitude=altitudes[index])
+            for index, record in enumerate(activity.records)
+        ),
+        duration_seconds=900.0,
+        recorded_distance_m=2_500.0,
+    )
+
+    performance = _repaired_performance(activity)
+
+    assert performance["average_pace_seconds_per_km"] == pytest.approx(360.0)
+    assert performance["timer_duration_seconds"] == pytest.approx(900.0)
+    assert performance["timer_source"] == "record timestamp elapsed time"
+    assert performance["total_ascent_m"] == pytest.approx(400.0)
+    assert performance["total_descent_m"] == pytest.approx(420.0)
+    assert performance["split_ascent_total_m"] == pytest.approx(400.0)
+    assert performance["split_descent_total_m"] == pytest.approx(420.0)
+    splits = performance["splits"]
+    assert isinstance(splits, list)
+    assert [split["distance_m"] for split in splits] == [1_000.0, 1_000.0, 500.0]
+    assert [split["pace_seconds_per_km"] for split in splits] == [300.0, 300.0, 600.0]
+    assert [split["ascent_m"] for split in splits] == [300.0, 100.0, 0.0]
+    assert [split["descent_m"] for split in splits] == [300.0, 100.0, 20.0]
+    assert [split["complete_kilometre"] for split in splits] == [True, True, False]
 
 
 def test_missing_run_report_never_bridges_a_continuity_boundary(tmp_path: Path) -> None:

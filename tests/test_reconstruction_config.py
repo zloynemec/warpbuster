@@ -28,6 +28,11 @@ def test_reconstruction_thresholds_are_named_and_serializable() -> None:
         "anchor_stability_scan_max_records": 60,
         "mixed_region_search_max_records": 1_500,
         "mixed_region_max_clean_gap_records": 15,
+        "missing_alignment_min_position_records": 30,
+        "missing_alignment_max_distance_ratio_error": 0.15,
+        "missing_completion_max_course_speed_mps": 10.0,
+        "missing_completion_max_connector_speed_mps": 10.0,
+        "missing_completion_max_run_records": 50_000,
     }
 
 
@@ -51,6 +56,11 @@ def test_reconstruction_thresholds_are_named_and_serializable() -> None:
         ("anchor_stability_min_normal_transitions", 0),
         ("anchor_stability_scan_max_records", 0),
         ("mixed_region_search_max_records", 0),
+        ("missing_alignment_min_position_records", 0),
+        ("missing_alignment_max_distance_ratio_error", 0.0),
+        ("missing_completion_max_course_speed_mps", 0.0),
+        ("missing_completion_max_connector_speed_mps", 0.0),
+        ("missing_completion_max_run_records", 0),
     ],
 )
 def test_reconstruction_thresholds_reject_non_positive_values(
@@ -79,6 +89,8 @@ def test_reconstruction_thresholds_reject_contradictory_ranges() -> None:
             signal_course_length_ratio_min=2.0,
             signal_course_length_ratio_max=1.0,
         )
+    with pytest.raises(ValueError, match="missing_alignment_max_distance_ratio_error"):
+        CourseReconstructionConfig(missing_alignment_max_distance_ratio_error=1.0)
     with pytest.raises(ValueError, match="anchor_stability_scan_max_records"):
         CourseReconstructionConfig(
             anchor_stability_min_normal_transitions=20,

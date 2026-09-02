@@ -100,6 +100,14 @@ Roadmap следует порядку milestone из [`docs/MILESTONES.md`](docs
   - missing coordinates и replacements существующих координат аудируются отдельно;
   - default `HIGH` не применяет composite candidate, явный `MEDIUM` включает его.
 
+- [x] **M5D / Task 006D — Course-backed Missing-position Completion**
+  ([task](tasks/006d-course-backed-missing-position-completion.md))
+  - отдельный opt-in planner для отсутствующих координат в начале/конце активности;
+  - однозначное сопоставление устойчивого observed GPS run с reference course;
+  - независимое объединение с corruption repair перед одной атомарной записью;
+  - максимум `MEDIUM`, existing GPS/timestamps/sensors и FIT distance сохраняются;
+  - console/JSON/HTML audit и synthetic/private regressions.
+
 - [x] **M6 / Task 007 — FIT Writer, Preservation, Validate, Diff**
   ([task](tasks/007-fit-writer-validation.md))
   - byte-preserving writer, CRC, atomic output, default no-overwrite и явный

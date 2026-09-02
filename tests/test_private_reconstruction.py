@@ -19,6 +19,7 @@ from warpbuster.models.integrity import (
 from warpbuster.models.reconstruction import (
     AllocationMethod,
     GnssComponentState,
+    IntervalRepairPlan,
     RepairIntervalAction,
     RepairPlanStatus,
 )
@@ -63,7 +64,8 @@ def test_private_andromeda_one_sided_cluster_is_explicit_medium_candidate() -> N
     candidate = next(
         candidate
         for candidate in plan.interval_plans
-        if candidate.boundary_refinement is not None
+        if isinstance(candidate, IntervalRepairPlan)
+        and candidate.boundary_refinement is not None
         and candidate.boundary_refinement.detected_start_record_index == 3_627
     )
     assert (candidate.interval.start_record_index, candidate.interval.end_record_index) == (
@@ -105,6 +107,7 @@ def test_private_andromeda_main_and_composite_candidates_preserve_default_safety
     )
 
     main = max(plan.interval_plans, key=lambda candidate: candidate.interval.record_count)
+    assert isinstance(main, IntervalRepairPlan)
     assert plan.status is RepairPlanStatus.PARTIAL
     assert main.confidence is IntegrityConfidence.HIGH
     assert main.repair_eligible is True
@@ -121,7 +124,8 @@ def test_private_andromeda_main_and_composite_candidates_preserve_default_safety
     residual = next(
         candidate
         for candidate in plan.interval_plans
-        if candidate.boundary_refinement is not None
+        if isinstance(candidate, IntervalRepairPlan)
+        and candidate.boundary_refinement is not None
         and candidate.boundary_refinement.detected_start_record_index == 3_627
     )
     assert residual.confidence is IntegrityConfidence.MEDIUM
@@ -130,7 +134,8 @@ def test_private_andromeda_main_and_composite_candidates_preserve_default_safety
     composite = next(
         candidate
         for candidate in plan.interval_plans
-        if candidate.interval.detection_kind is IntervalDetectionKind.COMPOSITE_REGION
+        if isinstance(candidate, IntervalRepairPlan)
+        and candidate.interval.detection_kind is IntervalDetectionKind.COMPOSITE_REGION
     )
     assert (composite.interval.start_record_index, composite.interval.end_record_index) == (
         8_820,

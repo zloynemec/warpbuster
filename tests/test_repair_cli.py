@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from tests.activity_factory import eastward_observations
 from tests.fit_factory import write_repairable_activity, write_trajectory_activity
 from tests.gpx_factory import GpxPoint, write_gpx_activity
@@ -35,6 +37,8 @@ def test_repair_dry_run_json_builds_plan_without_output(
         "candidate_coordinate_update_count": 1,
         "detected_interval_count": 1,
         "eligible_interval_count": 1,
+        "missing_completion_candidate_count": 0,
+        "missing_completion_enabled": False,
         "planned_interval_count": 1,
         "selected_coordinate_update_count": 1,
         "unresolved_interval_count": 0,
@@ -230,6 +234,58 @@ def test_repair_minimum_confidence_argument_is_case_insensitive() -> None:
     assert args.min_confidence is IntegrityConfidence.MEDIUM
 
 
+def test_fill_missing_from_course_is_explicit_and_requires_medium(
+    tmp_path: Path,
+    capsys: object,
+) -> None:
+    """Endpoint completion is disabled by default and remains an explicit MEDIUM opt-in."""
+    fit_path, course_path = _missing_endpoint_fixture(tmp_path)
+
+    assert (
+        main(
+            [
+                "repair",
+                str(fit_path),
+                "--course",
+                str(course_path),
+                "--dry-run",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    disabled = json.loads(capsys.readouterr().out)  # type: ignore[attr-defined]
+    assert disabled["status"] == "not_needed"
+    assert disabled["summary"]["missing_completion_enabled"] is False
+    assert disabled["interval_plans"] == []
+
+    assert (
+        main(
+            [
+                "repair",
+                str(fit_path),
+                "--course",
+                str(course_path),
+                "--fill-missing-from-course",
+                "--dry-run",
+                "--min-confidence",
+                "medium",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    enabled = json.loads(capsys.readouterr().out)  # type: ignore[attr-defined]
+    assert enabled["status"] == "partial"
+    assert enabled["summary"]["missing_completion_enabled"] is True
+    assert enabled["summary"]["missing_completion_candidate_count"] == 2
+    assert [item["missing_run_kind"] for item in enabled["interval_plans"]] == [
+        "prefix",
+        "suffix",
+    ]
+    assert all(item["preserve_recorded_distance"] for item in enabled["interval_plans"])
+
+
 def test_repair_dry_run_writes_candidate_html_report(
     tmp_path: Path,
     capsys: object,
@@ -321,6 +377,26 @@ def test_repair_write_html_contains_actual_track_and_diff(
     assert comparison_rows[1]["elevation_gain_source"] == (
         "GPX positive elevation deltas (unsmoothed)"
     )
+    performance = payload["repaired_performance"]
+    assert performance["average_pace_seconds_per_km"] == pytest.approx(166.67, abs=0.1)
+    assert performance["timer_duration_seconds"] == 32.0
+    assert performance["timer_source"] == "FIT session.total_timer_time"
+    assert performance["total_ascent_m"] == 16.0
+    assert performance["total_descent_m"] == 16.0
+    assert performance["split_ascent_total_m"] == 16.0
+    assert performance["split_descent_total_m"] == 16.0
+    assert len(performance["splits"]) == 1
+    assert performance["splits"][0]["complete_kilometre"] is False
+    assert performance["splits"][0]["ascent_m"] == 16.0
+    assert performance["splits"][0]["descent_m"] == 16.0
+    assert 'id="split-pace-chart"' in rendered
+    assert 'id="split-elevation-chart"' in rendered
+    assert '["Time", clockDuration(repairedPerformance.timer_duration_seconds)]' in rendered
+    assert '["Total ascent", metres(repairedPerformance.total_ascent_m)]' in rendered
+    assert '["Total descent", metres(repairedPerformance.total_descent_m)]' in rendered
+    assert "Kilometre bars ascent sum" not in rendered
+    assert "Kilometre bars descent sum" not in rendered
+    assert "const hours = Math.floor(rounded / 3600);" in rendered
     assert payload["missing_position_runs"] == []
 
 
@@ -378,6 +454,12 @@ def _repairable_fixture(
             for elapsed, latitude, longitude in observations
             if elapsed is not None
         ],
+        distances_m=([float(index * 6) for index in range(33)] if with_elevation else None),
+        altitudes_m=(
+            [100.0 + index if index <= 16 else 132.0 - index for index in range(33)]
+            if with_elevation
+            else None
+        ),
     )
     course_observations = eastward_observations(
         [float(index) for index in range(33)],
@@ -390,6 +472,40 @@ def _repairable_fixture(
     ]
     course_path = tmp_path / "course.gpx"
     write_gpx_activity(course_path, [course_points])
+    return fit_path, course_path
+
+
+def _missing_endpoint_fixture(tmp_path: Path) -> tuple[Path, Path]:
+    full = eastward_observations(
+        [float(index * 5) for index in range(51)],
+        [float(index * 10) for index in range(51)],
+    )
+    fit_path = tmp_path / "missing.fit"
+    write_trajectory_activity(
+        fit_path,
+        [
+            (
+                int(elapsed if elapsed is not None else 0.0),
+                latitude if 10 <= index <= 40 else None,
+                longitude if 10 <= index <= 40 else None,
+            )
+            for index, (elapsed, latitude, longitude) in enumerate(full)
+        ],
+        retain_invalid_position_fields=True,
+        distances_m=[float(index * 10) for index in range(51)],
+        speeds_mps=[2.0] * 51,
+    )
+    course_path = tmp_path / "missing-course.gpx"
+    write_gpx_activity(
+        course_path,
+        [
+            [
+                (latitude, longitude, None, None)
+                for _elapsed, latitude, longitude in full
+                if latitude is not None and longitude is not None
+            ]
+        ],
+    )
     return fit_path, course_path
 
 

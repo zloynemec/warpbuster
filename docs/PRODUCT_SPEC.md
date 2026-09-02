@@ -163,6 +163,13 @@ anchor connectors и matched course span. Перед выдачей candidate п
 внутренние transitions; impossible geometry отклоняется. Применение требует явного
 `--min-confidence medium`.
 
+Missing prefix/suffix без corruption evidence остаётся `UNKNOWN`, но пользователь может
+явно включить отдельный course-backed completion через `--fill-missing-from-course`.
+Provider требует устойчивый observed GPS run, однозначный course match и consistency
+recorded distance с course span. Candidate ограничен `MEDIUM`, не изменяет existing GPS
+и сохраняет embedded FIT distance; для применения также нужен
+`--min-confidence medium`. Internal clean gaps не входят в текущий scope.
+
 На стадии write доступные interval candidates выбираются по явному minimum confidence:
 `LOW`, `MEDIUM` или `HIGH` (`HIGH` по умолчанию). Частичная запись разрешена: каждый
 detected interval получает отдельный результат `APPLIED` или `SKIPPED`; отсутствие

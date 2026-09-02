@@ -17,6 +17,7 @@ from warpbuster.integrity import analyze_integrity
 from warpbuster.models.activity import ActivityData, FitPreservationData
 from warpbuster.models.integrity import IntegrityConfidence
 from warpbuster.models.reconstruction import (
+    IntervalRepairPlan,
     ReconstructionReason,
     RepairIntervalAction,
     RepairPlan,
@@ -134,7 +135,9 @@ def test_writer_refuses_overwrite_and_applies_high_candidate_from_partial_plan(
     with pytest.raises(FitWriteError, match="must differ from the original"):
         write_repaired_fit(activity, plan, source_path, overwrite=True)
 
-    planned_interval = plan.interval_plans[0].interval
+    planned_candidate = plan.interval_plans[0]
+    assert isinstance(planned_candidate, IntervalRepairPlan)
+    planned_interval = planned_candidate.interval
     unresolved = UnresolvedInterval(
         interval=replace(
             planned_interval,

@@ -8,6 +8,7 @@ import tempfile
 from collections.abc import Mapping
 from datetime import datetime
 from importlib.resources import files
+from itertools import pairwise
 from math import isfinite
 from pathlib import Path
 
@@ -55,6 +56,7 @@ def write_analyze_html(
     payload["write_result"] = None
     payload["metrics_comparison"] = _metrics_comparison(activity)
     payload["missing_position_runs"] = _missing_position_runs(activity)
+    payload["repaired_performance"] = None
     return _write_payload(payload, output_path, overwrite=overwrite)
 
 
@@ -98,16 +100,23 @@ def write_repair_html(
         write_result_report(write_result) if write_result is not None else None
     )
     coordinate_overrides = _selection_coordinate_overrides(selection)
+    preserves_embedded_distance = bool(selection.selected_interval_plans) and all(
+        candidate.preserve_recorded_distance for candidate in selection.selected_interval_plans
+    )
     payload["metrics_comparison"] = _metrics_comparison(
         activity,
         course=course,
         comparison_activity=fixed_activity,
         comparison_coordinate_overrides=(coordinate_overrides if fixed_activity is None else None),
+        comparison_preserves_embedded_distance=preserves_embedded_distance,
     )
     payload["missing_position_runs"] = (
         _missing_position_runs(fixed_activity)
         if fixed_activity is not None
         else _missing_position_runs(activity, coordinate_overrides)
+    )
+    payload["repaired_performance"] = (
+        _repaired_performance(fixed_activity) if fixed_activity is not None else None
     )
     return _write_payload(payload, output_path, overwrite=overwrite)
 
@@ -215,6 +224,7 @@ def _metrics_comparison(
     course: CourseData | None = None,
     comparison_activity: ActivityData | None = None,
     comparison_coordinate_overrides: Mapping[int, tuple[float, float]] | None = None,
+    comparison_preserves_embedded_distance: bool = False,
 ) -> dict[str, object]:
     course_distance = course.total_distance_m if course is not None else None
     rows = [
@@ -263,7 +273,9 @@ def _metrics_comparison(
                 "Candidate preview",
                 original,
                 coordinate_overrides=comparison_coordinate_overrides,
-                embedded_distance_override=None,
+                embedded_distance_override=(
+                    _USE_ACTIVITY_DISTANCE if comparison_preserves_embedded_distance else None
+                ),
                 course_distance=course_distance,
                 elevation_source_suffix=" (unchanged preview)",
             )
@@ -401,6 +413,240 @@ def _positive_elevation_deltas(
             edge_count += 1
         previous = continuity_id, elevation
     return gain if edge_count else None
+
+
+def _repaired_performance(activity: ActivityData) -> dict[str, object]:
+    """Summarize actual repaired FIT pace, ascent, and descent by kilometre."""
+    timer_duration_seconds, timer_source = _timer_duration(activity)
+    distance_m = activity.recorded_distance_m
+    average_pace_seconds_per_km = (
+        timer_duration_seconds / distance_m * 1_000.0
+        if timer_duration_seconds is not None
+        and timer_duration_seconds > 0.0
+        and distance_m is not None
+        and distance_m > 0.0
+        else None
+    )
+    total_ascent_m, total_ascent_source = _activity_elevation_gain(activity)
+    total_descent_m, total_descent_source = _activity_elevation_descent(activity)
+    splits = _kilometre_splits(activity)
+    return {
+        "distance_m": distance_m,
+        "timer_duration_seconds": timer_duration_seconds,
+        "timer_source": timer_source,
+        "average_pace_seconds_per_km": average_pace_seconds_per_km,
+        "total_ascent_m": total_ascent_m,
+        "total_ascent_source": total_ascent_source,
+        "total_descent_m": total_descent_m,
+        "total_descent_source": total_descent_source,
+        "split_ascent_total_m": _sum_available_split_metric(splits, "ascent_m"),
+        "split_descent_total_m": _sum_available_split_metric(splits, "descent_m"),
+        "split_count": len(splits),
+        "splits": splits,
+        "notes": [
+            "Average pace uses FIT session.total_timer_time and summary distance when available.",
+            "Kilometre pace uses elapsed record timestamps interpolated at recorded-distance boundaries.",
+            "Each elevation pair independently sums every positive altitude delta as ascent and every negative delta magnitude as descent inside that distance split.",
+            "FIT total ascent/descent may differ from the unsmoothed record-altitude sums used by the kilometre bars.",
+            "The final partial kilometre is normalized to min/km and labelled with its actual distance range.",
+        ],
+    }
+
+
+def _activity_elevation_descent(activity: ActivityData) -> tuple[float | None, str]:
+    session_totals = [
+        value
+        for session in activity.sessions
+        if (value := _finite_number(session.fields.get("total_descent"))) is not None
+    ]
+    if session_totals:
+        return sum(session_totals), "FIT session.total_descent"
+    descent = _negative_elevation_deltas(
+        tuple((record.continuity_id, record.altitude) for record in activity.records)
+    )
+    return (
+        (descent, "record altitude negative deltas (unsmoothed)")
+        if descent is not None
+        else (None, "unavailable")
+    )
+
+
+def _negative_elevation_deltas(
+    observations: tuple[tuple[int, float | None], ...],
+) -> float | None:
+    descent = 0.0
+    edge_count = 0
+    previous: tuple[int, float] | None = None
+    for continuity_id, elevation in observations:
+        if elevation is None or not isfinite(elevation):
+            previous = None
+            continue
+        if previous is not None and previous[0] == continuity_id:
+            descent += max(0.0, previous[1] - elevation)
+            edge_count += 1
+        previous = continuity_id, elevation
+    return descent if edge_count else None
+
+
+def _timer_duration(activity: ActivityData) -> tuple[float | None, str]:
+    timer_totals = [
+        value
+        for session in activity.sessions
+        if (value := _finite_number(session.fields.get("total_timer_time"))) is not None
+        and value >= 0.0
+    ]
+    if timer_totals:
+        return sum(timer_totals), "FIT session.total_timer_time"
+    timestamps = [record.timestamp for record in activity.records if record.timestamp is not None]
+    if len(timestamps) >= 2:
+        return (
+            (timestamps[-1] - timestamps[0]).total_seconds(),
+            "record timestamp elapsed time",
+        )
+    return None, "unavailable"
+
+
+def _kilometre_splits(activity: ActivityData) -> list[dict[str, object]]:
+    if len(activity.records) < 2 or any(
+        record.distance is None or not isfinite(record.distance) or record.timestamp is None
+        for record in activity.records
+    ):
+        return []
+    first = activity.records[0]
+    if first.distance is None or first.timestamp is None:
+        return []
+    origin_distance = first.distance
+    origin_timestamp = first.timestamp
+    samples: list[tuple[float, float, float | None]] = []
+    for record in activity.records:
+        if record.distance is None or record.timestamp is None:
+            return []
+        relative_distance = record.distance - origin_distance
+        elapsed_seconds = (record.timestamp - origin_timestamp).total_seconds()
+        altitude = (
+            record.altitude if record.altitude is not None and isfinite(record.altitude) else None
+        )
+        if relative_distance < 0.0 or elapsed_seconds < 0.0:
+            return []
+        if samples and (relative_distance < samples[-1][0] or elapsed_seconds < samples[-1][1]):
+            return []
+        samples.append((relative_distance, elapsed_seconds, altitude))
+    total_distance = samples[-1][0]
+    if total_distance <= 0.0:
+        return []
+    boundaries = [0.0]
+    boundary = 1_000.0
+    while boundary < total_distance:
+        boundaries.append(boundary)
+        boundary += 1_000.0
+    boundaries.append(total_distance)
+    states = [_sample_at_distance(samples, distance_m) for distance_m in boundaries]
+    splits: list[dict[str, object]] = []
+    for index, ((start_time, start_altitude), (end_time, end_altitude)) in enumerate(
+        pairwise(states),
+        start=1,
+    ):
+        start_distance = boundaries[index - 1]
+        end_distance = boundaries[index]
+        split_distance = end_distance - start_distance
+        elapsed_seconds = end_time - start_time
+        ascent_m, descent_m = _elevation_totals_between(
+            samples,
+            start_distance,
+            end_distance,
+            start_altitude,
+            end_altitude,
+        )
+        splits.append(
+            {
+                "index": index,
+                "start_distance_m": start_distance,
+                "end_distance_m": end_distance,
+                "distance_m": split_distance,
+                "complete_kilometre": abs(split_distance - 1_000.0) < 1e-6,
+                "elapsed_seconds": elapsed_seconds,
+                "pace_seconds_per_km": (
+                    elapsed_seconds / split_distance * 1_000.0
+                    if elapsed_seconds >= 0.0 and split_distance > 0.0
+                    else None
+                ),
+                "ascent_m": ascent_m,
+                "descent_m": descent_m,
+            }
+        )
+    return splits
+
+
+def _elevation_totals_between(
+    samples: list[tuple[float, float, float | None]],
+    start_distance_m: float,
+    end_distance_m: float,
+    start_altitude_m: float | None,
+    end_altitude_m: float | None,
+) -> tuple[float | None, float | None]:
+    altitudes = [
+        start_altitude_m,
+        *(
+            altitude
+            for distance_m, _elapsed_seconds, altitude in samples
+            if start_distance_m < distance_m < end_distance_m
+        ),
+        end_altitude_m,
+    ]
+    ascent_m = 0.0
+    descent_m = 0.0
+    edge_count = 0
+    previous: float | None = None
+    for altitude in altitudes:
+        if altitude is None:
+            previous = None
+            continue
+        if previous is not None:
+            delta = altitude - previous
+            ascent_m += max(0.0, delta)
+            descent_m += max(0.0, -delta)
+            edge_count += 1
+        previous = altitude
+    return (ascent_m, descent_m) if edge_count else (None, None)
+
+
+def _sum_available_split_metric(
+    splits: list[dict[str, object]],
+    field: str,
+) -> float | None:
+    values = [
+        float(value)
+        for split in splits
+        if (value := split.get(field)) is not None
+        and isinstance(value, int | float)
+        and not isinstance(value, bool)
+        and isfinite(value)
+    ]
+    return sum(values) if values else None
+
+
+def _sample_at_distance(
+    samples: list[tuple[float, float, float | None]],
+    target_distance_m: float,
+) -> tuple[float, float | None]:
+    previous = samples[0]
+    if target_distance_m <= previous[0]:
+        return previous[1], previous[2]
+    for current in samples[1:]:
+        if target_distance_m > current[0]:
+            previous = current
+            continue
+        if target_distance_m <= previous[0] or current[0] == previous[0]:
+            return previous[1], previous[2]
+        fraction = (target_distance_m - previous[0]) / (current[0] - previous[0])
+        elapsed_seconds = previous[1] + fraction * (current[1] - previous[1])
+        altitude = (
+            previous[2] + fraction * (current[2] - previous[2])
+            if previous[2] is not None and current[2] is not None
+            else None
+        )
+        return elapsed_seconds, altitude
+    return samples[-1][1], samples[-1][2]
 
 
 def _missing_position_runs(

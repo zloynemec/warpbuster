@@ -22,7 +22,7 @@ from warpbuster.models.fit import FitWriteResult
 from warpbuster.models.integrity import IntegrityConfidence
 from warpbuster.models.reconstruction import (
     CandidateCoordinate,
-    IntervalRepairPlan,
+    RepairCandidate,
     RepairPlan,
     RepairSelection,
 )
@@ -147,7 +147,7 @@ def _require_writeable_selection(selection: RepairSelection) -> None:
 
 def _patch_requests(
     activity: ActivityData,
-    interval_plans: tuple[IntervalRepairPlan, ...],
+    interval_plans: tuple[RepairCandidate, ...],
 ) -> tuple[_PatchRequest, ...]:
     requests: list[_PatchRequest] = []
     coordinate_updates = {
@@ -210,7 +210,17 @@ def _patch_requests(
             )
         )
 
-    corrections, desired_distances = _distance_corrections(activity, coordinate_updates)
+    distance_recalculation_indices = {
+        update.record_index
+        for interval in interval_plans
+        if not interval.preserve_recorded_distance
+        for update in interval.coordinate_updates
+    }
+    corrections, desired_distances = _distance_corrections(
+        activity,
+        coordinate_updates,
+        distance_recalculation_indices,
+    )
     for record_index, distance_m in desired_distances.items():
         requests.append(
             _record_request(
@@ -248,16 +258,21 @@ def _record_request(
 def _distance_corrections(
     activity: ActivityData,
     coordinate_updates: Mapping[int, CandidateCoordinate],
+    distance_recalculation_indices: set[int],
 ) -> tuple[tuple[float, ...], dict[int, float]]:
     corrections = [0.0] * len(activity.records)
     desired: dict[int, float] = {}
-    if not any(record.distance is not None for record in activity.records):
+    if not distance_recalculation_indices or not any(
+        record.distance is not None for record in activity.records
+    ):
         return tuple(corrections), desired
 
-    changed_indices = set(coordinate_updates)
     for previous, current in pairwise(activity.records):
         corrections[current.index] = corrections[previous.index]
-        if previous.index not in changed_indices and current.index not in changed_indices:
+        if (
+            previous.index not in distance_recalculation_indices
+            and current.index not in distance_recalculation_indices
+        ):
             continue
         if previous.distance is None or current.distance is None:
             raise FitWriteError(

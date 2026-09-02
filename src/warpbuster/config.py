@@ -237,6 +237,14 @@ class CourseReconstructionConfig:
     is used here only after course-independent detection and the resulting candidate
     remains MEDIUM. ``one_sided_drift_stable_record_count`` requires a sustained return
     to that corridor; ``one_sided_drift_search_max_records`` bounds the outward scan.
+
+    ``missing_alignment_min_position_records`` is the minimum length of a stable
+    observed GPS run used to align endpoint-missing activities. Its recorded-distance
+    versus course-span relative error must not exceed
+    ``missing_alignment_max_distance_ratio_error``. Missing completion additionally
+    limits average path speed, every generated boundary transition, and the number of
+    records with the three ``missing_completion_*`` bounds. These thresholds apply
+    only to the explicit reconstruction provider and never affect integrity detection.
     """
 
     anchor_match_tolerance_m: float = 75.0
@@ -257,6 +265,11 @@ class CourseReconstructionConfig:
     anchor_stability_scan_max_records: int = 60
     mixed_region_search_max_records: int = 1_500
     mixed_region_max_clean_gap_records: int = 15
+    missing_alignment_min_position_records: int = 30
+    missing_alignment_max_distance_ratio_error: float = 0.15
+    missing_completion_max_course_speed_mps: float = 10.0
+    missing_completion_max_connector_speed_mps: float = 10.0
+    missing_completion_max_run_records: int = 50_000
 
     def __post_init__(self) -> None:
         """Reject unsafe or contradictory reconstruction bounds."""
@@ -273,6 +286,15 @@ class CourseReconstructionConfig:
             "minimum_course_span_m": self.minimum_course_span_m,
             "signal_course_length_ratio_min": self.signal_course_length_ratio_min,
             "signal_course_length_ratio_max": self.signal_course_length_ratio_max,
+            "missing_alignment_max_distance_ratio_error": (
+                self.missing_alignment_max_distance_ratio_error
+            ),
+            "missing_completion_max_course_speed_mps": (
+                self.missing_completion_max_course_speed_mps
+            ),
+            "missing_completion_max_connector_speed_mps": (
+                self.missing_completion_max_connector_speed_mps
+            ),
         }
         for name, value in positive_values.items():
             if value <= 0:
@@ -312,3 +334,9 @@ class CourseReconstructionConfig:
             raise ValueError("mixed_region_search_max_records must be at least one")
         if self.mixed_region_max_clean_gap_records < 0:
             raise ValueError("mixed_region_max_clean_gap_records must not be negative")
+        if self.missing_alignment_max_distance_ratio_error >= 1:
+            raise ValueError("missing_alignment_max_distance_ratio_error must be less than one")
+        if self.missing_alignment_min_position_records < 2:
+            raise ValueError("missing_alignment_min_position_records must be at least two")
+        if self.missing_completion_max_run_records < 1:
+            raise ValueError("missing_completion_max_run_records must be at least one")

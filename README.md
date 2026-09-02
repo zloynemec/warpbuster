@@ -26,6 +26,7 @@ WarpBuster — локальное Python-ядро и CLI для обнаруже
 - advisory-предупреждения о возможных интерполированных GNSS gaps;
 - confidence/reasons для каждого подозрительного интервала;
 - опциональная реконструкция только уже доказанно повреждённых интервалов по известному GPX course;
+- явное course-backed заполнение отсутствующих endpoint coordinates с максимумом `MEDIUM`;
 - сохранение исходных timestamps и спортивной телеметрии;
 - FIT validation/diff;
 - console/JSON/HTML-отчёты.
@@ -109,6 +110,7 @@ warpbuster repair activity.fit --course race.gpx --dry-run
 warpbuster repair activity.fit --course race.gpx --dry-run --json
 warpbuster repair activity.fit --course race.gpx --dry-run --html preview.html
 warpbuster repair activity.fit --course race.gpx --min-confidence medium
+warpbuster repair activity.fit --course race.gpx --fill-missing-from-course --min-confidence medium
 warpbuster repair activity.fit --course race.gpx --output activity.fixed.fit --html repair.html
 warpbuster repair activity.fit --course race.gpx --output activity.fixed.fit --html repair.html --overwrite
 warpbuster validate activity.fixed.fit
@@ -167,6 +169,15 @@ Running profile отдельно ищет sustained и single-extreme vertical r
 помечаются как sensor-consistency warnings: они не создают coordinate interval, не
 меняют integrity status и не дают writer права менять altitude или GNSS coordinates.
 
+Отсутствующий GPS prefix/suffix не считается corruption. При явном
+`--fill-missing-from-course` отдельный reconstruction provider может предложить
+`MEDIUM` candidate, если длинный существующий GPS run целиком физически правдоподобен,
+однозначно совпадает с course и согласован с recorded distance. Поэтому для применения
+нужны сразу этот флаг и `--min-confidence medium`. Existing GPS coordinates не меняются,
+а timestamps, sensors и embedded FIT distance сохраняются. Этот provider работает
+независимо от обычного corruption repair; оба scope объединяются перед одной атомарной
+записью. Внутренние clean gaps пока не заполняются.
+
 Команда без `--dry-run` выбирает все доступные interval candidates с confidence не ниже
 `--min-confidence`; default — `high`. Поэтому безопасная HIGH-часть `PARTIAL` plan может
 быть записана, а unresolved и кандидаты ниже порога остаются неизменными. Значения
@@ -186,8 +197,17 @@ course/candidate, applied/skipped intervals, findings, speed/altitude/HR graphs 
 diff после записи. Отдельная таблица сравнивает embedded FIT distance, map geometry,
 solid known geometry и elevation gain для original/course/repaired. Missing-position
 runs перечисляются с anchors, временем, straight chord, recorded distance delta и bridge
-speed. Отдельная таблица one-sided GNSS clusters показывает boundaries, confidence,
+speed. Missing-completion table отдельно показывает prefix/suffix action, course span,
+connector, allocation, alignment error и сохранение FIT distance. Отдельная таблица
+one-sided GNSS clusters показывает boundaries, confidence,
 reconstructability, anchor context, bridge, tainted components и reasons.
+После фактической записи отдельный блок показывает средний темп исправленного FIT,
+время, total ascent/descent и покилометровую pace histogram. Высотная гистограмма содержит
+две соседние колонки
+на каждом recorded-distance километре: сумма всех подъёмов и сумма всех спусков.
+Device totals могут отличаться от raw unsmoothed колонок; это различие поясняется в
+примечании к отчёту. Неполный последний километр показывается отдельно с нормализованным
+темпом.
 Report открывается напрямую с диска. Интерактивная карта использует Leaflet 1.9.4 с CDN
 и стандартные OpenStreetMap tiles, поэтому для basemap нужен интернет. Pan, wheel/+/- zoom,
 scale, fit-to-track, start/end, markers через каждый 1 km и переключение слоёв доступны
@@ -220,7 +240,9 @@ observations, GPX activity input, bounded-поиск spoofing islands по impos
 и plausible bridge, geometry gap diagnostics, а также false-positive regressions и
 bounded diagnostics. M5 также добавляет GPX course matching и dry-run RepairPlan.
 Task 006A добавляет course-independent trusted-anchor safety gate, а Task 006B —
-missing-exit proof rule и explicit-MEDIUM reconstruction. Фактическая запись FIT,
+missing-exit proof rule и explicit-MEDIUM reconstruction. Task 006C добавляет
+component-wise composite repair, а Task 006D — отдельное opt-in заполнение endpoint
+missing coordinates. Фактическая запись FIT,
 validation и diff реализованы в M6. M7 добавляет interactive HTML reports и завершает
 package/release stabilization. Private Andromeda regression подтверждает HIGH repair
 основного interval, course-independent MEDIUM core `3627..3700`, refined repair scope

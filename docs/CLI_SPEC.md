@@ -119,6 +119,7 @@ warpbuster repair activity.fit --course race.gpx --dry-run --json
 warpbuster repair activity.fit --course race.gpx --dry-run -v
 warpbuster repair activity.fit --course race.gpx --dry-run --html preview.html
 warpbuster repair activity.fit --course race.gpx --min-confidence medium
+warpbuster repair activity.fit --course race.gpx --fill-missing-from-course --min-confidence medium
 warpbuster repair activity.fit --course race.gpx --output out.fit --html repair.html
 ```
 
@@ -138,6 +139,14 @@ positioned components не включаются в updates; disjoint scope пр�
 внутренними connectors. Composite candidate имеет максимум `MEDIUM`, поэтому region
 всегда `repair_eligible=false` при default threshold.
 
+`--fill-missing-from-course` явно включает независимый provider для missing prefix и
+suffix. Он не меняет detector output и не запускается по умолчанию. Candidate появляется
+только при устойчивом observed GPS run, однозначном course alignment,
+recorded-distance/course-span consistency и правдоподобных новых transitions. Confidence
+ограничен `MEDIUM`, поэтому для записи дополнительно нужен `--min-confidence medium`.
+Existing GPS, timestamps, sensor fields и embedded FIT distance сохраняются. Internal
+clean gaps пока не рассматриваются этим provider.
+
 Plan statuses описывают coverage:
 - `READY` — все intervals имеют HIGH candidate;
 - `PARTIAL` — candidate существует только для части intervals или имеет более низкий
@@ -152,6 +161,8 @@ application: выбранные intervals записываются, осталь
 нулевом выборе output не создаётся и команда возвращает `3`. Preview и write report
 перечисляют каждый interval с action, confidence, candidate availability, update count и
 reasons. GPX activity вместо оригинального FIT и malformed course возвращают `2`.
+Corruption и missing-position providers объединяются до selection и применяются одним
+atomic writer pass; primary scope имеет приоритет при overlap.
 
 ### Explicit output
 
@@ -183,6 +194,18 @@ Comparison table отдельно показывает embedded FIT distance, ma
 gap chords, solid known geometry без gaps, delta относительно course и elevation gain с
 указанием источника. Missing-run table перечисляет records/count, anchors, elapsed time,
 straight chord, recorded distance delta и bridge speed.
+При включённом missing completion отдельная audit table показывает target kind,
+applied/skipped action, confidence, course/connector distance, allocation, alignment
+error, число filled positions и то, что embedded FIT distance сохранена.
+Write-mode report дополнительно рассчитывает по validated repaired FIT средний темп из
+summary distance и `session.total_timer_time`, а также elapsed pace по каждому
+recorded-distance километру. Elevation histogram показывает рядом две неотрицательные
+колонки: сумму положительных altitude deltas (ascent) и модуль суммы отрицательных
+deltas (descent) внутри каждого split. Общие `session.total_ascent/total_descent`
+показываются в summary; device totals могут отличаться от unsmoothed record-altitude
+bars. Время показывается как `H:MM:SS` для активности продолжительностью от часа и как
+`M:SS` для более короткой. Неполный
+последний километр нормализуется до min/km и явно помечается фактическим диапазоном.
 HTML path должен отличаться от FIT output path. Если HTML generation неожиданно падает
 после успешного FIT publish, CLI явно сообщает, что FIT уже записан.
 

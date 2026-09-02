@@ -61,6 +61,9 @@ from warpbuster.models.reconstruction import (
     GnssComponentState,
     GnssRegionComponent,
     IntervalRepairPlan,
+    MissingCourseCompletionPlan,
+    MissingCourseRun,
+    MissingCourseRunKind,
     MixedGnssRegion,
     ReconstructionReason,
     RepairIntervalAction,
@@ -70,6 +73,7 @@ from warpbuster.models.reconstruction import (
     RepairSelection,
     RepairSelectionReason,
     UnresolvedInterval,
+    UnresolvedMissingCourseRun,
 )
 
 __all__ = [
@@ -114,6 +118,9 @@ __all__ = [
     "IntervalReason",
     "IntervalRepairPlan",
     "IslandSearchDiagnostics",
+    "MissingCourseCompletionPlan",
+    "MissingCourseRun",
+    "MissingCourseRunKind",
     "MixedGnssRegion",
     "PreservationMetric",
     "ReconstructionReason",
@@ -130,6 +137,7 @@ __all__ = [
     "TransitionResult",
     "UnknownFieldSummary",
     "UnresolvedInterval",
+    "UnresolvedMissingCourseRun",
     "ValidationIssue",
     "ValidationIssueCode",
     "ValidationSeverity",

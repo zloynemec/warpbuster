@@ -68,11 +68,9 @@ def test_private_repaired_andromeda_lists_remaining_missing_runs(tmp_path: Path)
         (1768, 1773, 6),
         (4381, 4399, 19),
         (8410, 8631, 222),
-        (8867, 8878, 12),
-        (8893, 9580, 688),
     ]
-    assert runs[-1]["anchor_elapsed_seconds"] == 689.0
-    assert runs[-1]["straight_line_distance_m"] == pytest.approx(1185.8, abs=0.1)
+    assert runs[-1]["anchor_elapsed_seconds"] == 223.0
+    assert runs[-1]["straight_line_distance_m"] == pytest.approx(286.53, abs=0.1)
 
 
 def _html_payload(rendered: str) -> dict[str, Any]:

@@ -22,7 +22,12 @@ from warpbuster.gpx.course import GpxCourseReadError, read_gpx_course
 from warpbuster.integrity import analyze_integrity
 from warpbuster.models.integrity import IntegrityConfidence, IntegrityStatus
 from warpbuster.models.reconstruction import RepairPlanStatus
-from warpbuster.reconstruction import build_course_repair_plan, select_repair_intervals
+from warpbuster.reconstruction import (
+    build_course_repair_plan,
+    build_missing_course_plan,
+    merge_repair_plans,
+    select_repair_intervals,
+)
 from warpbuster.report.analyze import analyze_console, analyze_json
 from warpbuster.report.fit import (
     diff_console,
@@ -120,6 +125,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=IntegrityConfidence.HIGH,
         metavar="{low,medium,high}",
         help="repair candidates at this confidence or higher (default: high)",
+    )
+    repair_parser.add_argument(
+        "--fill-missing-from-course",
+        action="store_true",
+        help=("opt in to MEDIUM course-backed completion of missing prefix/suffix coordinates"),
     )
     repair_parser.add_argument(
         "--json",
@@ -232,6 +242,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         integrity = analyze_integrity(activity)
         config = CourseReconstructionConfig()
         plan = build_course_repair_plan(activity, integrity, course, config)
+        if args.fill_missing_from_course:
+            plan = merge_repair_plans(
+                plan,
+                build_missing_course_plan(activity, integrity, course, config),
+            )
         selection = select_repair_intervals(plan, args.min_confidence)
         if args.dry_run:
             if args.html is not None:
