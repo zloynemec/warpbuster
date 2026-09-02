@@ -15,8 +15,8 @@ from warpbuster_osm_routing.errors import RoutingSpikeError
 from warpbuster_osm_routing.manifest import load_snapshot
 from warpbuster_osm_routing.materialize import materialize_pbf
 from warpbuster_osm_routing.models import GeoPoint, SpikeResult
+from warpbuster_osm_routing.profiles import TRAIL_RUNNING_V1
 from warpbuster_osm_routing.valhalla_backend import (
-    VALHALLA_PROFILE_ID,
     build_config,
     build_tiles,
     probe_route,
@@ -59,7 +59,8 @@ def run_spike(
     semantic_key = {
         "snapshot_id": snapshot.snapshot_id,
         "valhalla_version": valhalla.__version__,
-        "routing_profile": VALHALLA_PROFILE_ID,
+        "routing_profile": TRAIL_RUNNING_V1.profile_id,
+        "routing_profile_sha256": TRAIL_RUNNING_V1.sha256(),
         "config_sha256": config_hash,
     }
     way_ids_available = all(route["way_ids"] for route in probe["routes"])
@@ -81,7 +82,8 @@ def run_spike(
         "engine": {
             "name": "Valhalla",
             "version": valhalla.__version__,
-            "routing_profile": VALHALLA_PROFILE_ID,
+            "routing_profile": TRAIL_RUNNING_V1.profile_id,
+            "routing_profile_sha256": TRAIL_RUNNING_V1.sha256(),
             "config_sha256": config_hash,
             "semantic_cache_key_sha256": hashlib.sha256(
                 json.dumps(semantic_key, sort_keys=True, separators=(",", ":")).encode()

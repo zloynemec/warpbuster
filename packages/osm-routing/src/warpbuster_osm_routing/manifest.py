@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from warpbuster_osm_routing.config import RoutingCacheConfig
+from warpbuster_osm_routing.coverage import parse_coverage
 from warpbuster_osm_routing.errors import RoutingSpikeError
 from warpbuster_osm_routing.models import Snapshot, SnapshotDataFile
 
@@ -49,6 +50,7 @@ def load_snapshot(path: Path, config: RoutingCacheConfig | None = None) -> Snaps
     _require_equal(document, "dataset_profile", DATASET_PROFILE)
     snapshot_id = _required_string(document, "snapshot_id")
     manager_version = _required_string(document, "manager_version")
+    coverage = parse_coverage(document.get("coverage"))
     files = document.get("data_files")
     if not isinstance(files, list) or not files:
         raise RoutingSpikeError("manifest_invalid", "data_files must be a non-empty array")
@@ -127,6 +129,7 @@ def load_snapshot(path: Path, config: RoutingCacheConfig | None = None) -> Snaps
         license_url=_optional_string(
             document, "license_url", "https://opendatacommons.org/licenses/odbl/1-0/"
         ),
+        coverage=coverage,
     )
 
 

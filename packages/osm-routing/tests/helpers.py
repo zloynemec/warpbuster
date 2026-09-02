@@ -41,6 +41,12 @@ def make_manifest(
         "attribution": "OpenStreetMap contributors",
         "copyright_url": "https://www.openstreetmap.org/copyright",
         "license_url": "https://opendatacommons.org/licenses/odbl/1-0/",
+        "coverage": {
+            "scheme": "web-mercator-v1",
+            "cell_ids": ["12/2423/1489"],
+            "buffer_m": 1000.0,
+            "area_km2": 1.0,
+        },
         "data_files": files,
     }
     path = root / "manifest.json"

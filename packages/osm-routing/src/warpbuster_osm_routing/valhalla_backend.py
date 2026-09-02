@@ -13,9 +13,19 @@ import valhalla
 
 from warpbuster_osm_routing.errors import RoutingError, RoutingSpikeError
 from warpbuster_osm_routing.models import GeoPoint
+from warpbuster_osm_routing.profiles import TRAIL_RUNNING_V1, apply_profile
 
-VALHALLA_PROFILE_ID = "valhalla-pedestrian-spike-v1"
 VALHALLA_BUILD_PROFILE_ID = "valhalla-pedestrian-graph-v1"
+
+
+def build_profile_options() -> dict[str, bool]:
+    """Return the explicit graph-time pedestrian policy recorded in provenance."""
+    return {
+        "include_pedestrian": True,
+        "keep_all_osm_node_ids": True,
+        "keep_osm_node_ids": True,
+        "pedestrian_areas": False,
+    }
 
 
 def build_config(tiles_directory: Path) -> tuple[dict[str, Any], str]:
@@ -27,9 +37,8 @@ def build_config(tiles_directory: Path) -> tuple[dict[str, Any], str]:
     )
     mjolnir = config["mjolnir"]
     mjolnir["concurrency"] = 1
-    mjolnir["keep_osm_node_ids"] = True
-    mjolnir["keep_all_osm_node_ids"] = True
     mjolnir["tile_url"] = ""
+    mjolnir.update(build_profile_options())
     config["loki"]["service_defaults"]["minimum_reachability"] = 0
     semantic_config = deepcopy(config)
     semantic_config["mjolnir"]["tile_dir"] = "<DERIVED_TILE_DIRECTORY>"
@@ -80,10 +89,10 @@ def probe_route(
     end_snap = _locate(actor, end)
     request: dict[str, Any] = {
         "locations": [start.as_valhalla(), end.as_valhalla()],
-        "costing": "pedestrian",
         "units": "kilometers",
         "directions_type": "none",
     }
+    apply_profile(request, TRAIL_RUNNING_V1)
     if alternates:
         request["alternates"] = alternates
     try:

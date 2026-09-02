@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Self
 
 from warpbuster_osm_routing.config import RoutingCacheConfig
+from warpbuster_osm_routing.coverage import parse_coverage
 from warpbuster_osm_routing.errors import RoutingError
 from warpbuster_osm_routing.identity import (
     CACHE_KEY_SCHEMA_VERSION,
@@ -27,7 +28,9 @@ from warpbuster_osm_routing.models import GraphResult, MaterializationResult, Sn
 from warpbuster_osm_routing.normalize import normalize_snapshot
 from warpbuster_osm_routing.valhalla_backend import build_config, build_tiles
 
-GRAPH_MANIFEST_VERSION = 1
+GRAPH_MANIFEST_VERSION = 2
+LEGACY_GRAPH_MANIFEST_VERSION = 1
+LEGACY_CACHE_KEY_SCHEMA_VERSION = "graph-cache-key-v1"
 GRAPH_ID_PATTERN = re.compile(r"sha256:([0-9a-f]{64})\Z")
 TileBuilder = Callable[[Path, Path, float | None], str]
 Normalizer = Callable[[Snapshot, Path, Path, RoutingCacheConfig], MaterializationResult]
@@ -90,7 +93,8 @@ class GraphCache:
         if not target.is_dir():
             raise RoutingError("CACHE_NOT_FOUND", f"graph does not exist: {graph_id}")
         document = self._verify_directory(target, expected_graph_id=graph_id)
-        return GraphResult("READY", graph_id, target / "manifest.json", document)
+        status = self._graph_status(document)
+        return GraphResult(status, graph_id, target / "manifest.json", document)
 
     def list_graphs(self) -> list[dict[str, Any]]:
         if not self.graphs.is_dir():
@@ -110,7 +114,7 @@ class GraphCache:
                 results.append(
                     {
                         "graph_id": graph_id,
-                        "status": "READY",
+                        "status": self._graph_status(document),
                         "snapshot_id": document["source"]["snapshot_id"],
                         "created_at": document["build"]["created_at"],
                         "manifest_path": str(target / "manifest.json"),
@@ -265,6 +269,7 @@ class GraphCache:
                 "attribution": snapshot.attribution,
                 "copyright_url": snapshot.copyright_url,
                 "license_url": snapshot.license_url,
+                "coverage": snapshot.coverage.as_dict(),
             },
             "materialization": {
                 "schema": key["materializer_schema"],
@@ -300,7 +305,7 @@ class GraphCache:
                 "warnings": warnings,
                 "log_tail": build_log[-4000:],
             },
-            "applied_limits": self.config.limits_dict(),
+            "applied_limits": self.config.build_limits_dict(),
         }
         (staging / "manifest.json").write_text(
             json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8"
@@ -358,8 +363,6 @@ class GraphCache:
             raise RoutingError("CACHE_CORRUPT", "graph manifest root is not an object")
         expected = {
             "protocol_version": 1,
-            "manifest_version": GRAPH_MANIFEST_VERSION,
-            "cache_key_schema": CACHE_KEY_SCHEMA_VERSION,
             "status": "READY",
             "graph_id": expected_graph_id,
         }
@@ -370,9 +373,22 @@ class GraphCache:
                     f"graph manifest has invalid {field}",
                     {"expected": value, "actual": document.get(field)},
                 )
+        version_pair = (document.get("manifest_version"), document.get("cache_key_schema"))
+        supported_pairs = {
+            (GRAPH_MANIFEST_VERSION, CACHE_KEY_SCHEMA_VERSION),
+            (LEGACY_GRAPH_MANIFEST_VERSION, LEGACY_CACHE_KEY_SCHEMA_VERSION),
+        }
+        if version_pair not in supported_pairs:
+            raise RoutingError(
+                "CACHE_CORRUPT",
+                "graph manifest has an unsupported version/schema pair",
+                {"actual": list(version_pair)},
+            )
         key = document.get("cache_key")
         if not isinstance(key, dict) or graph_id_for_key(key) != expected_graph_id:
             raise RoutingError("CACHE_CORRUPT", "graph manifest cache key does not match graph ID")
+        if key.get("cache_key_schema") != document.get("cache_key_schema"):
+            raise RoutingError("CACHE_CORRUPT", "graph cache key schema provenance is inconsistent")
         artifacts = document.get("artifacts")
         if not isinstance(artifacts, dict):
             raise RoutingError("CACHE_CORRUPT", "graph manifest has no artifacts object")
@@ -417,6 +433,16 @@ class GraphCache:
             or source_hashes != key.get("source_sha256")
         ):
             raise RoutingError("CACHE_CORRUPT", "source provenance does not match graph cache key")
+        if document.get("manifest_version") == GRAPH_MANIFEST_VERSION:
+            coverage = source.get("coverage")
+            if not isinstance(coverage, dict) or coverage != key.get("coverage"):
+                raise RoutingError("CACHE_CORRUPT", "coverage provenance does not match cache key")
+            try:
+                parse_coverage(coverage)
+            except RoutingError as error:
+                raise RoutingError(
+                    "CACHE_CORRUPT", f"graph has invalid coverage provenance: {error.message}"
+                ) from error
         try:
             config_document = json.loads((target / "valhalla.json").read_text(encoding="utf-8"))
             tile_dir = Path(config_document["mjolnir"]["tile_dir"]).resolve()
@@ -430,6 +456,14 @@ class GraphCache:
         canonical = json.dumps(config_document, sort_keys=True, separators=(",", ":")).encode()
         if hashlib.sha256(canonical).hexdigest() != key.get("build_config_sha256"):
             raise RoutingError("CACHE_CORRUPT", "Valhalla semantic config does not match cache key")
+
+    @staticmethod
+    def _graph_status(document: dict[str, Any]) -> str:
+        return (
+            "LEGACY_READY"
+            if document.get("manifest_version") == LEGACY_GRAPH_MANIFEST_VERSION
+            else "READY"
+        )
 
     def _verify_file(self, target: Path, artifact: object, label: str, expected_path: str) -> None:
         if not isinstance(artifact, dict):

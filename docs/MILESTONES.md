@@ -322,7 +322,7 @@ Task: `tasks/009-osm-manager.md`
 
 ## M9 — Valhalla-backed Pedestrian/Trail Routing
 
-**Статус:** в работе; M9A и M9B завершены, следующая итерация — M9C.
+**Статус:** в работе; M9A–M9D завершены, следующая итерация — M9E.
 
 **Цель:** поверх immutable snapshots из M8 построить отдельный детерминированный adapter
 к Valhalla, который соединяет заданные anchors допустимыми pedestrian/trail paths, но
@@ -336,10 +336,10 @@ Task: `tasks/009-osm-manager.md`
 2. **M9B / Task 010B — Production Snapshot Materialization + Graph Cache**: завершена;
    реализованы conflict detection, bounded merge и atomic derived-artifact cache;
    подробности: `tasks/010b-production-snapshot-graph-cache.md`;
-3. **M9C / Task 010C — Versioned Pedestrian/Trail Profile**: зафиксированная и
-   протестированная Valhalla access/costing policy;
-4. **M9D / Task 010D — Audited Snapping + Single-route API**: stable diagnostics,
-   thresholds, provenance и explicit failure outcomes;
+3. **M9C / Task 010C — Versioned Pedestrian/Trail Profile**: завершена; зафиксированы
+   раздельные graph/request policies, canonical profile hash и behavioral matrix;
+4. **M9D / Task 010D — Audited Snapping + Single-route API**: завершена; реализованы
+   stable diagnostics, thresholds, provenance и explicit failure outcomes;
 5. **M9E / Task 010E — Alternatives + Route Diagnostics**: bounded alternatives,
    overlap/diversity и ambiguity;
 6. **M9F / Task 010F — Packaging + Performance Stabilization**: clean install,

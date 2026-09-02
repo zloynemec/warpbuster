@@ -52,6 +52,12 @@ def snapshot_manifest(tmp_path: Path, osm_xml: bytes) -> Path:
         "snapshot_id": f"sha256:{digest}",
         "dataset_profile": "pedestrian-routing-v1",
         "osm_base_timestamp": None,
+        "coverage": {
+            "scheme": "web-mercator-v1",
+            "cell_ids": ["12/2423/1489"],
+            "buffer_m": 1000.0,
+            "area_km2": 1.0,
+        },
         "data_files": [
             {
                 "path": str(data.resolve()),

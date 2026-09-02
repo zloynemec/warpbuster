@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
@@ -14,6 +16,7 @@ import pytest
 from warpbuster_osm_routing.config import RoutingCacheConfig
 from warpbuster_osm_routing.errors import RoutingError
 from warpbuster_osm_routing.graph_cache import GraphCache
+from warpbuster_osm_routing.identity import graph_id_for_key
 
 
 def _fake_builder(config_path: Path, _pbf: Path, _timeout: float | None) -> str:
@@ -187,6 +190,55 @@ def test_list_inspect_remove_and_prune(snapshot_manifest: Path, tmp_path: Path) 
     applied = cache.prune(apply=True)
     assert applied["removed"] == [ready.graph_id]
     assert not ready.manifest_path.exists()
+
+
+def test_legacy_v1_graph_is_inspectable_but_identified_as_legacy(
+    snapshot_manifest: Path, tmp_path: Path
+) -> None:
+    cache = GraphCache(_config(tmp_path), tile_builder=_fake_builder)
+    current = cache.prepare(snapshot_manifest)
+    document = json.loads(current.manifest_path.read_text())
+    old_key = dict(document["cache_key"])
+    old_key.pop("coverage")
+    old_key["cache_key_schema"] = "graph-cache-key-v1"
+    old_graph_id = graph_id_for_key(old_key)
+    old_target = cache.graphs / old_graph_id.removeprefix("sha256:")
+    shutil.copytree(current.manifest_path.parent, old_target)
+
+    config_path = old_target / "valhalla.json"
+    config = json.loads(config_path.read_text())
+    config["mjolnir"]["tile_dir"] = str((old_target / "tiles").resolve())
+    config_bytes = json.dumps(config, sort_keys=True, separators=(",", ":")).encode()
+    config_path.write_bytes(config_bytes)
+
+    document["manifest_version"] = 1
+    document["cache_key_schema"] = "graph-cache-key-v1"
+    document["graph_id"] = old_graph_id
+    document["cache_key"] = old_key
+    document["source"].pop("coverage")
+    document["artifacts"]["config"]["size_bytes"] = len(config_bytes)
+    document["artifacts"]["config"]["sha256"] = hashlib.sha256(config_bytes).hexdigest()
+    (old_target / "manifest.json").write_text(json.dumps(document))
+
+    inspected = cache.inspect(old_graph_id)
+
+    assert inspected.status == "LEGACY_READY"
+    assert {item["status"] for item in cache.list_graphs()} == {"READY", "LEGACY_READY"}
+
+
+def test_graph_v2_requires_coverage_provenance(
+    snapshot_manifest: Path, tmp_path: Path
+) -> None:
+    cache = GraphCache(_config(tmp_path), tile_builder=_fake_builder)
+    ready = cache.prepare(snapshot_manifest)
+    document = json.loads(ready.manifest_path.read_text())
+    document["source"].pop("coverage")
+    ready.manifest_path.write_text(json.dumps(document))
+
+    with pytest.raises(RoutingError) as caught:
+        cache.inspect(ready.graph_id)
+
+    assert caught.value.code == "CACHE_CORRUPT"
 
 
 def test_remove_never_deletes_a_locked_graph(snapshot_manifest: Path, tmp_path: Path) -> None:

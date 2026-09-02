@@ -11,7 +11,9 @@ from typing import Any
 from warpbuster_osm_routing.config import RoutingCacheConfig
 from warpbuster_osm_routing.errors import RoutingError
 from warpbuster_osm_routing.graph_cache import GraphCache
-from warpbuster_osm_routing.models import GeoPoint
+from warpbuster_osm_routing.models import GeoPoint, RouteRequest
+from warpbuster_osm_routing.profiles import TRAIL_RUNNING_V1
+from warpbuster_osm_routing.route_service import RouteService
 from warpbuster_osm_routing.spike import run_spike
 
 
@@ -34,6 +36,12 @@ def build_parser() -> argparse.ArgumentParser:
     inspect.add_argument("graph_id")
     _add_cache_options(inspect)
 
+    route = subparsers.add_parser("route", help="build one audited route on an exact graph")
+    route.add_argument("graph_id")
+    route.add_argument("--from", dest="start", type=_parse_point, required=True)
+    route.add_argument("--to", dest="end", type=_parse_point, required=True)
+    _add_cache_options(route)
+
     remove = subparsers.add_parser("remove", help="remove one exact verified graph")
     remove.add_argument("graph_id")
     _add_cache_options(remove)
@@ -43,6 +51,11 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--dry-run", action="store_true", help="list candidates (default)")
     mode.add_argument("--apply", action="store_true", help="remove listed candidates")
     _add_cache_options(prune)
+
+    profile = subparsers.add_parser("profile", help="inspect versioned routing profiles")
+    profile_commands = profile.add_subparsers(dest="profile_command", required=True)
+    profile_show = profile_commands.add_parser("show", help="show trail-running profile v1")
+    profile_show.add_argument("--json", action="store_true")
 
     spike = subparsers.add_parser("spike", help="run the Task 010A temporary route probe")
     spike.add_argument("manifest", type=Path)
@@ -75,7 +88,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(document, sort_keys=True, separators=(",", ":")))
     else:
         _print_console(document)
-    return 0
+    return 1 if args.command == "route" and document.get("status") != "READY" else 0
 
 
 def _execute(args: argparse.Namespace) -> dict[str, Any]:
@@ -88,6 +101,13 @@ def _execute(args: argparse.Namespace) -> dict[str, Any]:
             alternates=args.alternates,
             overwrite=args.overwrite,
         ).as_dict()
+    if args.command == "profile":
+        assert args.profile_command == "show"
+        return {
+            "operation": "profile_show",
+            "status": "OK",
+            "profile": TRAIL_RUNNING_V1.inspection_document(),
+        }
     try:
         config = RoutingCacheConfig.load(args.config).with_cache_directory(args.cache_dir)
     except ValueError as error:
@@ -102,11 +122,15 @@ def _execute(args: argparse.Namespace) -> dict[str, Any]:
         result = cache.inspect(args.graph_id)
         return {
             "operation": "inspect",
-            "status": "READY",
+            "status": result.status,
             "graph_id": result.graph_id,
             "manifest_path": str(result.manifest_path),
             "graph": result.document,
         }
+    if args.command == "route":
+        return RouteService(config).route(
+            RouteRequest(args.graph_id, args.start, args.end)
+        ).as_dict()
     if args.command == "remove":
         return cache.remove(args.graph_id)
     if args.command == "prune":
@@ -159,13 +183,38 @@ def _print_console(document: dict[str, Any]) -> None:
         for graph in document["graphs"]:
             print(f"- {graph['graph_id']}: {graph['status']}")
     elif operation == "inspect":
-        print(f"Graph {document['graph_id']}: READY")
+        print(f"Graph {document['graph_id']}: {document['status']}")
         print(f"Manifest: {document['manifest_path']}")
+    elif operation == "route":
+        print("WarpBuster audited OSM route")
+        print(f"Status: {document['status']}")
+        print(f"Graph: {document['graph']['graph_id']}")
+        for anchor in ("start", "end"):
+            snap = document["snapping"][anchor]
+            distance = (
+                f"; distance={snap['selected']['distance_m']} m"
+                if snap["selected"] is not None
+                else ""
+            )
+            print(f"{anchor.title()} snap: {snap['status']}{distance}")
+        if document["route"] is not None:
+            print(f"Distance: {document['route']['summary']['length_m']} m")
+            print(f"Audit: {document['route']['audit']['status']}")
     elif operation == "remove":
         print(f"Removed graph: {document['graph_id']}")
     elif operation == "prune":
         print(f"Graph prune: {document['status']}")
         print(f"Candidates: {len(document['candidates'])}; removed: {len(document['removed'])}")
+    elif operation == "profile_show":
+        profile = document["profile"]
+        print("WarpBuster trail routing profile")
+        print(f"Profile: {profile['profile_id']}")
+        print(f"SHA-256: {profile['profile_sha256']}")
+        print(
+            f"Engine: {profile['engine']['name']} {profile['installed_engine_version']} "
+            f"(compatible={'yes' if profile['engine_compatible'] else 'no'})"
+        )
+        print(json.dumps(profile["costing_options"], indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":

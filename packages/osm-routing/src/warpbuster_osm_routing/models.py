@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +31,24 @@ class SnapshotDataFile:
 
 
 @dataclass(frozen=True, slots=True)
+class SnapshotCoverage:
+    """Auditable Web Mercator cells covered by one source snapshot."""
+
+    scheme: str
+    cell_ids: tuple[str, ...]
+    buffer_m: float
+    area_km2: float
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "scheme": self.scheme,
+            "cell_ids": list(self.cell_ids),
+            "buffer_m": self.buffer_m,
+            "area_km2": self.area_km2,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class Snapshot:
     """The verified subset of the OSM Manager contract consumed by routing."""
 
@@ -42,6 +62,7 @@ class Snapshot:
     attribution: str
     copyright_url: str
     license_url: str
+    coverage: SnapshotCoverage
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,7 +108,7 @@ class MaterializationResult:
 
 @dataclass(frozen=True, slots=True)
 class GraphResult:
-    """One verified READY or CACHED graph cache result."""
+    """One verified current, cached, or legacy graph cache result."""
 
     status: str
     graph_id: str
@@ -112,4 +133,37 @@ class SpikeResult:
     document: dict[str, Any]
 
     def as_dict(self) -> dict[str, Any]:
-        return self.document
+        return deepcopy(self.document)
+
+
+class RouteStatus(StrEnum):
+    READY = "READY"
+    OUTSIDE_COVERAGE = "OUTSIDE_COVERAGE"
+    NO_SNAP = "NO_SNAP"
+    AMBIGUOUS_SNAP = "AMBIGUOUS_SNAP"
+    NO_ROUTE = "NO_ROUTE"
+
+
+@dataclass(frozen=True, slots=True)
+class RouteResult:
+    """Stable JSON boundary for an audited single-route query."""
+
+    status: RouteStatus
+    document: dict[str, Any]
+    coordinates: tuple[GeoPoint, ...] = ()
+
+    @property
+    def exit_code(self) -> int:
+        return 0 if self.status is RouteStatus.READY else 1
+
+    def as_dict(self) -> dict[str, Any]:
+        return deepcopy(self.document)
+
+
+@dataclass(frozen=True, slots=True)
+class RouteRequest:
+    """A single immutable request against one exact local graph."""
+
+    graph_id: str
+    start: GeoPoint
+    end: GeoPoint

@@ -14,7 +14,7 @@ from warpbuster_osm_routing.models import Snapshot
 from warpbuster_osm_routing.normalize import MATERIALIZER_SCHEMA_VERSION
 from warpbuster_osm_routing.valhalla_backend import VALHALLA_BUILD_PROFILE_ID, build_config
 
-CACHE_KEY_SCHEMA_VERSION = "graph-cache-key-v1"
+CACHE_KEY_SCHEMA_VERSION = "graph-cache-key-v2"
 
 
 def runtime_versions() -> dict[str, str]:
@@ -38,6 +38,7 @@ def graph_cache_key(snapshot: Snapshot) -> tuple[dict[str, Any], str]:
         "snapshot_id": snapshot.snapshot_id,
         "dataset_profile": snapshot.dataset_profile,
         "source_sha256": sorted(item.sha256 for item in snapshot.data_files),
+        "coverage": snapshot.coverage.as_dict(),
         "materializer_schema": MATERIALIZER_SCHEMA_VERSION,
         "runtime": runtime_versions(),
         "build_profile": VALHALLA_BUILD_PROFILE_ID,

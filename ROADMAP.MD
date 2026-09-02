@@ -146,10 +146,10 @@ Roadmap следует порядку milestone из [`docs/MILESTONES.md`](docs
     ([task](tasks/010a-valhalla-feasibility-spike.md)) — `GO`, завершена 2026-09-02;
   - [x] **M9B / Task 010B — Production Snapshot Materialization + Graph Cache**
     ([task](tasks/010b-production-snapshot-graph-cache.md)) — завершена 2026-09-02;
-  - [ ] **M9C / Task 010C — Versioned Pedestrian/Trail Profile** — ТЗ оформляется после
-    010B;
-  - [ ] **M9D / Task 010D — Audited Snapping + Single-route API** — ТЗ оформляется после
-    010C;
+  - [x] **M9C / Task 010C — Versioned Pedestrian/Trail Profile**
+    ([task](tasks/010c-versioned-trail-profile.md)) — завершена 2026-09-02;
+  - [x] **M9D / Task 010D — Audited Snapping + Single-route API**
+    ([task](tasks/010d-audited-snapping-single-route.md)) — завершена 2026-09-02;
   - [ ] **M9E / Task 010E — Alternatives + Route Diagnostics** — ТЗ оформляется после
     010D;
   - [ ] **M9F / Task 010F — Packaging + Performance Stabilization** — ТЗ оформляется

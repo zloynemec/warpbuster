@@ -1,6 +1,6 @@
 # Task 010 — Valhalla-backed Pedestrian/Trail Routing
 
-Статус: выполняется итерациями; Task 010A завершена решением GO.
+Статус: выполняется итерациями; Task 010A–010D завершены.
 
 ## Контекст
 
@@ -65,6 +65,8 @@ Routing query API в 010B не стабилизируется.
 
 ### Task 010C — Versioned Pedestrian/Trail Profile
 
+Статус: завершена 2026-09-02.
+
 Зафиксировать и проверить Valhalla build/costing policy:
 
 - pedestrian access и explicit prohibitions;
@@ -73,7 +75,15 @@ Routing query API в 010B не стабилизируется.
 - named request limits и table-driven synthetic regression matrix;
 - profile ID/hash и объяснимые отклонения от Valhalla defaults.
 
+Реализованы раздельные build/request profiles, immutable typed model, canonical hash,
+CLI inspection и offline behavioral matrix на Valhalla 3.8.3. Выявленный риск удалённой
+корреляции недоступного anchor передан в scope 010D.
+
+Подробное ТЗ: `tasks/010c-versioned-trail-profile.md`.
+
 ### Task 010D — Audited Snapping + Single-route API
+
+Статус: завершена 2026-09-02.
 
 Стабилизировать offline request/response contract:
 
@@ -82,6 +92,8 @@ Routing query API в 010B не стабилизируется.
 - ambiguity diagnostics без молчаливого выбора далёкого edge;
 - route geometry, length/cost и per-edge OSM provenance;
 - explicit `NO_SNAP`, `NO_ROUTE`, outside-coverage и disconnected outcomes.
+
+Подробное ТЗ: `tasks/010d-audited-snapping-single-route.md`.
 
 ### Task 010E — Alternatives + Route Diagnostics
 

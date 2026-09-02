@@ -46,3 +46,20 @@ def test_prepare_and_list_json_commands(
     assert status == 0
     assert listing["count"] == 1
     assert listing["graphs"][0]["status"] == "READY"
+
+    status = main(
+        [
+            "route",
+            prepared["graph_id"],
+            "--from",
+            "45,34",
+            "--to",
+            "44,33",
+            "--cache-dir",
+            str(cache),
+            "--json",
+        ]
+    )
+    route = json.loads(capsys.readouterr().out)  # type: ignore[attr-defined]
+    assert status == 1
+    assert route["status"] == "OUTSIDE_COVERAGE"

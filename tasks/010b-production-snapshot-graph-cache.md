@@ -202,8 +202,9 @@ canonical JSON со следующими полями:
 - порядок source files в manifest;
 - logging verbosity.
 
-Изменение Valhalla, materializer или будущего trail profile создаёт новый `graph_id` и
-не переинтерпретирует старый graph молча.
+Изменение Valhalla, materializer или build profile создаёт новый `graph_id` и не
+переинтерпретирует старый graph молча. Request-time trail profile не входит в graph
+identity и проверяется отдельно.
 
 ## Структура derived cache
 

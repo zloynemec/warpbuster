@@ -29,3 +29,17 @@ lock_poll_seconds = 0.1
 # Hashing and conservative cache pruning.
 io_chunk_bytes = 1048576
 prune_minimum_age_seconds = 604800.0
+
+# Task 010D audited request policy. These values do not affect graph identity.
+snap_search_radius_m = 100.0
+maximum_snap_distance_m = 30.0
+equivalent_snap_separation_m = 3.0
+snap_ambiguity_distance_delta_m = 10.0
+maximum_snap_candidates = 64
+maximum_reported_candidate_groups = 8
+route_endpoint_tolerance_m = 5.0
+maximum_route_distance_m = 250000.0
+maximum_route_shape_points = 16000
+maximum_route_edges = 16000
+route_length_absolute_tolerance_m = 10.0
+route_length_relative_tolerance = 0.01
