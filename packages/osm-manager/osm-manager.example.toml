@@ -1,0 +1,48 @@
+# WarpBuster OSM Manager configuration.
+# Copy this file to ./osm-manager.toml; it will be loaded automatically.
+# Use --config only to select a different file explicitly.
+
+[osm_manager]
+# Local, location-sensitive cache. Use an absolute path in unattended environments.
+cache_directory = "/replace/with/platform/cache/path"
+
+# OSM acquisition identity and endpoint. HTTPS is mandatory.
+overpass_url = "https://overpass-api.de/api/interpreter"
+user_agent = "warpbuster-osm-manager/0.1 (+https://github.com/zloynemec/warpbuster)"
+
+# Coverage planning.
+gpx_corridor_buffer_m = 1000.0
+cache_grid_zoom = 12
+coverage_sample_cell_fraction = 0.5
+default_max_age_seconds = 2592000
+
+# Geographic and request fan-out limits.
+maximum_requested_area_km2 = 2000.0
+maximum_ensure_cells = 512
+maximum_cells_per_overpass_request = 32
+maximum_overpass_requests = 128
+
+# Network and response limits.
+maximum_download_bytes = 268435456
+maximum_ensure_download_bytes = 536870912
+network_timeout_seconds = 180.0
+maximum_retry_count = 2
+retry_backoff_seconds = 1.0
+retry_jitter_seconds = 0.25
+http_read_chunk_bytes = 65536
+
+# Cache writer coordination.
+cache_lock_timeout_seconds = 60.0
+stale_lock_seconds = 900.0
+lock_poll_seconds = 0.1
+
+# Local input and validation limits.
+maximum_input_file_bytes = 33554432
+maximum_import_bytes = 2147483648
+maximum_gpx_points = 1000000
+maximum_gpx_segment_length_m = 100000.0
+maximum_gpx_total_length_m = 5000000.0
+maximum_osm_objects = 5000000
+
+# Garbage collection only removes unreferenced blobs older than this age.
+prune_minimum_age_seconds = 86400

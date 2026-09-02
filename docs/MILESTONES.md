@@ -298,10 +298,33 @@ Task: `tasks/008-html-report-release.md`
 
 ---
 
-## Что делать после v0.1
+## M8 — OSM Manager
+
+**Статус:** завершён.
+
+**Цель:** создать отдельный локальный data-management подпроект для автоматического
+получения и воспроизводимого cache сырых OSM данных, не добавляя routing в WarpBuster.
+
+Результат:
+- отдельно устанавливаемый `warpbuster-osm`;
+- `ensure` по GPX, GeoJSON или bbox;
+- вычисление buffered GPX corridor и bounded cache cells;
+- автоматическая загрузка недостающего покрытия через configurable Overpass endpoint;
+- immutable content-addressed snapshots, offline reuse, refresh и stale fallback;
+- versioned JSON manifest/protocol для будущей интеграции;
+- единый TOML/config contract для cache, coverage, network и resource bounds;
+- `.osm`, `.osm.gz` и `.osm.pbf` import с проверкой declared coverage;
+- отсутствие FIT, detection, routing и reconstruction logic.
+
+Task: `tasks/009-osm-manager.md`
+
+---
+
+## Что делать после M8
 
 Отдельные будущие epics:
-- OSM reconstruction;
+- OSM + course reconstruction;
+- OSM-only reconstruction;
 - DEM;
 - Garmin API;
 - COROS API;
@@ -309,4 +332,4 @@ Task: `tasks/008-html-report-release.md`
 - web UI;
 - automatic pipeline.
 
-Их нельзя начинать внутри v0.1 milestones.
+Их нельзя начинать внутри Task 009.

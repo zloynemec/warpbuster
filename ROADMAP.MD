@@ -130,5 +130,15 @@ Roadmap следует порядку milestone из [`docs/MILESTONES.md`](docs
 
 ## После v0.1
 
-OSM/DEM reconstruction, Garmin/COROS/Strava integrations, web UI и automatic
-pipeline остаются отдельными будущими направлениями и не входят в задачи выше.
+- [x] **M8 / Task 009 — OSM Manager**
+  ([task](tasks/009-osm-manager.md))
+  - отдельный устанавливаемый подпроект и CLI `warpbuster-osm`;
+  - `ensure --gpx/--geojson/--bbox` с автоматической bounded-загрузкой через Overpass;
+  - immutable content-addressed snapshots, coverage cache и offline reuse;
+  - versioned JSON protocol для будущего вызова из WarpBuster;
+  - `.osm`/`.osm.gz`/`.osm.pbf` import, cache maintenance и diagnostics;
+  - все operational limits вынесены в отдельный TOML/config contract;
+  - без routing, reconstruction и изменений WarpBuster Core.
+
+OSM-backed reconstruction, DEM, Garmin/COROS/Strava integrations, web UI и automatic
+pipeline остаются отдельными будущими направлениями и не входят в Task 009.

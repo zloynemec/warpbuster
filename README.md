@@ -87,6 +87,21 @@ warpbuster --version
 python -c "import warpbuster; print(warpbuster.__version__)"
 ```
 
+OSM Manager устанавливается отдельно и не добавляет routing в Core:
+
+```bash
+python -m pip install -e "packages/osm-manager[dev]"
+warpbuster-osm capabilities --json
+warpbuster-osm ensure --gpx race.gpx
+```
+
+При запуске из корня проекта автоматически используется локальный `osm-manager.toml`;
+указывать `--config` не требуется.
+
+Полная документация и конфигурация:
+[`packages/osm-manager/README.md`](packages/osm-manager/README.md) и
+[`packages/osm-manager/osm-manager.example.toml`](packages/osm-manager/osm-manager.example.toml).
+
 Чтение и инспекция FIT:
 
 ```bash

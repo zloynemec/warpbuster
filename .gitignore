@@ -1,6 +1,7 @@
 .DS_Store
 .env
 .venv/
+osm-manager.toml
 
 __pycache__/
 *.py[cod]
