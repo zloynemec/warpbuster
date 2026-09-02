@@ -365,14 +365,23 @@ Task: `tasks/010-osm-graph-routing.md`
 
 ## Что делать после M9
 
-Отдельные будущие epics:
-- OSM + course reconstruction;
-- OSM-only reconstruction;
-- DEM;
+Порядок следующих epics:
+
+1. **M10 / Task 011 — OSM Reconstruction Bridge (2D first):** сначала typed bridge и
+   dry-run candidates, затем применение только однозначной 2D-геометрии без изменения
+   правдоподобной FIT altitude.
+2. **M11 / Task 012 — DEM-backed Elevation:** отдельные dataset/cache/provenance,
+   sampling route polyline, GPX `<ele>`, elevation profile и ascent/descent policy.
+3. **M12 / Task 013 — Elevation-aware OSM Reconstruction:** optional DEM evidence для
+   alternatives и отдельное восстановление только missing/corrupted altitude.
+
+Прочие будущие epics:
+
 - Garmin API;
 - COROS API;
 - Strava proxy;
 - web UI;
 - automatic pipeline.
 
-Их нельзя начинать внутри Task 010.
+DEM и reconstruction нельзя начинать внутри Task 010; отсутствие DEM не должно
+блокировать первоначальную 2D-интеграцию.

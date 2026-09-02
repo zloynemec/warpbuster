@@ -158,19 +158,41 @@ Roadmap следует порядку milestone из [`docs/MILESTONES.md`](docs
     acquisition/cache/snapshot provenance;
   - OSM не используется в Integrity Detector.
 
-- [ ] **M10 / Task 011 — OSM-backed Reconstruction** — предварительный план,
+- [ ] **M10 / Task 011 — OSM Reconstruction Bridge (2D first)** — предварительный план,
   ТЗ ещё не оформлено
-  - отдельный `OSMReconstructionProvider`, использующий результат Integrity Detector;
-  - уточнение GPX course по OSM graph и отдельный OSM-only режим, когда эталонного
-    трека нет;
-  - консервативный выбор пути по trusted anchors, времени, distance/pace evidence и
-    физическим post-checks;
-  - существующее правдоподобное движение не меняется, а ambiguous варианты остаются
-    unresolved;
+  - **011A:** отдельный `OSMReconstructionProvider`, принимающий только результаты
+    Integrity Detector и typed `RouteResult`, сначала в candidate/dry-run режиме;
+  - **011B:** сопоставление trusted anchors, timestamps и recorded distance с одним или
+    несколькими OSM route candidates без изменения FIT;
+  - **011C:** консервативное применение только однозначных 2D-маршрутов с высокой
+    уверенностью; меняются координаты и необходимые агрегаты, но не правдоподобная
+    исходная altitude;
+  - GPX-course и OSM-only режимы остаются разными reconstruction strategies;
+  - ambiguous/low-confidence варианты остаются unresolved;
   - полный audit candidate geometry, confidence, applied/skipped участков и OSM
     provenance в console/JSON/HTML reports.
 
-Таким образом, OSM-направление состоит из трёх независимых этапов: готового data manager,
-будущего routing graph и только затем интеграции с reconstruction. DEM,
+- [ ] **M11 / Task 012 — DEM-backed Elevation** — отдельная optional подсистема
+  - **012A:** выбрать DEM dataset, лицензию, resolution и зафиксировать vertical datum;
+  - **012B:** immutable tile cache с coverage, hashes, offline reuse и bounded download;
+  - **012C:** детерминированный sampler для route polyline, bounded interpolation и
+    явные missing-coverage diagnostics;
+  - **012D:** GPX route export с `<ele>`, raw/smoothed elevation profiles и расчётом
+    ascent/descent по именованной filtering policy;
+  - сравнивать DEM-профиль с сохранённой FIT/course altitude как независимое evidence;
+  - DEM не используется Integrity Detector и не заменяет правдоподобные FIT-высоты.
+
+- [ ] **M12 / Task 013 — Elevation-aware OSM Reconstruction** — после M10 и M11
+  - использовать DEM-профиль как optional признак для ранжирования alternatives;
+  - объединять geometry, time, recorded distance/pace и elevation evidence в
+    консервативный confidence без привязки к конкретной тренировке;
+  - разрешить заполнение altitude только для отдельно доказанных missing/corrupted
+    значений; coordinate repair и altitude repair остаются разными решениями;
+  - отсутствие DEM или несовпадение vertical datum не блокирует однозначный 2D repair;
+  - неоднозначные кандидаты не применяются автоматически.
+
+Таким образом, ближайший путь остаётся двухмерным: завершить routing, подключить его к
+repair в dry-run и проверить однозначные восстановления. DEM добавляется после этого
+как независимый enrichment/evidence layer до расширенного автоматического выбора.
 Garmin/COROS/Strava integrations, web UI и automatic pipeline остаются отдельными
-будущими направлениями и не входят в Tasks 009–011.
+будущими направлениями.
