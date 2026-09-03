@@ -5,22 +5,32 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from dataclasses import dataclass
 from typing import Any
 
 import valhalla
 
+from warpbuster_osm_routing.alternatives import build_route_set, empty_route_set, geometry_weights
 from warpbuster_osm_routing.config import RoutingCacheConfig
 from warpbuster_osm_routing.coverage import parse_coverage
 from warpbuster_osm_routing.errors import RoutingError
 from warpbuster_osm_routing.geometry import (
     bounds,
     decode_polyline6,
+    finite_number,
     haversine_m,
     path_length_m,
     valid_wgs84,
 )
 from warpbuster_osm_routing.graph_cache import GRAPH_MANIFEST_VERSION, GraphCache
-from warpbuster_osm_routing.models import RouteRequest, RouteResult, RouteStatus
+from warpbuster_osm_routing.models import (
+    RouteAlternativesRequest,
+    RouteAlternativesResult,
+    RouteCandidate,
+    RouteRequest,
+    RouteResult,
+    RouteStatus,
+)
 from warpbuster_osm_routing.profiles import TRAIL_RUNNING_V1, apply_profile
 from warpbuster_osm_routing.snapping import SnapCandidate, SnapDecision, audit_snap
 
@@ -30,6 +40,73 @@ _IMPASSABLE_SURFACES = frozenset({"impassable", 7})
 _MAX_ALLOWED_SAC_SCALE = 3
 
 
+@dataclass
+class _AuditBudget:
+    remaining_points: int
+    remaining_edges: int
+    response_bytes: int
+
+
+def _require_matching_engine(document: dict[str, Any], graph_id: str) -> None:
+    """Only query a graph with its exact build runtime; do not infer compatibility."""
+    key = document.get("cache_key")
+    runtime = key.get("runtime") if isinstance(key, dict) else None
+    built_version = runtime.get("valhalla") if isinstance(runtime, dict) else None
+    if (
+        not isinstance(built_version, str)
+        or not built_version
+        or any(char.isspace() for char in built_version)
+    ):
+        raise RoutingError(
+            "CACHE_CORRUPT",
+            "graph has missing or invalid Valhalla build version; "
+            "prepare the source snapshot manifest again",
+            {"graph_id": graph_id, "field": "cache_key.runtime.valhalla"},
+        )
+    current_version = getattr(valhalla, "__version__", None)
+    if (
+        not isinstance(current_version, str)
+        or not current_version
+        or any(char.isspace() for char in current_version)
+    ):
+        raise RoutingError(
+            "VALHALLA_REQUEST_FAILED",
+            "installed Valhalla has missing or invalid runtime version",
+            {"graph_id": graph_id},
+        )
+    if built_version != current_version:
+        raise RoutingError(
+            "GRAPH_ENGINE_MISMATCH",
+            f"graph was built with Valhalla {built_version}, "
+            f"but installed Valhalla is {current_version}; "
+            "prepare the source snapshot manifest again with the current runtime "
+            "and use the returned graph_id",
+            {
+                "graph_id": graph_id,
+                "graph_valhalla_version": built_version,
+                "runtime_valhalla_version": current_version,
+            },
+        )
+
+
+def _bounded_response(raw: object, byte_limit: int) -> dict[str, Any]:
+    if not isinstance(raw, str):
+        raise RoutingError("ROUTE_AUDIT_FAILED", "engine response must be JSON text")
+    try:
+        if len(raw) > byte_limit or len(raw.encode("utf-8")) > byte_limit:
+            raise RoutingError(
+                "RESOURCE_LIMIT_EXCEEDED",
+                "engine response exceeds byte limit",
+                {"limit_bytes": byte_limit},
+            )
+        response = json.loads(raw)
+    except (ValueError, RecursionError) as error:
+        raise RoutingError("ROUTE_AUDIT_FAILED", "engine response is invalid JSON") from error
+    if not isinstance(response, dict):
+        raise RoutingError("ROUTE_AUDIT_FAILED", "engine response must be an object")
+    return response
+
+
 class RouteService:
     """Execute bounded route queries without exposing raw Valhalla requests."""
 
@@ -37,7 +114,9 @@ class RouteService:
         self.config = config.validated()
         self.cache = GraphCache(self.config)
 
-    def route(self, request: RouteRequest) -> RouteResult:
+    def _setup(
+        self, request: RouteRequest
+    ) -> tuple[Any, SnapDecision, SnapDecision, dict[str, Any]]:
         self._validate_request(request)
         graph = self.cache.inspect(request.graph_id)
         if graph.document.get("manifest_version") != GRAPH_MANIFEST_VERSION:
@@ -46,6 +125,7 @@ class RouteService:
                 "graph does not contain audited coverage; prepare the source snapshot again",
                 {"graph_id": request.graph_id, "required_manifest_version": 2},
             )
+        _require_matching_engine(graph.document, request.graph_id)
         source = graph.document.get("source", {})
         coverage = parse_coverage(source.get("coverage"))
         config_path = graph.manifest_path.parent / "valhalla.json"
@@ -60,6 +140,10 @@ class RouteService:
         start = audit_snap(actor, request.start, coverage, self.config)
         end = audit_snap(actor, request.end, coverage, self.config)
         common = self._base_document(request, graph.document, start, end)
+        return actor, start, end, common
+
+    def route(self, request: RouteRequest) -> RouteResult:
+        actor, start, end, common = self._setup(request)
         for status in _NEGATIVE_PRECEDENCE:
             if status in {start.status, end.status}:
                 result_status = RouteStatus(status)
@@ -75,8 +159,121 @@ class RouteService:
         coordinates = decode_polyline6(route["geometry"]["encoded_polyline"])
         return RouteResult(RouteStatus.READY, common, coordinates)
 
+    def alternatives(self, request: RouteAlternativesRequest) -> RouteAlternativesResult:
+        if (
+            type(request.alternates) is not int
+            or not 1 <= request.alternates <= self.config.maximum_requested_alternates
+        ):
+            raise RoutingError(
+                "INVALID_REQUEST", "alternates must be an integer in configured 1..2 range"
+            )
+        single = RouteRequest(request.graph_id, request.start, request.end)
+        actor, start, end, common = self._setup(single)
+        common.update(
+            operation="route_alternatives",
+            alternatives_policy=self.config.alternatives_policy_dict(),
+        )
+        common["request"]["alternates"] = request.alternates
+        common.update(empty_route_set(request.alternates))
+        for status in _NEGATIVE_PRECEDENCE:
+            if status in {start.status, end.status}:
+                common["status"] = status
+                return self._alternatives_result(common)
+        assert start.selected is not None and end.selected is not None
+        payload = self._route_payload(single, request.alternates)
+        try:
+            raw = actor.route(json.dumps(payload, separators=(",", ":")))
+        except Exception as error:
+            if _is_no_route_error(error):
+                common.update(empty_route_set(request.alternates, executed=True))
+                common["status"] = RouteStatus.NO_ROUTE.value
+                return self._alternatives_result(common)
+            raise RoutingError(
+                "VALHALLA_REQUEST_FAILED", "Valhalla alternatives request failed"
+            ) from error
+        response = _bounded_response(raw, self.config.maximum_alternatives_response_bytes)
+        alternates = response.get("alternates", [])
+        if not isinstance(alternates, list):
+            raise RoutingError("ROUTE_AUDIT_FAILED", "alternates must be an array")
+        if len(alternates) > request.alternates:
+            raise RoutingError(
+                "RESOURCE_LIMIT_EXCEEDED", "engine returned more alternatives than requested"
+            )
+        trips = [response.get("trip")]
+        for index, item in enumerate(alternates, 1):
+            if not isinstance(item, dict):
+                raise RoutingError(
+                    "ROUTE_AUDIT_FAILED",
+                    "alternative must be an object",
+                    {"engine_slot": f"alternative_{index}"},
+                )
+            trips.append(item.get("trip"))
+        budget = _AuditBudget(
+            self.config.maximum_total_route_shape_points,
+            self.config.maximum_total_route_edges,
+            self.config.maximum_alternatives_response_bytes,
+        )
+        audited = []
+        for index, trip in enumerate(trips):
+            slot = "primary" if index == 0 else f"alternative_{index}"
+            try:
+                if not isinstance(trip, dict):
+                    raise RoutingError("ROUTE_AUDIT_FAILED", "missing or malformed trip")
+                route = self._audit_trip(actor, trip, start.selected, end.selected, budget=budget)
+                geometry_weights(route)  # Audit even exact duplicates before deduplication.
+                route["audit"]["checks"].append({"name": "complete_edge_spans", "status": "PASS"})
+                audited.append(route)
+            except RoutingError as error:
+                raise RoutingError(
+                    error.code,
+                    error.message,
+                    {
+                        "check": "route_audit",
+                        **error.details,
+                        "engine_slot": slot,
+                    },
+                ) from error
+        common.update(
+            build_route_set(
+                audited,
+                request.graph_id,
+                TRAIL_RUNNING_V1.sha256(),
+                request.alternates,
+                self.config,
+            )
+        )
+        common["status"] = RouteStatus.READY.value
+        return self._alternatives_result(common)
+
+    @staticmethod
+    def _alternatives_result(document: dict[str, Any]) -> RouteAlternativesResult:
+        try:
+            serialized = json.dumps(
+                document, sort_keys=True, separators=(",", ":"), allow_nan=False
+            )
+        except (ValueError, TypeError, OverflowError) as error:
+            raise RoutingError(
+                "ROUTE_AUDIT_FAILED",
+                "result contains invalid JSON values",
+                {"check": "result_json"},
+            ) from error
+        candidates = tuple(
+            RouteCandidate(
+                route["route_id"],
+                route["role"],
+                decode_polyline6(route["geometry"]["encoded_polyline"]),
+                json.dumps(route, sort_keys=True, separators=(",", ":"), allow_nan=False),
+            )
+            for route in document["routes"]
+        )
+        return RouteAlternativesResult(
+            RouteStatus(document["status"]),
+            candidates,
+            serialized,
+        )
+
     def _validate_request(self, request: RouteRequest) -> None:
-        if not request.graph_id:
+        if not isinstance(request.graph_id, str) or not request.graph_id:
             raise RoutingError("INVALID_GRAPH_ID", "graph_id must not be empty")
         if not valid_wgs84(request.start) or not valid_wgs84(request.end):
             raise RoutingError("INVALID_REQUEST", "route anchors must be finite WGS84 points")
@@ -131,6 +328,21 @@ class RouteService:
         start: SnapCandidate,
         end: SnapCandidate,
     ) -> dict[str, Any] | None:
+        route_request = self._route_payload(request, 0)
+        try:
+            response = json.loads(actor.route(json.dumps(route_request, separators=(",", ":"))))
+        except Exception as error:
+            if _is_no_route_error(error):
+                return None
+            raise RoutingError(
+                "VALHALLA_REQUEST_FAILED", f"Valhalla route request failed: {error}"
+            ) from error
+        trip = response.get("trip") if isinstance(response, dict) else None
+        if not isinstance(trip, dict):
+            return None
+        return self._audit_trip(actor, trip, start, end)
+
+    def _route_payload(self, request: RouteRequest, alternates: int) -> dict[str, Any]:
         locations = [
             {
                 **point.as_valhalla(),
@@ -144,23 +356,10 @@ class RouteService:
             "locations": locations,
             "units": "kilometers",
             "directions_type": "none",
-            "alternates": 0,
+            "alternates": alternates,
         }
         apply_profile(route_request, TRAIL_RUNNING_V1)
-        try:
-            response = json.loads(
-                actor.route(json.dumps(route_request, separators=(",", ":")))
-            )
-        except Exception as error:
-            if _is_no_route_error(error):
-                return None
-            raise RoutingError(
-                "VALHALLA_REQUEST_FAILED", f"Valhalla route request failed: {error}"
-            ) from error
-        trip = response.get("trip") if isinstance(response, dict) else None
-        if not isinstance(trip, dict):
-            return None
-        return self._audit_trip(actor, trip, start, end)
+        return route_request
 
     def _audit_trip(
         self,
@@ -168,6 +367,8 @@ class RouteService:
         trip: dict[str, Any],
         start: SnapCandidate,
         end: SnapCandidate,
+        *,
+        budget: _AuditBudget | None = None,
     ) -> dict[str, Any]:
         legs = trip.get("legs")
         if not isinstance(legs, list) or len(legs) != 1 or not isinstance(legs[0], dict):
@@ -175,13 +376,20 @@ class RouteService:
         encoded = legs[0].get("shape")
         if not isinstance(encoded, str) or not encoded:
             raise RoutingError("ROUTE_AUDIT_FAILED", "route has no encoded geometry")
-        points = decode_polyline6(encoded)
+        points = decode_polyline6(
+            encoded,
+            maximum_points=min(self.config.maximum_route_shape_points, budget.remaining_points)
+            if budget
+            else None,
+        )
         if not 2 <= len(points) <= self.config.maximum_route_shape_points:
             raise RoutingError(
                 "RESOURCE_LIMIT_EXCEEDED",
                 "decoded route point count exceeds configured bounds",
                 {"count": len(points), "limit": self.config.maximum_route_shape_points},
             )
+        if budget:
+            budget.remaining_points -= len(points)
         start_delta = haversine_m(points[0], start.point)
         end_delta = haversine_m(points[-1], end.point)
         if max(start_delta, end_delta) > self.config.route_endpoint_tolerance_m:
@@ -198,7 +406,20 @@ class RouteService:
         if not isinstance(summary, dict) or not _finite(summary.get("length")):
             raise RoutingError("ROUTE_AUDIT_FAILED", "route has no finite summary length")
         summary_length_m = float(summary["length"]) * 1000.0
+        if budget:
+            if not math.isfinite(summary_length_m) or summary_length_m <= 0:
+                raise RoutingError(
+                    "ROUTE_AUDIT_FAILED", "summary length must be finite and positive"
+                )
+            for name in ("time", "cost"):
+                value = summary.get(name)
+                if value is not None and (not _finite(value) or value < 0):
+                    raise RoutingError("ROUTE_AUDIT_FAILED", f"invalid summary {name}")
         geometry_length_m = path_length_m(points)
+        if budget and geometry_length_m > self.config.maximum_route_distance_m:
+            raise RoutingError(
+                "RESOURCE_LIMIT_EXCEEDED", "geometry distance exceeds configured limit"
+            )
         if summary_length_m > self.config.maximum_route_distance_m:
             raise RoutingError(
                 "RESOURCE_LIMIT_EXCEEDED",
@@ -219,7 +440,7 @@ class RouteService:
                     "tolerance_m": tolerance,
                 },
             )
-        edges = self._trace_edges(actor, encoded, len(points))
+        edges = self._trace_edges(actor, encoded, len(points), budget=budget)
         warnings: list[dict[str, Any]] = []
         if start.destination_only:
             warnings.append({"code": "DESTINATION_ONLY_SNAP", "anchor": "start"})
@@ -263,7 +484,12 @@ class RouteService:
         }
 
     def _trace_edges(
-        self, actor: Any, encoded: str, point_count: int
+        self,
+        actor: Any,
+        encoded: str,
+        point_count: int,
+        *,
+        budget: _AuditBudget | None = None,
     ) -> list[dict[str, Any]]:
         trace_request: dict[str, Any] = {
             "encoded_polyline": encoded,
@@ -287,9 +513,14 @@ class RouteService:
         }
         apply_profile(trace_request, TRAIL_RUNNING_V1)
         try:
-            response = json.loads(
-                actor.trace_attributes(json.dumps(trace_request, separators=(",", ":")))
+            raw_response = actor.trace_attributes(json.dumps(trace_request, separators=(",", ":")))
+            response = (
+                _bounded_response(raw_response, budget.response_bytes)
+                if budget
+                else json.loads(raw_response)
             )
+        except RoutingError:
+            raise
         except Exception as error:
             raise RoutingError(
                 "ROUTE_AUDIT_FAILED", f"Valhalla trace audit failed: {error}"
@@ -303,6 +534,12 @@ class RouteService:
                 "route edge count exceeds configured limit",
                 {"count": len(raw_edges), "limit": self.config.maximum_route_edges},
             )
+        if budget:
+            if len(raw_edges) > budget.remaining_edges:
+                raise RoutingError(
+                    "RESOURCE_LIMIT_EXCEEDED", "total route edge count exceeds limit"
+                )
+            budget.remaining_edges -= len(raw_edges)
         edges: list[dict[str, Any]] = []
         previous_begin = -1
         previous_end = -1
@@ -324,15 +561,30 @@ class RouteService:
             )
             if edge_id is None or way_id is None:
                 raise RoutingError("ROUTE_AUDIT_FAILED", "route edge lacks provenance IDs")
+            if budget and (
+                type(edge_id) is not int or edge_id < 0 or type(way_id) is not int or way_id <= 0
+            ):
+                raise RoutingError("ROUTE_AUDIT_FAILED", "route edge has invalid provenance IDs")
             if not indexes_valid:
                 raise RoutingError("ROUTE_AUDIT_FAILED", "route edge shape indexes are invalid")
             assert isinstance(begin, int) and isinstance(end, int)
             if raw.get("travel_mode") != "pedestrian" or raw.get("pedestrian_type") != "foot":
                 raise RoutingError("ROUTE_AUDIT_FAILED", "route edge is not pedestrian/foot")
             sac_scale = raw.get("sac_scale", 0)
+            if budget and (
+                type(sac_scale) is not int or not 0 <= sac_scale <= _MAX_ALLOWED_SAC_SCALE
+            ):
+                raise RoutingError("ROUTE_AUDIT_FAILED", "route edge has invalid sac_scale")
             if not isinstance(sac_scale, int | float) or sac_scale > _MAX_ALLOWED_SAC_SCALE:
                 raise RoutingError("ROUTE_AUDIT_FAILED", "route edge exceeds allowed sac_scale")
             surface = raw.get("surface")
+            if budget:
+                if surface is not None and type(surface) not in (str, int):
+                    raise RoutingError("ROUTE_AUDIT_FAILED", "route edge has invalid surface")
+                if raw.get("use") is not None and not isinstance(raw["use"], str):
+                    raise RoutingError("ROUTE_AUDIT_FAILED", "route edge has invalid use")
+                if raw.get("unpaved") is not None and type(raw["unpaved"]) is not bool:
+                    raise RoutingError("ROUTE_AUDIT_FAILED", "route edge has invalid unpaved flag")
             if surface in _IMPASSABLE_SURFACES:
                 raise RoutingError("ROUTE_AUDIT_FAILED", "route contains an impassable surface")
             length = raw.get("length")
@@ -341,6 +593,8 @@ class RouteService:
             length_value = float(length)
             if not math.isfinite(length_value) or length_value < 0:
                 raise RoutingError("ROUTE_AUDIT_FAILED", "route edge has invalid length")
+            if budget and not math.isfinite(length_value * 1000.0):
+                raise RoutingError("ROUTE_AUDIT_FAILED", "route edge length overflows metres")
             edges.append(
                 {
                     "sequence": sequence,
@@ -362,7 +616,7 @@ class RouteService:
 
 
 def _finite(value: object) -> bool:
-    return isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value)
+    return finite_number(value)
 
 
 def _is_no_route_error(error: Exception) -> bool:

@@ -33,9 +33,7 @@ def parse_coverage(value: object) -> SnapshotCoverage:
     for index, raw_id in enumerate(raw_ids):
         match = _CELL_PATTERN.fullmatch(raw_id) if isinstance(raw_id, str) else None
         if match is None:
-            raise RoutingSpikeError(
-                "manifest_invalid", f"coverage.cell_ids[{index}] is invalid"
-            )
+            raise RoutingSpikeError("manifest_invalid", f"coverage.cell_ids[{index}] is invalid")
         x, y = (int(part) for part in match.groups())
         if x >= cell_limit or y >= cell_limit:
             raise RoutingSpikeError(
@@ -44,9 +42,7 @@ def parse_coverage(value: object) -> SnapshotCoverage:
         cell_ids.append(raw_id)
         numeric_ids.append((x, y))
     if len(cell_ids) != len(set(cell_ids)) or numeric_ids != sorted(numeric_ids):
-        raise RoutingSpikeError(
-            "manifest_invalid", "coverage.cell_ids must be unique and sorted"
-        )
+        raise RoutingSpikeError("manifest_invalid", "coverage.cell_ids must be unique and sorted")
     buffer_m = _number(value, "buffer_m", allow_zero=True)
     area_km2 = _number(value, "area_km2", allow_zero=False)
     return SnapshotCoverage(COVERAGE_SCHEME, tuple(cell_ids), buffer_m, area_km2)
@@ -65,9 +61,7 @@ def cell_id_for_point(point: GeoPoint) -> str | None:
     size = 1 << COVERAGE_ZOOM
     x = int((point.longitude + 180.0) / 360.0 * size)
     latitude_radians = math.radians(point.latitude)
-    y = int(
-        (1.0 - math.asinh(math.tan(latitude_radians)) / math.pi) / 2.0 * size
-    )
+    y = int((1.0 - math.asinh(math.tan(latitude_radians)) / math.pi) / 2.0 * size)
     x = min(size - 1, max(0, x))
     y = min(size - 1, max(0, y))
     return f"{COVERAGE_ZOOM}/{x}/{y}"

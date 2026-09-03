@@ -97,9 +97,7 @@ def test_legacy_graph_is_not_route_capable(tmp_path: Path) -> None:
                 {"manifest_version": 1},
             )
 
-    service = RouteService(
-        RoutingCacheConfig.defaults().with_cache_directory(tmp_path / "cache")
-    )
+    service = RouteService(RoutingCacheConfig.defaults().with_cache_directory(tmp_path / "cache"))
     service.cache = LegacyCache()  # type: ignore[assignment]
 
     with pytest.raises(RoutingError) as caught:

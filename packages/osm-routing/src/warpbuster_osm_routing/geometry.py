@@ -24,13 +24,19 @@ def haversine_m(first: GeoPoint, second: GeoPoint) -> float:
     return 2.0 * EARTH_RADIUS_M * math.asin(min(1.0, math.sqrt(value)))
 
 
-def decode_polyline6(encoded: str) -> tuple[GeoPoint, ...]:
+def decode_polyline6(encoded: str, *, maximum_points: int | None = None) -> tuple[GeoPoint, ...]:
     """Decode Valhalla's latitude-first, six-decimal polyline."""
     if not isinstance(encoded, str) or not encoded:
         raise RoutingError("ROUTE_AUDIT_FAILED", "encoded route geometry is empty")
     values: list[int] = []
     index = 0
     while index < len(encoded):
+        if maximum_points is not None and len(values) >= maximum_points * 2:
+            raise RoutingError(
+                "RESOURCE_LIMIT_EXCEEDED",
+                "decoded route point count exceeds bounds",
+                {"limit": maximum_points},
+            )
         result = 0
         shift = 0
         while True:
@@ -74,8 +80,18 @@ def bounds(points: Sequence[GeoPoint]) -> dict[str, float]:
 
 def valid_wgs84(point: GeoPoint) -> bool:
     return (
-        math.isfinite(point.latitude)
-        and math.isfinite(point.longitude)
+        isinstance(point, GeoPoint)
+        and finite_number(point.latitude)
+        and finite_number(point.longitude)
         and -90.0 <= point.latitude <= 90.0
         and -180.0 <= point.longitude <= 180.0
     )
+
+
+def finite_number(value: object) -> bool:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False

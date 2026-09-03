@@ -43,3 +43,16 @@ maximum_route_shape_points = 16000
 maximum_route_edges = 16000
 route_length_absolute_tolerance_m = 10.0
 route_length_relative_tolerance = 0.01
+
+# Task 010E request-time alternatives policy; no graph rebuild is required.
+# Additional paths, excluding primary. CLI defaults to 0; runtime supports at most 2.
+maximum_requested_alternates = 2
+# UTF-8 bytes per route/trace response, checked before parsing (not a C++ memory cap).
+maximum_alternatives_response_bytes = 8388608
+# Total points/edges across all engine candidates, including duplicates; 3 x 16000.
+maximum_total_route_shape_points = 48000
+maximum_total_route_edges = 48000
+# Advisory only: diversity BELOW this ratio warns, but never removes a unique route.
+minimum_diversity_ratio = 0.10
+# Advisory only: candidate/primary length ABOVE this ratio warns, never filters.
+detour_warning_ratio = 1.50

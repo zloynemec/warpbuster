@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 from dataclasses import dataclass
 from enum import StrEnum
@@ -167,3 +168,48 @@ class RouteRequest:
     graph_id: str
     start: GeoPoint
     end: GeoPoint
+
+
+@dataclass(frozen=True, slots=True)
+class RouteAlternativesRequest:
+    """Request N additional routes (not counting the engine's primary)."""
+
+    graph_id: str
+    start: GeoPoint
+    end: GeoPoint
+    alternates: int
+
+
+@dataclass(frozen=True, slots=True)
+class RouteCandidate:
+    """Immutable geometry and a detached, normalized audit document."""
+
+    route_id: str
+    role: str
+    coordinates: tuple[GeoPoint, ...]
+    _document_json: str
+
+    def as_dict(self) -> dict[str, Any]:
+        value: dict[str, Any] = json.loads(self._document_json)
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class RouteAlternativesResult:
+    """Independent operation v1; never replaces RouteResult.route/coordinates."""
+
+    status: RouteStatus
+    candidates: tuple[RouteCandidate, ...]
+    _document_json: str
+
+    @property
+    def exit_code(self) -> int:
+        return 0 if self.status is RouteStatus.READY else 1
+
+    @property
+    def document(self) -> dict[str, Any]:
+        return self.as_dict()
+
+    def as_dict(self) -> dict[str, Any]:
+        value: dict[str, Any] = json.loads(self._document_json)
+        return value

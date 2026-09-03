@@ -140,8 +140,8 @@ Roadmap следует порядку milestone из [`docs/MILESTONES.md`](docs
   - все operational limits вынесены в отдельный TOML/config contract;
   - без routing, reconstruction и изменений WarpBuster Core.
 
-- [ ] **M9 / Task 010 — Valhalla-backed Pedestrian/Trail Routing**
-  ([task](tasks/010-osm-graph-routing.md)) — выполняется итерациями 010A–010F
+- [x] **M9 / Task 010 — Valhalla-backed Pedestrian/Trail Routing**
+  ([task](tasks/010-osm-graph-routing.md)) — итерации 010A–010F завершены 2026-09-03
   - [x] **M9A / Task 010A — Valhalla Feasibility Spike**
     ([task](tasks/010a-valhalla-feasibility-spike.md)) — `GO`, завершена 2026-09-02;
   - [x] **M9B / Task 010B — Production Snapshot Materialization + Graph Cache**
@@ -150,10 +150,14 @@ Roadmap следует порядку milestone из [`docs/MILESTONES.md`](docs
     ([task](tasks/010c-versioned-trail-profile.md)) — завершена 2026-09-02;
   - [x] **M9D / Task 010D — Audited Snapping + Single-route API**
     ([task](tasks/010d-audited-snapping-single-route.md)) — завершена 2026-09-02;
-  - [ ] **M9E / Task 010E — Alternatives + Route Diagnostics** — ТЗ оформляется после
-    010D;
-  - [ ] **M9F / Task 010F — Packaging + Performance Stabilization** — ТЗ оформляется
-    после 010E;
+  - [x] **M9E / Task 010E — Alternatives + Route Diagnostics**
+    ([task](tasks/010e-alternatives-route-diagnostics.md)) — завершена 2026-09-03;
+    opt-in до двух alternatives, per-route audit, edge-weight
+    overlap/diversity, stable IDs и явная неполнота поиска;
+  - [x] **M9F / Task 010F — Graph / Valhalla Version Guard**
+    ([task](tasks/010f-minimal-integration-readiness.md)) — завершена 2026-09-03;
+    только проверка точного совпадения версий graph/runtime перед routing;
+    без packaging smoke, runtime workers и capabilities API;
   - Valhalla заменяет собственные graph/index/pathfinding; OSM Manager остаётся слоем
     acquisition/cache/snapshot provenance;
   - OSM не используется в Integrity Detector.
@@ -191,8 +195,12 @@ Roadmap следует порядку milestone из [`docs/MILESTONES.md`](docs
   - отсутствие DEM или несовпадение vertical datum не блокирует однозначный 2D repair;
   - неоднозначные кандидаты не применяются автоматически.
 
-Таким образом, ближайший путь остаётся двухмерным: завершить routing, подключить его к
+Таким образом, routing завершён, а ближайший путь остаётся двухмерным: подключить его к
 repair в dry-run и проверить однозначные восстановления. DEM добавляется после этого
 как независимый enrichment/evidence layer до расширенного автоматического выбора.
+Эксплуатационное усиление routing (hard query timeout/workers, широкие benchmarks,
+другие платформы и capabilities negotiation) вынесено за объём 010F:
+возвращаться по измеренной потребности, а к timeout — до unattended batch/server режима.
+Это не дополнительные обязательные этапы перед первым локальным 011A dry-run.
 Garmin/COROS/Strava integrations, web UI и automatic pipeline остаются отдельными
 будущими направлениями.

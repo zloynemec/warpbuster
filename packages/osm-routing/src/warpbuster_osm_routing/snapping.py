@@ -145,13 +145,9 @@ def _normalize_candidate(
     if not isinstance(node_ids, list):
         node_ids = []
     engine_distance = item.get("distance")
-    engine_distance = (
-        float(engine_distance) if isinstance(engine_distance, int | float) else None
-    )
+    engine_distance = float(engine_distance) if isinstance(engine_distance, int | float) else None
     percent_along = item.get("percent_along")
-    percent_along = (
-        float(percent_along) if isinstance(percent_along, int | float) else None
-    )
+    percent_along = float(percent_along) if isinstance(percent_along, int | float) else None
     forward = edge.get("forward") if isinstance(edge.get("forward"), bool) else None
     endpoint = _endpoint(item, point, tuple(node_ids), config.equivalent_snap_separation_m)
     return SnapCandidate(

@@ -107,8 +107,8 @@ warpbuster-osm ensure --gpx race.gpx
 [`packages/osm-manager/osm-manager.example.toml`](packages/osm-manager/osm-manager.example.toml).
 
 Изолированный Valhalla adapter устанавливается отдельно. Он готовит проверенный graph
-cache, показывает зафиксированный trail-running profile и строит один audited route
-по точному `graph_id`:
+cache, показывает зафиксированный trail-running profile и строит audited routes
+по точному `graph_id`: один по умолчанию либо основной и до двух alternatives.
 
 ```bash
 python -m pip install -e "packages/osm-routing[dev]"
@@ -116,9 +116,12 @@ warpbuster-osm-route prepare /absolute/path/to/manifest.json
 warpbuster-osm-route profile show
 warpbuster-osm-route profile show --json
 warpbuster-osm-route route sha256:GRAPH_DIGEST --from 44.614065,33.736355 --to 44.604988,33.773734
+warpbuster-osm-route route sha256:GRAPH_DIGEST --from 44.614065,33.736355 --to 44.604988,33.773734 --alternates 2 --json
 ```
 
-Подробности: [`packages/osm-routing/README.md`](packages/osm-routing/README.md).
+Alternatives проходят отдельный audit и сравниваются по длине/edge-weight similarity.
+Поиск неполный: один найденный путь не доказывает уникальность, а выбор для repair
+остаётся будущим этапом. Подробности: [`packages/osm-routing/README.md`](packages/osm-routing/README.md).
 
 Чтение и инспекция FIT:
 

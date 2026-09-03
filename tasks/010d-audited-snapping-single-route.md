@@ -115,7 +115,9 @@ Orion snap около 22 m, но не разрешает переход на с�
 его нужно проверять на synthetic boundaries и нескольких private probes.
 
 Hard wall-clock timeout для in-process `pyvalhalla.Actor` не заявляется в 010D:
-безопасный interrupt требует отдельного worker/process lifecycle и относится к 010F.
+безопасный interrupt требует отдельного worker/process lifecycle. Изначально он был
+отнесён к 010F, но [окончательный объём 010F](010f-minimal-integration-readiness.md)
+ограничен проверкой версии. Timeout отложен до unattended/server режима или обнаруженного зависания.
 Valhalla `service_limits.pedestrian.max_distance` и собственный post-check distance
 остаются обязательными bounds.
 
@@ -384,7 +386,8 @@ Private probes Orion/Andromeda допускаются только как доп
 - heading/pace/distance evidence от activity;
 - автоматическое разрешение ambiguous snap;
 - raw OSM tag index для полного access audit;
-- worker-process timeout и performance stabilization — Task 010F;
+- worker-process timeout и широкая performance stabilization — вне окончательного
+  объёма [Task 010F](010f-minimal-integration-readiness.md), отложены;
 - применение OSM geometry к ActivityData/FIT — Task 011;
 - DEM и исправление высоты.
 

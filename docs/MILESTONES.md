@@ -322,7 +322,7 @@ Task: `tasks/009-osm-manager.md`
 
 ## M9 — Valhalla-backed Pedestrian/Trail Routing
 
-**Статус:** в работе; M9A–M9D завершены, следующая итерация — M9E.
+**Статус:** завершён 2026-09-03; M9A–M9F выполнены. Следующий этап — M10 / Task 011A.
 
 **Цель:** поверх immutable snapshots из M8 построить отдельный детерминированный adapter
 к Valhalla, который соединяет заданные anchors допустимыми pedestrian/trail paths, но
@@ -340,10 +340,14 @@ Task: `tasks/009-osm-manager.md`
    раздельные graph/request policies, canonical profile hash и behavioral matrix;
 4. **M9D / Task 010D — Audited Snapping + Single-route API**: завершена; реализованы
    stable diagnostics, thresholds, provenance и explicit failure outcomes;
-5. **M9E / Task 010E — Alternatives + Route Diagnostics**: bounded alternatives,
-   overlap/diversity и ambiguity;
-6. **M9F / Task 010F — Packaging + Performance Stabilization**: clean install,
-   benchmarks, compatibility и protocol stabilization.
+5. **M9E / Task 010E — Alternatives + Route Diagnostics**: завершена; bounded
+   alternatives, per-route audit, edge-weight
+   overlap/diversity и non-exhaustive ambiguity diagnostics;
+   подробности: [Task 010E](../tasks/010e-alternatives-route-diagnostics.md);
+6. **M9F / Task 010F — Graph / Valhalla Version Guard**: завершена;
+   только проверка точного совпадения версий сборки graph и текущего Valhalla перед
+   routing. Packaging smoke, workers и capabilities API не входят;
+   подробности: [Task 010F](../tasks/010f-minimal-integration-readiness.md).
 
 Каждая итерация оформляется отдельным ТЗ непосредственно перед реализацией. Следующая
 итерация не должна реализовываться внутри текущей. Общая декомпозиция зафиксирована в
@@ -358,6 +362,11 @@ Task: `tasks/009-osm-manager.md`
 - bounded snapping, single-route и alternative-route search;
 - полный snapshot/profile/graph provenance;
 - отсутствие FIT, Integrity Detector и reconstruction logic.
+
+010F ограничен проверкой версии. После него следующий шаг — первая локальная интеграция
+011A, а не unattended/server или многоплатформенная production readiness. Packaging,
+широкие benchmarks и runtime workers не являются дополнительными этапами перед первым
+candidate/dry-run; к hard timeout нужно вернуться до unattended batch/server режима.
 
 Task: `tasks/010-osm-graph-routing.md`
 

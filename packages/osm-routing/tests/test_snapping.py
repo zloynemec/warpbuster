@@ -70,9 +70,7 @@ def _edge(
 def test_same_way_directed_candidates_are_one_group() -> None:
     actor = LocateActor([_edge(44.0, 33.00001, 101, 1), _edge(44.0, 33.00001, 101, 2)])
 
-    decision = audit_snap(
-        actor, GeoPoint(44.0, 33.0), _coverage(), RoutingCacheConfig.defaults()
-    )
+    decision = audit_snap(actor, GeoPoint(44.0, 33.0), _coverage(), RoutingCacheConfig.defaults())
 
     assert decision.status == "ACCEPTED"
     assert decision.document["candidate_group_count"] == 1
@@ -82,9 +80,7 @@ def test_same_way_directed_candidates_are_one_group() -> None:
 def test_near_parallel_distinct_ways_are_ambiguous() -> None:
     actor = LocateActor([_edge(44.0, 33.00001, 101, 1), _edge(44.0, 33.00002, 102, 2)])
 
-    decision = audit_snap(
-        actor, GeoPoint(44.0, 33.0), _coverage(), RoutingCacheConfig.defaults()
-    )
+    decision = audit_snap(actor, GeoPoint(44.0, 33.0), _coverage(), RoutingCacheConfig.defaults())
 
     assert decision.status == "AMBIGUOUS_SNAP"
     assert decision.document["candidate_group_count"] == 2
@@ -93,9 +89,7 @@ def test_near_parallel_distinct_ways_are_ambiguous() -> None:
 def test_candidate_beyond_maximum_distance_is_no_snap() -> None:
     actor = LocateActor([_edge(44.0, 33.001, 101, 1)])
 
-    decision = audit_snap(
-        actor, GeoPoint(44.0, 33.0), _coverage(), RoutingCacheConfig.defaults()
-    )
+    decision = audit_snap(actor, GeoPoint(44.0, 33.0), _coverage(), RoutingCacheConfig.defaults())
 
     assert decision.status == "NO_SNAP"
 
@@ -103,9 +97,7 @@ def test_candidate_beyond_maximum_distance_is_no_snap() -> None:
 def test_outside_coverage_does_not_call_valhalla() -> None:
     actor = LocateActor([])
 
-    decision = audit_snap(
-        actor, GeoPoint(45.0, 34.0), _coverage(), RoutingCacheConfig.defaults()
-    )
+    decision = audit_snap(actor, GeoPoint(45.0, 34.0), _coverage(), RoutingCacheConfig.defaults())
 
     assert decision.status == "OUTSIDE_COVERAGE"
     assert not actor.called
@@ -141,7 +133,9 @@ def test_candidate_limit_is_enforced_before_grouping() -> None:
 
 
 def test_report_is_bounded_without_changing_ambiguity_decision() -> None:
-    actor = LocateActor([_edge(44.0, 33.0 + index / 1_000_000, 100 + index, index) for index in range(4)])
+    actor = LocateActor(
+        [_edge(44.0, 33.0 + index / 1_000_000, 100 + index, index) for index in range(4)]
+    )
     config = replace(RoutingCacheConfig.defaults(), maximum_reported_candidate_groups=1)
 
     decision = audit_snap(actor, GeoPoint(44.0, 33.0), _coverage(), config)
@@ -175,9 +169,7 @@ def test_distinct_ways_at_proven_shared_endpoint_are_one_group() -> None:
         ]
     )
 
-    decision = audit_snap(
-        actor, GeoPoint(44.0, 33.001), _coverage(), RoutingCacheConfig.defaults()
-    )
+    decision = audit_snap(actor, GeoPoint(44.0, 33.001), _coverage(), RoutingCacheConfig.defaults())
 
     assert decision.status == "ACCEPTED"
     assert decision.document["candidate_group_count"] == 1

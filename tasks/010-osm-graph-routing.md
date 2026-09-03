@@ -1,6 +1,6 @@
 # Task 010 — Valhalla-backed Pedestrian/Trail Routing
 
-Статус: выполняется итерациями; Task 010A–010D завершены.
+Статус: завершена 2026-09-03; Task 010A–010F выполнены.
 
 ## Контекст
 
@@ -97,6 +97,8 @@ CLI inspection и offline behavioral matrix на Valhalla 3.8.3. Выявлен�
 
 ### Task 010E — Alternatives + Route Diagnostics
 
+Статус: завершена 2026-09-03.
+
 Добавить ограниченные alternatives:
 
 - bounded requested/returned count;
@@ -105,13 +107,28 @@ CLI inspection и offline behavioral matrix на Valhalla 3.8.3. Выявлен�
 - отсутствие альтернативы как нормальный результат;
 - diagnostics, достаточные для консервативного выбора в M10.
 
-### Task 010F — Packaging + Performance Stabilization
+Реализован opt-in `--alternates 1/2`, сохранение single-route contract 010D,
+независимый audit каждого пути и advisory edge-weight overlap/detour/diversity без
+скрытия похожих вариантов. Один найденный путь не доказывает уникальность: поиск
+явно non-exhaustive, а решение о reconstruction остаётся M10.
 
-- clean wheel install на заявленных platforms;
-- repeatability suite и semantic compatibility policy;
-- benchmark manager snapshots разных размеров;
-- documented cache lifecycle и operational limits;
-- versioned protocol/capabilities для интеграции M10.
+Подробное ТЗ: [Task 010E](010e-alternatives-route-diagnostics.md).
+
+### Task 010F — Graph / Valhalla Version Guard
+
+Статус: завершена 2026-09-03; пользователь сократил объём до проверки версии.
+
+Единственное изменение — проверка точного совпадения Valhalla runtime с версией
+сборки выбранного graph перед созданием Actor, для single-route и alternatives.
+Mismatch даёт `GRAPH_ENGINE_MISMATCH` с обеими версиями и инструкцией повторить
+`prepare`; graph не мутирует, `list`/`inspect` остаются доступны.
+
+Clean-wheel smoke и новый сквозной integration runner исключены из 010F. Workers/hard
+query timeout, capabilities API, platform matrix и benchmark framework также вне задачи.
+Cache lifecycle, versioned API и repeatability уже реализованы и не перепроектируются.
+
+Подробное ТЗ:
+[Task 010F](010f-minimal-integration-readiness.md).
 
 ## Общие инварианты
 
@@ -142,4 +159,7 @@ CLI inspection и offline behavioral matrix на Valhalla 3.8.3. Выявлен�
 - versioned trail profile, snapping, route и alternatives имеют stable audit contract;
 - результаты содержат provenance, достаточный для Task 011;
 - Core и OSM Manager не получают routing/reconstruction imports;
-- полный lint/type/test/clean-wheel suite зелёный.
+- полный lint/type/test suite зелёный в проверенном окружении;
+- 010F проверяет версии без повторного clean-wheel smoke; завершение M9 — переход
+  к локальному 011A dry-run, не обещание server, unattended или cross-platform
+  production readiness.

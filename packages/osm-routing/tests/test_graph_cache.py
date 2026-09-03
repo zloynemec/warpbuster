@@ -226,9 +226,7 @@ def test_legacy_v1_graph_is_inspectable_but_identified_as_legacy(
     assert {item["status"] for item in cache.list_graphs()} == {"READY", "LEGACY_READY"}
 
 
-def test_graph_v2_requires_coverage_provenance(
-    snapshot_manifest: Path, tmp_path: Path
-) -> None:
+def test_graph_v2_requires_coverage_provenance(snapshot_manifest: Path, tmp_path: Path) -> None:
     cache = GraphCache(_config(tmp_path), tile_builder=_fake_builder)
     ready = cache.prepare(snapshot_manifest)
     document = json.loads(ready.manifest_path.read_text())

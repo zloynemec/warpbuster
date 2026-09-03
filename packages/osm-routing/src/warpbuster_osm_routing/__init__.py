@@ -6,6 +6,9 @@ from warpbuster_osm_routing.config import RoutingCacheConfig
 from warpbuster_osm_routing.graph_cache import GraphCache
 from warpbuster_osm_routing.models import (
     GeoPoint,
+    RouteAlternativesRequest,
+    RouteAlternativesResult,
+    RouteCandidate,
     RouteRequest,
     RouteResult,
     RouteStatus,
@@ -21,6 +24,9 @@ __all__ = [
     "TRAIL_RUNNING_V1",
     "GeoPoint",
     "GraphCache",
+    "RouteAlternativesRequest",
+    "RouteAlternativesResult",
+    "RouteCandidate",
     "RouteRequest",
     "RouteResult",
     "RouteService",

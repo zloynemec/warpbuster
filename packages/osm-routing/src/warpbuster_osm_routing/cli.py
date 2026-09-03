@@ -11,7 +11,7 @@ from typing import Any
 from warpbuster_osm_routing.config import RoutingCacheConfig
 from warpbuster_osm_routing.errors import RoutingError
 from warpbuster_osm_routing.graph_cache import GraphCache
-from warpbuster_osm_routing.models import GeoPoint, RouteRequest
+from warpbuster_osm_routing.models import GeoPoint, RouteAlternativesRequest, RouteRequest
 from warpbuster_osm_routing.profiles import TRAIL_RUNNING_V1
 from warpbuster_osm_routing.route_service import RouteService
 from warpbuster_osm_routing.spike import run_spike
@@ -40,6 +40,12 @@ def build_parser() -> argparse.ArgumentParser:
     route.add_argument("graph_id")
     route.add_argument("--from", dest="start", type=_parse_point, required=True)
     route.add_argument("--to", dest="end", type=_parse_point, required=True)
+    route.add_argument(
+        "--alternates",
+        default="0",
+        metavar="N",
+        help="additional routes: 0 (default), 1 or 2; never guarantees exhaustive search",
+    )
     _add_cache_options(route)
 
     remove = subparsers.add_parser("remove", help="remove one exact verified graph")
@@ -73,11 +79,16 @@ def main(argv: list[str] | None = None) -> int:
     try:
         document = _execute(args)
     except RoutingError as error:
+        operation = str(args.command)
+        if operation == "route" and args.alternates not in (0, "0"):
+            operation = "route_alternatives"
         document = {
-            "operation": str(args.command),
+            "operation": operation,
             "status": "error" if args.command == "spike" else "ERROR",
             "error": error.as_dict(),
         }
+        if operation == "route_alternatives":
+            document["protocol_version"] = 1
         if getattr(args, "json", False):
             print(json.dumps(document, sort_keys=True, separators=(",", ":")))
         else:
@@ -92,6 +103,15 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _execute(args: argparse.Namespace) -> dict[str, Any]:
+    if args.command == "route":
+        try:
+            args.alternates = int(args.alternates)
+        except ValueError as error:
+            raise RoutingError(
+                "INVALID_REQUEST", "alternates must be an integer: 0, 1 or 2"
+            ) from error
+        if not 0 <= args.alternates <= 2:
+            raise RoutingError("INVALID_REQUEST", "alternates must be 0, 1 or 2")
     if args.command == "spike":
         return run_spike(
             args.manifest,
@@ -128,9 +148,22 @@ def _execute(args: argparse.Namespace) -> dict[str, Any]:
             "graph": result.document,
         }
     if args.command == "route":
-        return RouteService(config).route(
-            RouteRequest(args.graph_id, args.start, args.end)
-        ).as_dict()
+        if args.alternates:
+            return (
+                RouteService(config)
+                .alternatives(
+                    RouteAlternativesRequest(
+                        args.graph_id,
+                        args.start,
+                        args.end,
+                        args.alternates,
+                    )
+                )
+                .as_dict()
+            )
+        return (
+            RouteService(config).route(RouteRequest(args.graph_id, args.start, args.end)).as_dict()
+        )
     if args.command == "remove":
         return cache.remove(args.graph_id)
     if args.command == "prune":
@@ -185,7 +218,7 @@ def _print_console(document: dict[str, Any]) -> None:
     elif operation == "inspect":
         print(f"Graph {document['graph_id']}: {document['status']}")
         print(f"Manifest: {document['manifest_path']}")
-    elif operation == "route":
+    elif operation in {"route", "route_alternatives"}:
         print("WarpBuster audited OSM route")
         print(f"Status: {document['status']}")
         print(f"Graph: {document['graph']['graph_id']}")
@@ -197,7 +230,9 @@ def _print_console(document: dict[str, Any]) -> None:
                 else ""
             )
             print(f"{anchor.title()} snap: {snap['status']}{distance}")
-        if document["route"] is not None:
+        if operation == "route_alternatives":
+            _print_alternatives(document)
+        elif document["route"] is not None:
             print(f"Distance: {document['route']['summary']['length_m']} m")
             print(f"Audit: {document['route']['audit']['status']}")
     elif operation == "remove":
@@ -215,6 +250,42 @@ def _print_console(document: dict[str, Any]) -> None:
             f"(compatible={'yes' if profile['engine_compatible'] else 'no'})"
         )
         print(json.dumps(profile["costing_options"], indent=2, sort_keys=True))
+
+
+def _print_alternatives(document: dict[str, Any]) -> None:
+    search = document["search"]
+    print(
+        f"Alternatives: requested={search['requested_alternates']}; "
+        f"engine={search['engine_returned_alternates']}; unique={search['unique_alternates']}; "
+        f"duplicates={search['duplicates_removed']}"
+    )
+    print(f"Route choice: {document['route_choice']['status']}")
+    print("Search is NOT exhaustive; one candidate does not prove a unique path.")
+    print("Overlap/diversity: directed edge-weight similarity, not exact spatial overlap.")
+    if search["reasons"]:
+        print("Search diagnostics: " + ", ".join(search["reasons"]))
+    if not document["routes"]:
+        return
+    print(
+        "Route ID | Role | Distance m | Delta m | Ratio | Overlap* | Diversity* | Audit | Warnings"
+    )
+    for route in document["routes"]:
+        metrics = route["vs_primary"]
+        comparative = (
+            f"{metrics['length_delta_m']:+.3f} | {metrics['distance_ratio']:.3f} | "
+            f"{metrics['overlap_b']:.1%} | {metrics['diversity_ratio']:.1%}"
+            if metrics
+            else "— | — | — | —"
+        )
+        warnings = ", ".join(item["code"] for item in route["warnings"]) or "—"
+        print(
+            f"{route['route_id']} | {route['role']} | "
+            f"{route['geometry']['calculated_length_m']:.3f} | {comparative} | "
+            f"{route['audit']['status']} | {warnings}"
+        )
+    print(
+        "* Compared with the engine primary; overlap is the candidate's shared edge-weight fraction."
+    )
 
 
 if __name__ == "__main__":

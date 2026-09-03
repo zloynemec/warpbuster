@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import sys
 import tomllib
@@ -9,11 +11,24 @@ from dataclasses import dataclass, fields, replace
 from pathlib import Path
 from typing import Any, Self, get_type_hints
 
+from warpbuster_osm_routing.geometry import finite_number
+
 DEFAULT_CONFIG_FILENAME = "osm-routing.toml"
 CACHE_DIRECTORY_ENVIRONMENT_VARIABLE = "WARPBUSTER_OSM_ROUTING_CACHE_DIR"
 VALHALLA_MAX_LOCATION_RADIUS_M = 200.0
 VALHALLA_MAX_PEDESTRIAN_DISTANCE_M = 250_000.0
 VALHALLA_MAX_TRACE_SHAPE_POINTS = 16_000
+VALHALLA_MAX_ALTERNATES = 2
+ALTERNATIVES_POLICY_FIELDS = frozenset(
+    {
+        "maximum_requested_alternates",
+        "maximum_alternatives_response_bytes",
+        "maximum_total_route_shape_points",
+        "maximum_total_route_edges",
+        "minimum_diversity_ratio",
+        "detour_warning_ratio",
+    }
+)
 QUERY_POLICY_FIELDS = frozenset(
     {
         "snap_search_radius_m",
@@ -79,6 +94,13 @@ class RoutingCacheConfig:
     maximum_route_edges: int = VALHALLA_MAX_TRACE_SHAPE_POINTS
     route_length_absolute_tolerance_m: float = 10.0
     route_length_relative_tolerance: float = 0.01
+    # Request-time bounds; none of these affect immutable graph identity.
+    maximum_requested_alternates: int = VALHALLA_MAX_ALTERNATES
+    maximum_alternatives_response_bytes: int = 8 * 1024 * 1024
+    maximum_total_route_shape_points: int = 48_000
+    maximum_total_route_edges: int = 48_000
+    minimum_diversity_ratio: float = 0.10
+    detour_warning_ratio: float = 1.50
 
     @classmethod
     def defaults(cls) -> Self:
@@ -124,6 +146,8 @@ class RoutingCacheConfig:
             elif hints[key] is float:
                 if not isinstance(value, int | float) or isinstance(value, bool):
                     raise ValueError(f"{key} must be a number")
+                if not finite_number(value):
+                    raise ValueError(f"{key} must be finite")
                 values[key] = float(value)
             else:
                 values[key] = value
@@ -133,12 +157,30 @@ class RoutingCacheConfig:
         return replace(self, cache_directory=path.expanduser() if path else self.cache_directory)
 
     def validated(self) -> Self:
+        hints = get_type_hints(type(self))
         for item in fields(self):
             if item.name == "cache_directory":
                 continue
             value = getattr(self, item.name)
-            if not isinstance(value, int | float) or value <= 0:
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int | float)
+                or (hints[item.name] is int and not isinstance(value, int))
+                or not finite_number(value)
+            ):
+                raise ValueError(
+                    f"{item.name} must have a finite numeric value of the correct type"
+                )
+            if item.name == "minimum_diversity_ratio":
+                if not 0 <= value <= 1:
+                    raise ValueError("minimum_diversity_ratio must be in [0, 1]")
+                continue
+            if value <= 0:
                 raise ValueError(f"{item.name} must be positive")
+        if self.maximum_requested_alternates > VALHALLA_MAX_ALTERNATES:
+            raise ValueError("maximum_requested_alternates exceeds the pinned engine limit of 2")
+        if self.detour_warning_ratio < 1:
+            raise ValueError("detour_warning_ratio must be >= 1")
         if self.maximum_snap_distance_m > self.snap_search_radius_m:
             raise ValueError("maximum_snap_distance_m must not exceed snap_search_radius_m")
         if self.snap_search_radius_m > VALHALLA_MAX_LOCATION_RADIUS_M:
@@ -146,17 +188,13 @@ class RoutingCacheConfig:
                 f"snap_search_radius_m must not exceed {VALHALLA_MAX_LOCATION_RADIUS_M:g}"
             )
         if self.equivalent_snap_separation_m > self.maximum_snap_distance_m:
-            raise ValueError(
-                "equivalent_snap_separation_m must not exceed maximum_snap_distance_m"
-            )
+            raise ValueError("equivalent_snap_separation_m must not exceed maximum_snap_distance_m")
         if self.maximum_route_distance_m > VALHALLA_MAX_PEDESTRIAN_DISTANCE_M:
             raise ValueError(
                 "maximum_route_distance_m exceeds the pinned Valhalla pedestrian limit"
             )
         if self.maximum_route_shape_points > VALHALLA_MAX_TRACE_SHAPE_POINTS:
-            raise ValueError(
-                "maximum_route_shape_points exceeds the pinned Valhalla trace limit"
-            )
+            raise ValueError("maximum_route_shape_points exceeds the pinned Valhalla trace limit")
         return self
 
     def limits_dict(self) -> dict[str, int | float]:
@@ -171,10 +209,35 @@ class RoutingCacheConfig:
         return {
             key: value
             for key, value in self.limits_dict().items()
-            if key not in QUERY_POLICY_FIELDS
+            if key not in QUERY_POLICY_FIELDS | ALTERNATIVES_POLICY_FIELDS
         }
 
     def query_policy_dict(self) -> dict[str, int | float]:
         """Return the complete request-time policy for route provenance."""
         values = self.limits_dict()
         return {key: values[key] for key in sorted(QUERY_POLICY_FIELDS)}
+
+    def alternatives_policy_dict(self) -> dict[str, Any]:
+        """Versioned interpretation and limits, separate from the 010D contract."""
+        policy: dict[str, Any] = {
+            "policy_version": 1,
+            "metric": "directed_edge_weighted_v1",
+            "metric_description": (
+                "Directed edge-weight similarity, not exact spatial intersection. "
+                "Disjoint partial spans on one edge may overestimate shared weight; "
+                "repeated traversals preserve weight but not order. "
+                "Ratios do not prove path identity, uniqueness or repair confidence."
+            ),
+            "ordering": "engine primary first; alternatives by length rounded to mm, then route_id",
+            "identity_schema": "audited-route-v1",
+            **{
+                key: (
+                    float(getattr(self, key))
+                    if key in {"minimum_diversity_ratio", "detour_warning_ratio"}
+                    else getattr(self, key)
+                )
+                for key in sorted(ALTERNATIVES_POLICY_FIELDS)
+            },
+        }
+        encoded = json.dumps(policy, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        return {**policy, "policy_sha256": hashlib.sha256(encoded.encode()).hexdigest()}
