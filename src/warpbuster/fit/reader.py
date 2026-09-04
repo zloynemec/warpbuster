@@ -11,6 +11,7 @@ from typing import cast
 
 import fitdecode
 
+from warpbuster.fit.compat import CompatibleFitReader
 from warpbuster.models.activity import (
     ActivityData,
     ActivityRecord,
@@ -54,12 +55,7 @@ def read_fit(path: str | Path) -> ActivityData:
     profile_versions: list[str] = []
 
     try:
-        with fitdecode.FitReader(
-            raw_bytes,
-            check_crc=fitdecode.CrcCheck.RAISE,
-            error_handling=fitdecode.ErrorHandling.RAISE,
-            keep_raw_chunks=True,
-        ) as reader:
+        with CompatibleFitReader(raw_bytes) as reader:
             for frame in reader:
                 if isinstance(frame, fitdecode.FitHeader):
                     profile_versions.append(_header_profile_version(frame))
@@ -116,6 +112,7 @@ def read_fit(path: str | Path) -> ActivityData:
             definitions=tuple(definitions),
             profile_version=", ".join(dict.fromkeys(profile_versions)),
             crc_valid=True,
+            compatibility_warnings=tuple(reader.compatibility_warnings),
         ),
     )
 

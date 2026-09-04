@@ -109,6 +109,7 @@ def write_trajectory_activity(
     distances_m: list[float] | None = None,
     speeds_mps: list[float] | None = None,
     altitudes_m: list[float] | None = None,
+    timer_events: list[tuple[int, str]] | None = None,
 ) -> bytes:
     """Write a valid FIT containing a caller-supplied synthetic trajectory."""
     if distances_m is not None and len(distances_m) != len(observations):
@@ -146,10 +147,22 @@ def write_trajectory_activity(
             record["position_lat"] = _semicircles(latitude)
             record["position_long"] = _semicircles(longitude)
         elif retain_invalid_position_fields:
-            record["position_lat"] = 0x7FFFFFFF
-            record["position_long"] = 0x7FFFFFFF
+            record["position_lat"] = _semicircles(latitude) if latitude is not None else 0x7FFFFFFF
+            record["position_long"] = (
+                _semicircles(longitude) if longitude is not None else 0x7FFFFFFF
+            )
         encoder.on_mesg(Profile["mesg_num"]["RECORD"], record)
 
+    for elapsed, kind in timer_events or ():
+        encoder.on_mesg(
+            Profile["mesg_num"]["EVENT"],
+            {
+                "timestamp": start + timedelta(seconds=elapsed),
+                "event": "timer",
+                "event_type": kind,
+                "event_group": 0,
+            },
+        )
     duration = float(observations[-1][0]) if observations else 0.0
     encoder.on_mesg(
         Profile["mesg_num"]["SESSION"],

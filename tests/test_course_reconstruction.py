@@ -45,8 +45,8 @@ def test_high_confidence_interval_builds_ready_plan_without_mutation(tmp_path: P
     interval_plan = plan.interval_plans[0]
     assert interval_plan.repair_eligible is True
     assert interval_plan.fields_to_change == ("position_lat", "position_long")
-    assert interval_plan.allocation_method is AllocationMethod.TIMESTAMPS
-    assert interval_plan.direction is CourseDirection.FORWARD
+    assert interval_plan.provenance.allocation_method is AllocationMethod.TIMESTAMPS
+    assert interval_plan.provenance.direction is CourseDirection.FORWARD
     assert len(interval_plan.coordinate_updates) == 1
     update = interval_plan.coordinate_updates[0]
     assert update.record_index == 2
@@ -74,7 +74,7 @@ def test_course_direction_can_be_reverse(tmp_path: Path) -> None:
     )
 
     assert plan.status is RepairPlanStatus.READY
-    assert plan.interval_plans[0].direction is CourseDirection.REVERSE
+    assert plan.interval_plans[0].provenance.direction is CourseDirection.REVERSE
 
 
 def test_plausible_recorded_distance_is_preferred_but_bad_distance_is_not(
@@ -109,8 +109,14 @@ def test_plausible_recorded_distance_is_preferred_but_bad_distance_is_not(
         _short_span_config(),
     )
 
-    assert plausible_plan.interval_plans[0].allocation_method is AllocationMethod.RECORDED_DISTANCE
-    assert implausible_plan.interval_plans[0].allocation_method is AllocationMethod.TIMESTAMPS
+    assert (
+        plausible_plan.interval_plans[0].provenance.allocation_method
+        is AllocationMethod.RECORDED_DISTANCE
+    )
+    assert (
+        implausible_plan.interval_plans[0].provenance.allocation_method
+        is AllocationMethod.TIMESTAMPS
+    )
 
 
 def test_plausible_speed_is_used_when_distance_is_unavailable(tmp_path: Path) -> None:
@@ -128,11 +134,13 @@ def test_plausible_speed_is_used_when_distance_is_unavailable(tmp_path: Path) ->
         _short_span_config(),
     )
 
-    assert plan.interval_plans[0].allocation_method is AllocationMethod.RECORDED_SPEED
+    assert plan.interval_plans[0].provenance.allocation_method is AllocationMethod.RECORDED_SPEED
 
 
-def test_record_order_is_last_resort_when_interval_timestamp_is_missing(tmp_path: Path) -> None:
-    """The provider can propose geometry without inventing a missing timestamp."""
+def test_missing_timestamp_refuses_reconstruction_without_record_order_fallback(
+    tmp_path: Path,
+) -> None:
+    """Geometry allocation requires trustworthy time; invalidation remains independent."""
     detected_activity = _single_spike_activity()
     integrity = analyze_integrity(detected_activity)
     activity = replace(
@@ -150,8 +158,8 @@ def test_record_order_is_last_resort_when_interval_timestamp_is_missing(tmp_path
         _short_span_config(),
     )
 
-    assert plan.interval_plans[0].allocation_method is AllocationMethod.RECORD_ORDER
-    assert plan.interval_plans[0].coordinate_updates[0].timestamp is None
+    assert plan.interval_plans == ()
+    assert plan.unresolved_gaps[0].reasons == (ReconstructionReason.TIMING_UNUSABLE,)
 
 
 def test_implausibly_long_course_traversal_is_refused(tmp_path: Path) -> None:
@@ -166,9 +174,11 @@ def test_implausibly_long_course_traversal_is_refused(tmp_path: Path) -> None:
         path,
         [
             [
+                (activity.records[0].latitude, activity.records[0].longitude, None, None),
                 (start.latitude, start.longitude, None, None),
                 (55.002, 37.0, None, None),
                 (end.latitude, end.longitude, None, None),
+                (activity.records[4].latitude, activity.records[4].longitude, None, None),
             ]
         ],
     )
@@ -180,10 +190,8 @@ def test_implausibly_long_course_traversal_is_refused(tmp_path: Path) -> None:
         _short_span_config(),
     )
 
-    assert plan.status is RepairPlanStatus.REFUSED
-    assert plan.unresolved_intervals[0].reasons == (
-        ReconstructionReason.COURSE_TRAVERSAL_IMPLAUSIBLE,
-    )
+    assert plan.status is RepairPlanStatus.PARTIAL
+    assert plan.unresolved_gaps[0].reasons == (ReconstructionReason.COURSE_TRAVERSAL_IMPLAUSIBLE,)
 
 
 def test_medium_anchor_match_is_not_writer_eligible(tmp_path: Path) -> None:
@@ -209,9 +217,9 @@ def test_medium_anchor_match_is_not_writer_eligible(tmp_path: Path) -> None:
         _short_span_config_for_medium(),
     )
 
-    assert plan.status is RepairPlanStatus.REFUSED
-    assert plan.interval_plans[0].confidence is IntegrityConfidence.MEDIUM
-    assert plan.interval_plans[0].repair_eligible is False
+    assert plan.status is RepairPlanStatus.PARTIAL
+    assert plan.interval_plans == ()
+    assert plan.unresolved_gaps[0].reasons == (ReconstructionReason.COURSE_TRAVERSAL_IMPLAUSIBLE,)
 
 
 def test_self_intersection_with_equally_good_paths_is_refused(tmp_path: Path) -> None:
@@ -235,9 +243,9 @@ def test_self_intersection_with_equally_good_paths_is_refused(tmp_path: Path) ->
         _short_span_config(),
     )
 
-    assert plan.status is RepairPlanStatus.REFUSED
+    assert plan.status is RepairPlanStatus.PARTIAL
     assert plan.interval_plans == ()
-    assert plan.unresolved_intervals[0].reasons == (ReconstructionReason.COURSE_MATCH_AMBIGUOUS,)
+    assert plan.unresolved_gaps[0].reasons == (ReconstructionReason.LOCAL_COURSE_MATCH_AMBIGUOUS,)
 
 
 def test_unmatched_course_is_refused_without_touching_wrong_turn(tmp_path: Path) -> None:
@@ -256,12 +264,9 @@ def test_unmatched_course_is_refused_without_touching_wrong_turn(tmp_path: Path)
         _short_span_config(),
     )
 
-    assert plan.status is RepairPlanStatus.REFUSED
+    assert plan.status is RepairPlanStatus.PARTIAL
     assert plan.interval_plans == ()
-    assert plan.unresolved_intervals[0].reasons == (
-        ReconstructionReason.ANCHOR_BEFORE_NOT_MATCHED,
-        ReconstructionReason.ANCHOR_AFTER_NOT_MATCHED,
-    )
+    assert plan.unresolved_gaps[0].reasons == (ReconstructionReason.LOCAL_COURSE_MATCH_NOT_FOUND,)
 
 
 def test_one_unmatched_interval_makes_the_whole_plan_partial(tmp_path: Path) -> None:
@@ -288,7 +293,7 @@ def test_one_unmatched_interval_makes_the_whole_plan_partial(tmp_path: Path) -> 
     assert plan.status is RepairPlanStatus.PARTIAL
     assert len(plan.interval_plans) == 1
     assert plan.interval_plans[0].repair_eligible is True
-    assert len(plan.unresolved_intervals) == 1
+    assert len(plan.unresolved_gaps) == 1
     assert plan.reasons == (ReconstructionReason.SOME_INTERVALS_UNRESOLVED,)
 
 
@@ -376,11 +381,18 @@ def _ambiguous_course_points() -> list[GpxPoint]:
     end_longitude = base[1][2]
     assert start_latitude is not None and start_longitude is not None
     assert end_latitude is not None and end_longitude is not None
+    outer = eastward_observations([0.0, 1.0], [0.0, 12.0])
+    before = (outer[0][1], outer[0][2], None, None)
+    after = (outer[1][1], outer[1][2], None, None)
     return [
+        before,
         (start_latitude, start_longitude, None, None),
         (55.001, 37.0, None, None),
         (end_latitude, end_longitude, None, None),
+        after,
+        before,
         (start_latitude, start_longitude, None, None),
         (54.999, 37.0, None, None),
         (end_latitude, end_longitude, None, None),
+        after,
     ]

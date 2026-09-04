@@ -102,6 +102,7 @@ class FitPreservationData:
     definitions: tuple[Mapping[str, object], ...]
     profile_version: str
     crc_valid: bool
+    compatibility_warnings: tuple[str, ...] = ()
     source_format: ActivityFileFormat = field(default=ActivityFileFormat.FIT, init=False)
 
 

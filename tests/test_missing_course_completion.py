@@ -14,9 +14,8 @@ from warpbuster.integrity import analyze_integrity
 from warpbuster.models.integrity import IntegrityConfidence
 from warpbuster.models.reconstruction import (
     AllocationMethod,
-    MissingCourseCompletionPlan,
+    GapRepairPlan,
     MissingCourseRunKind,
-    ReconstructionReason,
     RepairIntervalAction,
     RepairPlanStatus,
 )
@@ -46,19 +45,21 @@ def test_endpoint_missing_runs_are_independent_explicit_medium_candidates(
     missing = build_missing_course_plan(activity, integrity, course, config)
     plan = merge_repair_plans(primary, missing)
 
-    assert primary.status is RepairPlanStatus.NOT_NEEDED
-    assert plan.status is RepairPlanStatus.PARTIAL
+    assert primary.status is RepairPlanStatus.REFUSED
+    assert len(primary.gaps) == 2
+    assert plan.status is RepairPlanStatus.READY
     assert plan.missing_completion_enabled is True
-    assert plan.detected_interval_count == 2
+    assert plan.detected_interval_count == 0
+    assert len(plan.gaps) == 2
     assert len(plan.interval_plans) == 2
-    assert plan.unresolved_missing_runs == ()
+    assert plan.unresolved_gaps == ()
     prefix, suffix = plan.interval_plans
-    assert isinstance(prefix, MissingCourseCompletionPlan)
-    assert isinstance(suffix, MissingCourseCompletionPlan)
+    assert isinstance(prefix, GapRepairPlan)
+    assert isinstance(suffix, GapRepairPlan)
     assert prefix.interval.kind is MissingCourseRunKind.PREFIX
     assert suffix.interval.kind is MissingCourseRunKind.SUFFIX
-    assert prefix.allocation_method is AllocationMethod.RECORDED_DISTANCE
-    assert suffix.allocation_method is AllocationMethod.RECORDED_DISTANCE
+    assert prefix.provenance.allocation_method is AllocationMethod.RECORDED_DISTANCE
+    assert suffix.provenance.allocation_method is AllocationMethod.RECORDED_DISTANCE
     assert prefix.preserve_recorded_distance is True
     assert suffix.preserve_recorded_distance is True
     assert all(
@@ -86,9 +87,9 @@ def test_endpoint_missing_runs_are_independent_explicit_medium_candidates(
         config,
         minimum_confidence=IntegrityConfidence.MEDIUM,
     )
-    assert "missing prefix records 0..2: APPLIED" in console
-    assert "missing suffix records 10..12: APPLIED" in console
-    assert "distance=preserved" in console
+    assert "prefix records 0..2: APPLIED" in console
+    assert "suffix records 10..12: APPLIED" in console
+    assert "'policy': 'preserved'" in console
 
     html_path = tmp_path / "missing-preview.html"
     write_repair_html(
@@ -172,10 +173,10 @@ def test_missing_completion_refuses_source_without_stable_observed_run(
 
     assert plan.status is RepairPlanStatus.REFUSED
     assert plan.interval_plans == ()
-    assert len(plan.unresolved_missing_runs) == 2
+    assert len(plan.unresolved_gaps) == 2
 
 
-def test_missing_completion_refuses_inconsistent_recorded_distance(
+def test_missing_completion_uses_consistent_speed_without_rewriting_plausible_distance(
     tmp_path: Path,
 ) -> None:
     source_path = tmp_path / "inconsistent-distance.fit"
@@ -217,13 +218,12 @@ def test_missing_completion_refuses_inconsistent_recorded_distance(
         _config(),
     )
 
-    assert plan.status is RepairPlanStatus.REFUSED
-    assert plan.interval_plans == ()
-    assert len(plan.unresolved_missing_runs) == 2
-    assert all(
-        unresolved.reasons == (ReconstructionReason.OBSERVED_DISTANCE_INCONSISTENT,)
-        for unresolved in plan.unresolved_missing_runs
-    )
+    assert plan.status is RepairPlanStatus.READY
+    assert len(plan.interval_plans) == 2
+    for candidate in plan.interval_plans:
+        assert candidate.provenance.allocation_method.value == "recorded_speed"
+        assert "distance_path_mismatch" in candidate.provenance.signal_diagnostics
+        assert candidate.preserve_recorded_distance  # Course disagreement is not proof.
 
 
 def _fixture(tmp_path: Path) -> tuple[Path, Path]:

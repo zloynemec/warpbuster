@@ -3,7 +3,8 @@
 Статус: завершена 2026-09-03; объём сокращён пользователем до проверки версии.
 
 Предыдущая задача: [010E — Alternatives + Route Diagnostics](010e-alternatives-route-diagnostics.md).
-Следующий этап: M10 / Task 011A — OSM reconstruction candidates/dry-run.
+Следующий этап: [M10 / Task 011 — Local GPX Gap Reconstruction](011-local-gpx-gap-reconstruction.md).
+OSM reconstruction candidates/dry-run перенесены в M11 / Task 012A, после Task 011.
 
 ## Цель
 
@@ -63,7 +64,8 @@ Missing/invalid build identity даёт controlled `CACHE_CORRUPT`; недост
 
 Runtime hard timeout остаётся отдельным отложенным вопросом до unattended batch/server
 режима или обнаруженного зависания. Эта задача не заявляет server/cross-platform
-production readiness и не добавляет новых обязательных этапов перед локальным 011A.
+production readiness. Эксплуатационное усиление не является предпосылкой локального
+012A; обязательное исправление GPX-реконструкции в Task 011 предшествует OSM bridge.
 
 ## Acceptance criteria
 

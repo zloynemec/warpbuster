@@ -147,8 +147,8 @@ def test_numbered_regions_group_adjacent_transitions_and_keep_missing_separate(
     assert missing_region["map"]["geometry_ranges"] == []
     assert len(missing_region["map"]["bridge_points"]) == 2
     assert 'overlayLayers["Numbered detector regions"]' in rendered
-    assert 'label: "Suspicious / impossible transitions"' in rendered
-    assert 'label: "One-sided diagnostics"' in rendered
+    assert 'label: "Input suspicious / impossible transitions"' in rendered
+    assert 'label: "Input one-sided diagnostics"' in rendered
     assert 'label: "Geometry warnings"' in rendered
     assert 'label: "Vertical warnings"' in rendered
 

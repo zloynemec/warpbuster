@@ -1,7 +1,6 @@
 """Generic Task 006C composite GNSS failure-region regressions."""
 
 from pathlib import Path
-from typing import cast
 
 from tests.activity_factory import eastward_observations, make_activity
 from tests.fit_factory import write_trajectory_activity
@@ -12,13 +11,11 @@ from warpbuster.fit.writer import write_repaired_fit
 from warpbuster.gpx.course import read_gpx_course
 from warpbuster.integrity import analyze_integrity
 from warpbuster.models.activity import ActivityData
-from warpbuster.models.integrity import IntegrityConfidence, IntervalDetectionKind
+from warpbuster.models.integrity import IntegrityConfidence
 from warpbuster.models.reconstruction import (
-    AllocationMethod,
     CourseData,
     GnssComponentKind,
     GnssComponentState,
-    IntervalRepairPlan,
     RepairPlanStatus,
 )
 from warpbuster.reconstruction import build_course_repair_plan, select_repair_intervals
@@ -58,94 +55,42 @@ def test_composite_region_describes_ordered_course_free_components() -> None:
     assert region.reconstructable is True
 
 
-def test_composite_course_candidate_is_one_explicit_medium_planning_unit(
-    tmp_path: Path,
-) -> None:
+def test_composite_envelope_does_not_authorize_erasing_tainted_neighbors(tmp_path: Path) -> None:
+    """Task 011 supersedes course-driven expansion: only two detector cores are removable."""
     activity = _composite_activity()
     integrity = analyze_integrity(activity)
     course = _course(tmp_path)
-
     plan = build_course_repair_plan(activity, integrity, course, _config())
-
-    assert plan.detected_interval_count == 1
-    assert len(plan.interval_plans) == 1
-    assert plan.unresolved_intervals == ()
-    candidate = plan.interval_plans[0]
-    assert isinstance(candidate, IntervalRepairPlan)
-    assert candidate.interval.detection_kind is IntervalDetectionKind.COMPOSITE_REGION
-    assert (candidate.interval.start_record_index, candidate.interval.end_record_index) == (3, 10)
-    assert candidate.confidence is IntegrityConfidence.MEDIUM
-    assert candidate.repair_eligible is False
-    assert candidate.allocation_method is AllocationMethod.TIMESTAMPS
-    assert len(candidate.coordinate_updates) == 8
-    assert candidate.composite_region is not None
-
-    assert select_repair_intervals(plan).selected_interval_plans == ()
-    medium = select_repair_intervals(plan, IntegrityConfidence.MEDIUM)
-    assert medium.selected_interval_plans == (candidate,)
-
-    report = repair_report(
-        plan,
-        course,
-        _config(),
-        minimum_confidence=IntegrityConfidence.MEDIUM,
-    )
-    interval = cast(list[dict[str, object]], report["interval_plans"])[0]
-    assert interval["existing_coordinate_update_count"] == 6
-    assert interval["missing_coordinate_update_count"] == 2
-    composite = cast(dict[str, object], interval["composite_gnss_region"])
-    assert composite["reconstructable"] is True
-    components = cast(list[dict[str, object]], composite["components"])
-    assert components[0]["duration_seconds"] == 2.0
-    console = repair_console(
-        plan,
-        course,
-        _config(),
-        minimum_confidence=IntegrityConfidence.MEDIUM,
-    )
-    assert "scope=3..10" in console
+    assert plan.detected_interval_count == 2
+    assert [(g.start_record_index, g.end_record_index) for g in plan.gaps] == [
+        (4, 4),
+        (6, 6),
+        (8, 8),
+        (10, 10),
+    ]
+    assert {item.record_index for item in select_repair_intervals(plan).invalidations} == {4, 8}
+    assert all(plan.coordinate_mask[i].state.value == "preserved" for i in (3, 5, 7, 9))
+    assert plan.interval_plans == ()  # isolated immediate neighbors are not trusted anchors
+    report = repair_report(plan, course, _config())
+    assert report["coordinate_coverage"]["invalidated"] == 2
+    assert report["coordinate_coverage"]["original_missing"] == 2
+    assert len(report["gap_inventory"]) == 4
+    assert "Invalidations: 2" in repair_console(plan, course, _config())
 
 
-def test_plausible_positioned_component_is_preserved_by_partial_reconstruction(
-    tmp_path: Path,
-) -> None:
+def test_plausible_positioned_component_splits_independent_edit_scopes(tmp_path: Path) -> None:
     activity = _composite_with_plausible_component()
     integrity = analyze_integrity(activity)
-    config = CourseReconstructionConfig(
-        anchor_stability_min_normal_transitions=2,
-        anchor_stability_scan_max_records=4,
-        mixed_region_search_max_records=100,
-        mixed_region_max_clean_gap_records=3,
-    )
-
-    safety = assess_interval_safety(
-        activity,
-        integrity,
-        integrity.corrupted_intervals[0],
-        config,
-    )
-    region = safety.mixed_region
-    assert region is not None
-    assert GnssComponentState.PLAUSIBLE in {component.state for component in region.components}
-    assert region.all_positioned_components_tainted is False
-    assert region.reconstructable is True
-
-    plan = build_course_repair_plan(activity, integrity, _course(tmp_path), config)
-    assert len(plan.interval_plans) == 1
-    assert plan.unresolved_intervals == ()
-    candidate = plan.interval_plans[0]
-    assert candidate.reconstruction_scope_ranges == ((3, 6), (10, 10))
-    assert {update.record_index for update in candidate.coordinate_updates} == {
-        3,
-        4,
-        5,
-        6,
-        10,
-    }
+    plan = build_course_repair_plan(activity, integrity, _course(tmp_path), _config())
+    assert [(g.start_record_index, g.end_record_index) for g in plan.gaps] == [
+        (4, 4),
+        (6, 6),
+        (10, 10),
+    ]
+    assert all(plan.coordinate_mask[i].state.value == "preserved" for i in (3, 5, 7, 8, 9))
     assert all(
-        activity.records[index].latitude is not None
-        and activity.records[index].longitude is not None
-        for index in range(7, 10)
+        i not in {u.record_index for c in plan.interval_plans for u in c.coordinate_updates}
+        for i in (3, 5, 7, 8, 9)
     )
 
 
@@ -195,37 +140,21 @@ def test_writer_applies_disjoint_composite_scope_and_preserves_plausible_compone
         and repaired.records[index].longitude == activity.records[index].longitude
         for index in range(7, 10)
     )
-    assert repaired.records[6].latitude is not None
-    assert repaired.records[10].latitude is not None
+    assert repaired.records[4].latitude is None
+    assert repaired.records[6].latitude is None
+    assert repaired.records[10].latitude is None
+    assert repaired.records[3] == activity.records[3]
+    assert repaired.records[5] == activity.records[5]
     assert result.diff.unexpected_changed_field_count == 0
 
 
-def test_unknown_positioned_component_is_not_added_to_reconstruction_scope(
-    tmp_path: Path,
-) -> None:
+def test_unknown_positioned_component_is_not_added_to_reconstruction_scope(tmp_path: Path) -> None:
     activity = _composite_with_unknown_component()
     integrity = analyze_integrity(activity)
-    config = CourseReconstructionConfig(
-        anchor_stability_min_normal_transitions=2,
-        anchor_stability_scan_max_records=4,
-        mixed_region_search_max_records=100,
-        mixed_region_max_clean_gap_records=3,
-    )
-
-    safety = assess_interval_safety(
-        activity,
-        integrity,
-        integrity.corrupted_intervals[0],
-        config,
-    )
-    assert safety.mixed_region is not None
-    assert GnssComponentState.UNKNOWN in {
-        component.state for component in safety.mixed_region.components
-    }
-
-    plan = build_course_repair_plan(activity, integrity, _course(tmp_path), config)
-    candidate = plan.interval_plans[0]
-    assert 7 not in {update.record_index for update in candidate.coordinate_updates}
+    plan = build_course_repair_plan(activity, integrity, _course(tmp_path), _config())
+    assert plan.coordinate_mask[7].state.value == "preserved"
+    assert not any(g.start_record_index <= 7 <= g.end_record_index for g in plan.gaps)
+    assert 7 not in {u.record_index for c in plan.interval_plans for u in c.coordinate_updates}
 
 
 def test_missing_run_without_corruption_seed_does_not_create_composite_region(
@@ -243,7 +172,9 @@ def test_missing_run_without_corruption_seed_does_not_create_composite_region(
     plan = build_course_repair_plan(activity, integrity, _course(tmp_path), _config())
 
     assert integrity.corrupted_intervals == ()
-    assert plan.status is RepairPlanStatus.NOT_NEEDED
+    assert plan.status is RepairPlanStatus.REFUSED
+    assert len(plan.gaps) == 1
+    assert plan.unresolved_gaps[0].reasons[0].value == "missing_completion_disabled"
     assert plan.interval_plans == ()
 
 

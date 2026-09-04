@@ -252,10 +252,14 @@ def test_fill_missing_from_course_is_explicit_and_requires_medium(
                 "--json",
             ]
         )
-        == 0
+        == 3
     )
     disabled = json.loads(capsys.readouterr().out)  # type: ignore[attr-defined]
-    assert disabled["status"] == "not_needed"
+    assert disabled["status"] == "refused"
+    assert len(disabled["gap_inventory"]) == 2
+    assert all(
+        gap["reasons"] == ["missing_completion_disabled"] for gap in disabled["gap_inventory"]
+    )
     assert disabled["summary"]["missing_completion_enabled"] is False
     assert disabled["interval_plans"] == []
 
@@ -276,7 +280,7 @@ def test_fill_missing_from_course_is_explicit_and_requires_medium(
         == 0
     )
     enabled = json.loads(capsys.readouterr().out)  # type: ignore[attr-defined]
-    assert enabled["status"] == "partial"
+    assert enabled["status"] == "ready"
     assert enabled["summary"]["missing_completion_enabled"] is True
     assert enabled["summary"]["missing_completion_candidate_count"] == 2
     assert [item["missing_run_kind"] for item in enabled["interval_plans"]] == [

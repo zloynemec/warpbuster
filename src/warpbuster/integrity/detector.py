@@ -10,6 +10,7 @@ from warpbuster.geo import geodesic_distance_m
 from warpbuster.integrity.geometry import detect_geometry_warnings
 from warpbuster.integrity.islands import detect_spoofing_islands
 from warpbuster.integrity.one_sided import detect_one_sided_clusters
+from warpbuster.integrity.tail import detect_unreachable_tails
 from warpbuster.integrity.vertical import detect_vertical_warnings
 from warpbuster.models.activity import ActivityData, ActivityRecord
 from warpbuster.models.integrity import (
@@ -52,6 +53,10 @@ def analyze_integrity(
         effective_config,
         island_detection.intervals,
     )
+    bounded_intervals = island_detection.intervals + one_sided_detection.intervals
+    tail_intervals = detect_unreachable_tails(
+        activity, transitions, effective_config, bounded_intervals
+    )
     geometry_detection = detect_geometry_warnings(activity, effective_config)
     vertical_detection = detect_vertical_warnings(activity, effective_config)
     missing_position_record_count = len(activity.records) - len(position_records)
@@ -71,7 +76,7 @@ def analyze_integrity(
         transitions=transitions,
         corrupted_intervals=tuple(
             sorted(
-                island_detection.intervals + one_sided_detection.intervals,
+                bounded_intervals + tail_intervals,
                 key=lambda interval: interval.start_record_index,
             )
         ),

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from bisect import bisect_left
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 
 from warpbuster.config import IntegrityConfig
@@ -91,9 +91,10 @@ def detect_one_sided_clusters(
     records_scanned = 0
     total_diagnostics = 0
     consumed_through = -1
+    classic_starts, classic_ends = _classic_interval_index(classic_intervals)
 
     for entry in impossible:
-        if _belongs_to_classic_interval(entry, classic_intervals):
+        if _belongs_to_classic_interval(entry, classic_starts, classic_ends):
             classic_skipped += 1
             continue
         if entry.from_record_index <= consumed_through:
@@ -425,15 +426,28 @@ def _bridge(
     )
 
 
-def _belongs_to_classic_interval(
-    entry: TransitionResult,
+def _classic_interval_index(
     intervals: tuple[CorruptedInterval, ...],
-) -> bool:
-    return any(
-        interval.trusted_before_record_index <= entry.from_record_index
-        and entry.to_record_index <= interval.trusted_after_record_index
+) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    """Index inclusive outer bounds once, including overlapping/nested test scopes."""
+    bounds = sorted(
+        (interval.trusted_before_record_index, interval.trusted_after_record_index)
         for interval in intervals
+        if interval.trusted_after_record_index is not None
     )
+    starts: list[int] = []
+    prefix_ends: list[int] = []
+    for start, end in bounds:
+        starts.append(start)
+        prefix_ends.append(max(prefix_ends[-1], end) if prefix_ends else end)
+    return tuple(starts), tuple(prefix_ends)
+
+
+def _belongs_to_classic_interval(
+    entry: TransitionResult, starts: tuple[int, ...], prefix_ends: tuple[int, ...]
+) -> bool:
+    index = bisect_right(starts, entry.from_record_index) - 1
+    return index >= 0 and entry.to_record_index <= prefix_ends[index]
 
 
 def _record(activity: ActivityData, index: int | None) -> ActivityRecord | None:

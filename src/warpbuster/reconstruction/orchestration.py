@@ -6,6 +6,7 @@ from dataclasses import replace
 
 from warpbuster.models.integrity import IntegrityConfidence
 from warpbuster.models.reconstruction import (
+    GapRepairPlan,
     MissingCourseCompletionPlan,
     ReconstructionReason,
     RepairCandidate,
@@ -19,6 +20,8 @@ def merge_repair_plans(primary: RepairPlan, missing: RepairPlan) -> RepairPlan:
     """Merge corruption and opt-in missing completion without duplicate updates."""
     if primary.activity_path != missing.activity_path or primary.course_path != missing.course_path:
         raise ValueError("repair plans must describe the same activity and course")
+    if primary.coordinate_mask or missing.coordinate_mask:
+        return _merge_local(primary, missing)
     primary_indices = {
         update.record_index
         for candidate in primary.interval_plans
@@ -78,4 +81,36 @@ def merge_repair_plans(primary: RepairPlan, missing: RepairPlan) -> RepairPlan:
         unresolved_missing_runs=tuple(rejected_missing),
         missing_completion_enabled=True,
         reasons=(ReconstructionReason.MISSING_COMPLETION_ENABLED, *reasons),
+    )
+
+
+def _merge_local(primary: RepairPlan, missing: RepairPlan) -> RepairPlan:
+    """Compatibility for callers that used two planners; prefer one build_repair_plan."""
+    if primary.coordinate_mask != missing.coordinate_mask or primary.gaps != missing.gaps:
+        raise ValueError("local plans must have the same immutable mask and gap inventory")
+    candidates: dict[str, GapRepairPlan] = {}
+    for plan in (primary, missing):
+        for candidate in plan.interval_plans:
+            if not isinstance(candidate, GapRepairPlan):
+                raise ValueError("cannot merge legacy and local candidate contracts")
+            key = candidate.interval.gap_id
+            if key in candidates and candidates[key] != candidate:
+                raise ValueError("conflicting candidates for the same local gap")
+            candidates[key] = candidate
+    failures = {
+        failure.interval.gap_id: failure
+        for failure in (*primary.unresolved_gaps, *missing.unresolved_gaps)
+    }
+    unresolved = tuple(failures[gap.gap_id] for gap in primary.gaps if gap.gap_id not in candidates)
+    return replace(
+        missing,
+        interval_plans=tuple(
+            candidates[gap.gap_id] for gap in primary.gaps if gap.gap_id in candidates
+        ),
+        unresolved_gaps=unresolved,
+        status=RepairPlanStatus.PARTIAL
+        if candidates and unresolved
+        else RepairPlanStatus.READY
+        if candidates
+        else missing.status,
     )

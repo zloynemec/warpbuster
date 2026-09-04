@@ -9,7 +9,7 @@ data files. Task 010A подтвердила, что Valhalla 3.8.3 может �
 pedestrian graph, выполнить snapping/routing и вернуть OSM provenance. Поэтому M9 не
 реализует собственные graph, spatial index и shortest-path algorithms.
 
-Будущему `OSMReconstructionProvider` из M10 нужен узкий независимый контракт: получить
+Будущему `OSMReconstructionProvider` из M11 нужен узкий независимый контракт: получить
 допустимые pedestrian/trail paths между anchors вместе с snapping diagnostics,
 ambiguity и provenance. FIT и решение о применении candidate не входят в routing.
 
@@ -35,8 +35,8 @@ Package:
 - не изменяет coordinates и не формирует RepairPlan;
 - фиксирует snapshot, engine, profile, config и graph provenance.
 
-Интеграция с Core остаётся в Task 011. Наличие маршрута в OSM никогда не является
-доказательством corruption.
+Интеграция с Core остаётся в Task 012, после исправления GPX-реконструкции в Task 011.
+Наличие маршрута в OSM никогда не является доказательством corruption.
 
 ## Итерации
 
@@ -105,12 +105,12 @@ CLI inspection и offline behavioral matrix на Valhalla 3.8.3. Выявлен�
 - overlap, detour и diversity metrics;
 - stable ordering и explicit ambiguity;
 - отсутствие альтернативы как нормальный результат;
-- diagnostics, достаточные для консервативного выбора в M10.
+- diagnostics, достаточные для консервативного выбора в M11.
 
 Реализован opt-in `--alternates 1/2`, сохранение single-route contract 010D,
 независимый audit каждого пути и advisory edge-weight overlap/detour/diversity без
 скрытия похожих вариантов. Один найденный путь не доказывает уникальность: поиск
-явно non-exhaustive, а решение о reconstruction остаётся M10.
+явно non-exhaustive, а решение об OSM reconstruction остаётся M11.
 
 Подробное ТЗ: [Task 010E](010e-alternatives-route-diagnostics.md).
 
@@ -157,9 +157,9 @@ Cache lifecycle, versioned API и repeatability уже реализованы и
 - routing package устанавливается и тестируется независимо;
 - snapshot безопасно превращается в cached Valhalla graph;
 - versioned trail profile, snapping, route и alternatives имеют stable audit contract;
-- результаты содержат provenance, достаточный для Task 011;
+- результаты содержат provenance, достаточный для Task 012;
 - Core и OSM Manager не получают routing/reconstruction imports;
 - полный lint/type/test suite зелёный в проверенном окружении;
-- 010F проверяет версии без повторного clean-wheel smoke; завершение M9 — переход
-  к локальному 011A dry-run, не обещание server, unattended или cross-platform
-  production readiness.
+- 010F проверяет версии без повторного clean-wheel smoke; завершение M9 не обещает
+  server, unattended или cross-platform production readiness. Следующий этап —
+  Task 011 (GPX); локальный OSM dry-run перенесён в 012A после её acceptance.

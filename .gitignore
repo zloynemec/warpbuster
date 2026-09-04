@@ -18,3 +18,4 @@ dist/
 
 # Private user activities must never be committed by default.
 tests/private/
+*.reports/

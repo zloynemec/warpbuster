@@ -23,9 +23,7 @@ from warpbuster.integrity import analyze_integrity
 from warpbuster.models.integrity import IntegrityConfidence, IntegrityStatus
 from warpbuster.models.reconstruction import RepairPlanStatus
 from warpbuster.reconstruction import (
-    build_course_repair_plan,
-    build_missing_course_plan,
-    merge_repair_plans,
+    build_repair_plan,
     select_repair_intervals,
 )
 from warpbuster.report.analyze import analyze_console, analyze_json
@@ -146,8 +144,7 @@ def build_parser() -> argparse.ArgumentParser:
     repair_parser.add_argument(
         "--course",
         type=Path,
-        required=True,
-        help="path to a reference GPX course",
+        help="optional reference GPX course; without it only coordinate cleaning is available",
     )
     repair_parser.add_argument(
         "--dry-run",
@@ -173,9 +170,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="repair candidates at this confidence or higher (default: high)",
     )
     repair_parser.add_argument(
+        "--min-invalidation-confidence",
+        type=_confidence_argument,
+        choices=(IntegrityConfidence.HIGH, IntegrityConfidence.MEDIUM),
+        default=IntegrityConfidence.HIGH,
+        help="independent coordinate invalidation threshold (default: high)",
+    )
+    repair_parser.add_argument(
         "--fill-missing-from-course",
         action="store_true",
-        help=("opt in to MEDIUM course-backed completion of missing prefix/suffix coordinates"),
+        help="fill original/invalidated gaps from GPX, including assumed course start/finish",
     )
     repair_parser.add_argument(
         "--json",
@@ -293,15 +297,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.activity_file.suffix.casefold() != ".fit":
             print("error: repair input must be the original FIT file", file=sys.stderr)
             return 2
+        if args.fill_missing_from_course and args.course is None:
+            print("error: --fill-missing-from-course requires --course", file=sys.stderr)
+            return 2
         try:
             activity = read_fit(args.activity_file)
-            course = read_gpx_course(args.course)
+            course = read_gpx_course(args.course) if args.course is not None else None
         except (FitReadError, GpxCourseReadError, OSError) as error:
             print(f"error: {error}", file=sys.stderr)
             return 2
         if args.html is not None:
             try:
-                ensure_html_output_available(args.html, overwrite=args.overwrite)
+                ensure_html_output_available(
+                    args.html,
+                    overwrite=args.overwrite,
+                    protected_paths=(args.activity_file,)
+                    + ((args.course,) if args.course is not None else ()),
+                )
             except HtmlReportError as error:
                 print(f"error: {error}", file=sys.stderr)
                 return 2
@@ -316,12 +328,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return 2
         integrity = analyze_integrity(activity)
         config = CourseReconstructionConfig()
-        plan = build_course_repair_plan(activity, integrity, course, config)
-        if args.fill_missing_from_course:
-            plan = merge_repair_plans(
-                plan,
-                build_missing_course_plan(activity, integrity, course, config),
-            )
+        plan = build_repair_plan(
+            activity,
+            integrity,
+            course,
+            config,
+            fill_missing_from_course=args.fill_missing_from_course,
+            minimum_invalidation_confidence=args.min_invalidation_confidence,
+        )
         selection = select_repair_intervals(plan, args.min_confidence)
         if args.dry_run:
             if args.html is not None:
@@ -356,10 +370,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             )
             print(_html_notice(rendered, args.html) if not args.json else rendered)
-            if selection.selected_interval_plans or plan.status is RepairPlanStatus.NOT_NEEDED:
+            if selection.has_changes or plan.status is RepairPlanStatus.NOT_NEEDED:
                 return 0
             return 3
-        if not selection.selected_interval_plans:
+        if not selection.has_changes:
             if args.html is not None:
                 try:
                     write_repair_html(
@@ -393,7 +407,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             print(_html_notice(rendered, args.html) if not args.json else rendered)
             print(
-                "error: no reconstruction candidate meets minimum confidence "
+                "error: no coordinate invalidation or reconstruction candidate meets minimum confidence "
                 f"{args.min_confidence.value.upper()}",
                 file=sys.stderr,
             )

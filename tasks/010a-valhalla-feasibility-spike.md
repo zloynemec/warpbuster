@@ -24,7 +24,7 @@ Valhalla проверяется только как routing backend после I
 - структурированно отказывает вне graph coverage.
 
 Результат 010A — feasibility evidence и экспериментальный adapter. Это не production
-API для M10 и не разрешение использовать экспериментальные defaults при FIT repair.
+API для M11 и не разрешение использовать экспериментальные defaults при FIT repair.
 
 ## Архитектурная граница
 
@@ -146,7 +146,7 @@ cd packages/osm-routing
 ## Сознательно не реализовано
 
 - production graph cache и locking;
-- stable routing request/response protocol для M10;
+- stable routing request/response protocol для M11;
 - утверждённый pedestrian/trail costing profile;
 - snap confidence/ambiguity policy;
 - overlap/diversity ranking альтернатив;

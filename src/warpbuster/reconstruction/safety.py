@@ -47,6 +47,8 @@ def assess_interval_safety(
     config: CourseReconstructionConfig,
 ) -> IntervalSafetyAssessment:
     """Validate original anchors and diagnose nearby mixed GNSS evidence without course."""
+    if interval.trusted_after_record_index is None or interval.bridge is None:
+        raise ValueError("two-anchor safety assessment cannot assess a reachability-only proof")
     transitions = {
         (transition.from_record_index, transition.to_record_index): transition
         for transition in integrity.transitions
@@ -156,6 +158,8 @@ def _mixed_region(
     transitions: dict[tuple[int, int], TransitionResult],
     config: CourseReconstructionConfig,
 ) -> MixedGnssRegion:
+    if interval.bridge is None:
+        raise ValueError("mixed-region bridge assessment requires a two-anchor interval")
     window_start = max(
         0,
         interval.start_record_index - config.mixed_region_search_max_records,

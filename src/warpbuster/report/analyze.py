@@ -275,6 +275,7 @@ def _interval_report(interval: CorruptedInterval) -> dict[str, object]:
             if interval.exit_transition is not None
             else None
         ),
+        "reachability": asdict(interval.reachability) if interval.reachability else None,
         "bridge": {
             "from_record_index": interval.bridge.from_record_index,
             "to_record_index": interval.bridge.to_record_index,
@@ -283,7 +284,9 @@ def _interval_report(interval: CorruptedInterval) -> dict[str, object]:
             "apparent_speed_mps": interval.bridge.apparent_speed_mps,
             "maximum_plausible_speed_mps": interval.bridge.maximum_plausible_speed_mps,
             "plausible": True,
-        },
+        }
+        if interval.bridge is not None
+        else None,
     }
 
 
@@ -429,12 +432,20 @@ def _geometry_warning_report(warning: GeometryWarning) -> dict[str, object]:
 
 def _interval_console(interval: CorruptedInterval) -> str:
     reasons = ",".join(reason.value for reason in interval.reasons)
+    proof_text = (
+        f"bridge={interval.bridge.apparent_speed_mps:.2f} m/s"
+        if interval.bridge is not None
+        else f"unreachable positions={interval.reachability.positioned_record_count}, "
+        f"min excess={interval.reachability.minimum_excess_distance_m:.2f} m"
+        if interval.reachability is not None
+        else "proof=n/a"
+    )
     return (
         f"  - records {interval.start_record_index}..{interval.end_record_index} "
         f"({interval.record_count}): {interval.confidence.value.upper()}, "
         f"kind={interval.detection_kind.value}, "
         f"anchors={interval.trusted_before_record_index}->{interval.trusted_after_record_index}, "
-        f"bridge={interval.bridge.apparent_speed_mps:.2f} m/s, reasons={reasons}"
+        f"{proof_text}, reasons={reasons}"
     )
 
 

@@ -13,11 +13,13 @@ from warpbuster.models.reconstruction import (
     CourseAnchorMatch,
     CourseBoundaryRefinement,
     CourseData,
+    GapRepairPlan,
     GnssRegionComponent,
     IntervalRepairPlan,
     MissingCourseCompletionPlan,
     MissingCourseRun,
     MixedGnssRegion,
+    ReconstructionGap,
     RepairIntervalAction,
     RepairIntervalDecision,
     RepairPlan,
@@ -26,11 +28,12 @@ from warpbuster.models.reconstruction import (
     UnresolvedMissingCourseRun,
 )
 from warpbuster.reconstruction.selection import select_repair_intervals
+from warpbuster.report.gaps import gap_audit, gap_candidate_report, gap_console
 
 
 def repair_report(
     plan: RepairPlan,
-    course: CourseData,
+    course: CourseData | None,
     config: CourseReconstructionConfig,
     *,
     minimum_confidence: IntegrityConfidence = IntegrityConfidence.HIGH,
@@ -55,10 +58,12 @@ def repair_report(
             "segment_count": len(course.segments),
             "point_count": course.point_count,
             "total_distance_m": course.total_distance_m,
-        },
+        }
+        if course is not None
+        else None,
         "status": plan.status.value,
         "confidence": plan.confidence.value,
-        "repair_eligible": bool(selection.selected_interval_plans),
+        "repair_eligible": selection.has_changes,
         "output_written": plan.output_written,
         "reasons": [reason.value for reason in plan.reasons],
         "summary": {
@@ -66,11 +71,17 @@ def repair_report(
             "planned_interval_count": len(plan.interval_plans),
             "eligible_interval_count": selection.applied_interval_count,
             "unresolved_interval_count": (
-                len(plan.unresolved_intervals) + len(plan.unresolved_missing_runs)
+                len(plan.unresolved_intervals)
+                + len(plan.unresolved_missing_runs)
+                + len(plan.unresolved_gaps)
             ),
             "missing_completion_enabled": plan.missing_completion_enabled,
             "missing_completion_candidate_count": sum(
                 isinstance(candidate, MissingCourseCompletionPlan)
+                or (
+                    isinstance(candidate, GapRepairPlan)
+                    and candidate.interval.original_missing_count > 0
+                )
                 for candidate in plan.interval_plans
             ),
             "candidate_coordinate_update_count": candidate_coordinate_update_count,
@@ -96,12 +107,13 @@ def repair_report(
         "unresolved_missing_runs": [
             _unresolved_missing_report(interval) for interval in plan.unresolved_missing_runs
         ],
+        **gap_audit(plan, selection),
     }
 
 
 def repair_json(
     plan: RepairPlan,
-    course: CourseData,
+    course: CourseData | None,
     config: CourseReconstructionConfig,
     *,
     minimum_confidence: IntegrityConfidence = IntegrityConfidence.HIGH,
@@ -122,7 +134,7 @@ def repair_json(
 
 def repair_console(
     plan: RepairPlan,
-    course: CourseData,
+    course: CourseData | None,
     config: CourseReconstructionConfig,
     *,
     minimum_confidence: IntegrityConfidence = IntegrityConfidence.HIGH,
@@ -139,10 +151,12 @@ def repair_console(
     lines = [
         "WarpBuster repair dry-run",
         f"Activity: {plan.activity_path}",
-        f"Course: {course.source_path}",
+        f"Course: {course.source_path if course is not None else 'none'}",
         (
             f"Course geometry: segments={len(course.segments)}, points={course.point_count}, "
             f"distance={course.total_distance_m:.2f} m"
+            if course is not None
+            else "Course geometry: unavailable"
         ),
         f"Status: {plan.status.value.upper()}",
         f"Confidence: {plan.confidence.value.upper()}",
@@ -152,13 +166,13 @@ def repair_console(
             f"(apply={selection.applied_interval_count}, "
             f"skip={selection.skipped_interval_count})"
         ),
-        f"Repair eligible: {'yes' if selection.selected_interval_plans else 'no'}",
+        f"Repair eligible: {'yes' if selection.has_changes else 'no'}",
         "Output written: no",
         (
             f"Intervals: detected={plan.detected_interval_count}, "
             f"planned={len(plan.interval_plans)}, "
             "unresolved="
-            f"{len(plan.unresolved_intervals) + len(plan.unresolved_missing_runs)}"
+            f"{len(plan.unresolved_intervals) + len(plan.unresolved_missing_runs) + len(plan.unresolved_gaps)}"
         ),
         f"Candidate coordinate updates: {candidate_coordinate_update_count}",
         f"Selected coordinate updates: {selected_coordinate_update_count}",
@@ -186,6 +200,18 @@ def repair_console(
         )
         for interval in plan.unresolved_missing_runs
     )
+    if plan.coordinate_mask:
+        audit = gap_audit(plan, selection)
+        lines.extend(gap_console(plan, selection))
+        lines.append(
+            f"Invalidations: {len(selection.invalidations)}; minimum={plan.minimum_invalidation_confidence.value.upper()}"
+        )
+        lines.append(f"Distance: {audit['distance']}")
+        lines.extend(
+            f"  - unresolved {failure.interval.gap_id}: "
+            + ",".join(reason.value for reason in failure.reasons)
+            for failure in plan.unresolved_gaps
+        )
     if verbosity >= 1:
         lines.extend(
             [
@@ -193,7 +219,8 @@ def repair_console(
                 (
                     "Matching thresholds: "
                     f"anchor<={config.anchor_match_tolerance_m:.2f} m, "
-                    f"one_sided_anchor<={config.one_sided_anchor_match_tolerance_m:.2f} m, "
+                    f"context<={config.local_alignment_max_context_records} records / "
+                    f"{config.local_alignment_max_context_seconds:.0f} s per side, "
                     f"HIGH<={config.high_confidence_anchor_distance_m:.2f} m, "
                     f"ambiguity_margin={config.ambiguity_score_margin_m:.2f} m"
                 ),
@@ -227,15 +254,17 @@ def _decision_report(decision: RepairIntervalDecision) -> dict[str, object]:
 
 
 def _application_status(selection: RepairSelection) -> str:
-    if not selection.selected_interval_plans:
+    if not selection.has_changes:
         return "NONE"
     return "PARTIAL" if selection.is_partial else "FULL"
 
 
 def _interval_report(
-    plan: IntervalRepairPlan | MissingCourseCompletionPlan,
+    plan: IntervalRepairPlan | MissingCourseCompletionPlan | GapRepairPlan,
     decision: RepairIntervalDecision,
 ) -> dict[str, object]:
+    if isinstance(plan, GapRepairPlan):
+        return gap_candidate_report(plan, decision)
     if isinstance(plan, MissingCourseCompletionPlan):
         return _missing_interval_report(plan, decision)
     return _corrupted_interval_report(plan, decision)
@@ -520,10 +549,20 @@ def _component_report(component: GnssRegionComponent) -> dict[str, object]:
 
 
 def _interval_console(
-    plan: IntervalRepairPlan | MissingCourseCompletionPlan,
+    plan: IntervalRepairPlan | MissingCourseCompletionPlan | GapRepairPlan,
     decision: RepairIntervalDecision,
     verbosity: int,
 ) -> str:
+    if isinstance(plan, GapRepairPlan):
+        provenance = plan.provenance
+        return (
+            f"  - {plan.interval.gap_id} {plan.interval.kind.value} records "
+            f"{plan.interval.start_record_index}..{plan.interval.end_record_index}: "
+            f"{decision.action.value.upper()}, confidence={plan.confidence.value.upper()}, "
+            f"origin={plan.interval.origin.value}, path={plan.reconstruction_path_distance_m:.2f} m, "
+            f"allocation={provenance.allocation_method.value if provenance else 'unknown'}, "
+            f"endpoint_source={provenance.endpoint_source if provenance else None}"
+        )
     if isinstance(plan, MissingCourseCompletionPlan):
         return _missing_interval_console(plan, decision, verbosity)
     return _corrupted_interval_console(plan, decision, verbosity)
@@ -668,13 +707,15 @@ def _unresolved_missing_console(
 
 
 def _target_kind(interval: object) -> str:
+    if isinstance(interval, ReconstructionGap):
+        return "gap_reconstruction"
     if isinstance(interval, MissingCourseRun):
         return "missing_course_completion"
     return "corrupted_interval"
 
 
 def _decision_key(interval: object) -> tuple[int, int, str]:
-    if not isinstance(interval, (MissingCourseRun, CorruptedInterval)):
+    if not isinstance(interval, (MissingCourseRun, CorruptedInterval, ReconstructionGap)):
         raise TypeError("repair decision interval has an unsupported type")
     return (
         interval.start_record_index,

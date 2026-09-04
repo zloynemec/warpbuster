@@ -36,6 +36,8 @@ class IntervalReason(StrEnum):
     MISSING_EXIT_BOUNDARY = "missing_exit_boundary"
     STABLE_OUTER_ANCHORS = "stable_outer_anchors"
     TAINTED_POSITION_COMPONENTS = "tainted_position_components"
+    STABLE_PREFIX_ANCHOR = "stable_prefix_anchor"
+    OUTSIDE_PHYSICAL_REACHABILITY = "outside_physical_reachability"
 
 
 class IntervalDetectionKind(StrEnum):
@@ -44,6 +46,7 @@ class IntervalDetectionKind(StrEnum):
     CLASSIC_ISLAND = "classic_island"
     ONE_SIDED_CLUSTER = "one_sided_cluster"
     COMPOSITE_REGION = "composite_region"
+    UNREACHABLE_TAIL = "unreachable_tail"
 
 
 class OneSidedClusterReason(StrEnum):
@@ -155,21 +158,40 @@ class BridgeResult:
 
 
 @dataclass(frozen=True, slots=True)
+class TailReachabilityProof:
+    """One-anchor proof, independent of reconstruction or course geometry."""
+
+    anchor_context_start_record_index: int
+    anchor_normal_transition_count: int
+    speed_limit_mps: float
+    position_error_budget_m: float
+    positioned_record_count: int
+    minimum_excess_distance_m: float
+    stop_reason: str
+    # Reachable does not imply recovered. Preserve this uncertain remainder but
+    # do not allow it to anchor reconstruction until stable reachable recovery.
+    uncertain_start_record_index: int | None = None
+    uncertain_end_record_index: int | None = None
+    recovered_anchor_record_index: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class CorruptedInterval:
-    """Inclusive record range bounded by strong local and bridge evidence."""
+    """Inclusive proven scope: a two-anchor island or one-anchor unreachable tail."""
 
     start_record_index: int
     end_record_index: int
     start_timestamp: datetime | None
     end_timestamp: datetime | None
     trusted_before_record_index: int
-    trusted_after_record_index: int
+    trusted_after_record_index: int | None
     entry_transition: TransitionResult
     exit_transition: TransitionResult | None
-    bridge: BridgeResult
+    bridge: BridgeResult | None
     confidence: IntegrityConfidence
     reasons: tuple[IntervalReason, ...]
     detection_kind: IntervalDetectionKind = IntervalDetectionKind.CLASSIC_ISLAND
+    reachability: TailReachabilityProof | None = None
 
     @property
     def record_count(self) -> int:

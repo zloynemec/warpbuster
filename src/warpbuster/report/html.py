@@ -6,7 +6,7 @@ import json
 import os
 import tempfile
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from importlib.resources import files
 from itertools import pairwise
@@ -29,6 +29,7 @@ from warpbuster.models.reconstruction import CourseData, RepairPlan, RepairSelec
 from warpbuster.reconstruction.selection import select_repair_intervals
 from warpbuster.report.analyze import analyze_report
 from warpbuster.report.fit import write_result_report
+from warpbuster.report.gaps import distance_policy
 from warpbuster.report.inspect import inspect_report
 from warpbuster.report.repair import repair_report
 
@@ -38,6 +39,7 @@ class _UseActivityDistance:
 
 
 _USE_ACTIVITY_DISTANCE = _UseActivityDistance()
+type _Position = tuple[float | None, float | None]
 
 _DIAGNOSTIC_KIND_PRIORITY = {
     "corrupted_interval": 0,
@@ -79,6 +81,12 @@ def write_analyze_html(
     overwrite: bool = False,
 ) -> Path:
     """Write one interactive report, optionally replacing its destination atomically."""
+    ensure_html_output_available(
+        output_path,
+        overwrite=overwrite,
+        protected_paths=(activity.preservation.source_path,)
+        + ((course.source_path,) if course is not None else ()),
+    )
     missing_position_runs = _missing_position_runs(activity)
     payload = _base_payload(activity, integrity, report_kind="analyze")
     payload["tracks"] = {
@@ -109,7 +117,7 @@ def write_analyze_html(
 def write_repair_html(
     activity: ActivityData,
     integrity: IntegrityReport,
-    course: CourseData,
+    course: CourseData | None,
     plan: RepairPlan,
     config: CourseReconstructionConfig,
     output_path: str | Path,
@@ -122,6 +130,13 @@ def write_repair_html(
     """Write a repair report, optionally replacing its destination atomically."""
     if (fixed_activity is None) is not (write_result is None):
         raise HtmlReportError("fixed_activity and write_result must be provided together")
+    ensure_html_output_available(
+        output_path,
+        overwrite=overwrite,
+        protected_paths=(activity.preservation.source_path,)
+        + ((course.source_path,) if course is not None else ())
+        + ((fixed_activity.preservation.source_path,) if fixed_activity is not None else ()),
+    )
     selection = select_repair_intervals(plan, minimum_confidence)
     payload = _base_payload(
         activity,
@@ -134,10 +149,10 @@ def write_repair_html(
         "candidate": (
             None if fixed_activity is not None else _candidate_track(activity, selection)
         ),
-        "course": _course_track(course),
+        "course": _course_track(course) if course is not None else None,
     }
     payload["repair"] = _compact_repair_report(
-        plan,
+        replace(plan, output_written=fixed_activity is not None),
         course,
         config,
         minimum_confidence,
@@ -146,7 +161,7 @@ def write_repair_html(
         write_result_report(write_result) if write_result is not None else None
     )
     coordinate_overrides = _selection_coordinate_overrides(selection)
-    preserves_embedded_distance = bool(selection.selected_interval_plans) and all(
+    preserves_embedded_distance = all(
         candidate.preserve_recorded_distance for candidate in selection.selected_interval_plans
     )
     payload["metrics_comparison"] = _metrics_comparison(
@@ -167,8 +182,30 @@ def write_repair_html(
         _missing_position_runs(activity),
     )
     payload["activity_performance"] = None
+    payload["original_performance"] = {
+        key: value
+        for key, value in _activity_performance(activity).items()
+        if key in {"distance_m", "timer_duration_seconds", "average_pace_seconds_per_km"}
+    }
     payload["repaired_performance"] = (
         {"source_label": "Repaired FIT", **_activity_performance(fixed_activity)}
+        if fixed_activity is not None
+        else None
+    )
+    payload["gap_markers"] = _gap_markers(activity, plan, selection)
+    payload["distance_quality"] = distance_policy(selection)["quality"]
+    payload["coordinate_update_ranges"] = [
+        list(bounds)
+        for candidate in selection.selected_interval_plans
+        for bounds in candidate.reconstruction_scope_ranges
+    ]
+    payload["output_summary"] = (
+        {
+            "recorded_distance_m": fixed_activity.recorded_distance_m,
+            "missing_position_count": sum(
+                r.latitude is None or r.longitude is None for r in fixed_activity.records
+            ),
+        }
         if fixed_activity is not None
         else None
     )
@@ -179,9 +216,12 @@ def ensure_html_output_available(
     output_path: str | Path,
     *,
     overwrite: bool = False,
+    protected_paths: tuple[Path, ...] = (),
 ) -> Path:
     """Validate the destination before another operation creates side effects."""
     destination = Path(output_path)
+    if any(destination.resolve() == path.resolve() for path in protected_paths):
+        raise HtmlReportError("HTML report path must differ from input and FIT output paths")
     if destination.exists() and not overwrite:
         raise HtmlReportError(f"HTML output already exists: {destination}")
     if not destination.parent.exists():
@@ -242,11 +282,7 @@ def _candidate_track(
     activity: ActivityData,
     selection: RepairSelection,
 ) -> dict[str, object] | None:
-    updates = {
-        update.record_index: (update.candidate_latitude, update.candidate_longitude)
-        for interval in selection.selected_interval_plans
-        for update in interval.coordinate_updates
-    }
+    updates = _selection_coordinate_overrides(selection)
     if not updates:
         return None
     return {
@@ -264,12 +300,66 @@ def _candidate_track(
 
 def _selection_coordinate_overrides(
     selection: RepairSelection,
-) -> dict[int, tuple[float, float]]:
+) -> dict[int, _Position]:
     return {
-        update.record_index: (update.candidate_latitude, update.candidate_longitude)
-        for interval in selection.selected_interval_plans
-        for update in interval.coordinate_updates
+        **{item.record_index: (None, None) for item in selection.invalidations},
+        **{
+            update.record_index: (update.candidate_latitude, update.candidate_longitude)
+            for interval in selection.selected_interval_plans
+            for update in interval.coordinate_updates
+        },
     }
+
+
+def _gap_markers(
+    activity: ActivityData,
+    plan: RepairPlan,
+    selection: RepairSelection,
+) -> list[dict[str, object]]:
+    """G-numbered reconstruction scopes, independent of detector-region numbering."""
+    candidates = {
+        (candidate.interval.start_record_index, candidate.interval.end_record_index): candidate
+        for candidate in plan.interval_plans
+    }
+    overrides = _selection_coordinate_overrides(selection)
+    result = []
+    for number, gap in enumerate(plan.gaps, 1):
+        candidate = candidates.get((gap.start_record_index, gap.end_record_index))
+        points: list[tuple[float, float]] = []
+        for anchor_index in (gap.anchor_before_record_index,):
+            if anchor_index is not None:
+                lat, lon = _record_coordinates(activity.records[anchor_index], overrides)
+                if lat is not None and lon is not None:
+                    points.append((lat, lon))
+        if candidate is not None:
+            points.extend(
+                (update.candidate_latitude, update.candidate_longitude)
+                for update in candidate.coordinate_updates
+            )
+        if gap.anchor_after_record_index is not None:
+            lat, lon = _record_coordinates(
+                activity.records[gap.anchor_after_record_index], overrides
+            )
+            if lat is not None and lon is not None:
+                points.append((lat, lon))
+        result.append(
+            {
+                "gap_id": gap.gap_id,
+                "number": number,
+                "marker": points[len(points) // 2] if points else None,
+                "bounds": (
+                    [
+                        [min(p[0] for p in points), min(p[1] for p in points)],
+                        [max(p[0] for p in points), max(p[1] for p in points)],
+                    ]
+                    if points
+                    else None
+                ),
+                # Unresolved anchors do not define a known path: never join them solidly.
+                "candidate_geometry": points if candidate is not None else [],
+            }
+        )
+    return result
 
 
 def _metrics_comparison(
@@ -277,7 +367,7 @@ def _metrics_comparison(
     *,
     course: CourseData | None = None,
     comparison_activity: ActivityData | None = None,
-    comparison_coordinate_overrides: Mapping[int, tuple[float, float]] | None = None,
+    comparison_coordinate_overrides: Mapping[int, _Position] | None = None,
     comparison_preserves_embedded_distance: bool = False,
 ) -> dict[str, object]:
     course_distance = course.total_distance_m if course is not None else None
@@ -350,7 +440,7 @@ def _activity_metrics_row(
     label: str,
     activity: ActivityData,
     *,
-    coordinate_overrides: Mapping[int, tuple[float, float]] | None = None,
+    coordinate_overrides: Mapping[int, _Position] | None = None,
     embedded_distance_override: float | _UseActivityDistance | None = _USE_ACTIVITY_DISTANCE,
     course_distance: float | None,
     elevation_source_suffix: str = "",
@@ -383,7 +473,7 @@ def _activity_metrics_row(
 
 def _activity_geometry_distances(
     activity: ActivityData,
-    coordinate_overrides: Mapping[int, tuple[float, float]] | None,
+    coordinate_overrides: Mapping[int, _Position] | None,
 ) -> tuple[float | None, float | None]:
     map_geometry_m = 0.0
     solid_geometry_m = 0.0
@@ -746,7 +836,9 @@ def _diagnostic_regions(
             _DiagnosticRegionDraft(
                 kind="corrupted_interval",
                 detector_stage=(
-                    "one_sided_gnss_clusters"
+                    "physical_tail_reachability"
+                    if interval.detection_kind is IntervalDetectionKind.UNREACHABLE_TAIL
+                    else "one_sided_gnss_clusters"
                     if interval.detection_kind is IntervalDetectionKind.ONE_SIDED_CLUSTER
                     else "spoofing_islands"
                 ),
@@ -762,6 +854,9 @@ def _diagnostic_regions(
                     "detection_kind": interval.detection_kind.value,
                     "trusted_before_record_index": interval.trusted_before_record_index,
                     "trusted_after_record_index": interval.trusted_after_record_index,
+                    "reachability": asdict(interval.reachability)
+                    if interval.reachability
+                    else None,
                     "bridge": {
                         "elapsed_seconds": interval.bridge.elapsed_seconds,
                         "distance_m": interval.bridge.distance_m,
@@ -769,7 +864,9 @@ def _diagnostic_regions(
                         "maximum_plausible_speed_mps": (
                             interval.bridge.maximum_plausible_speed_mps
                         ),
-                    },
+                    }
+                    if interval.bridge is not None
+                    else None,
                 },
                 source_key=(
                     f"interval:{interval.detection_kind.value}:"
@@ -1256,7 +1353,7 @@ def _continuity_id(activity: ActivityData, record_index: int) -> int:
 
 def _missing_position_runs(
     activity: ActivityData,
-    coordinate_overrides: Mapping[int, tuple[float, float]] | None = None,
+    coordinate_overrides: Mapping[int, _Position] | None = None,
 ) -> list[dict[str, object]]:
     runs: list[dict[str, object]] = []
     records = activity.records
@@ -1295,7 +1392,7 @@ def _missing_run_report(
     last_missing: ActivityRecord,
     before: ActivityRecord | None,
     after: ActivityRecord | None,
-    coordinate_overrides: Mapping[int, tuple[float, float]] | None,
+    coordinate_overrides: Mapping[int, _Position] | None,
 ) -> dict[str, object]:
     elapsed_seconds = (
         (after.timestamp - before.timestamp).total_seconds()
@@ -1351,7 +1448,7 @@ def _missing_run_report(
 
 def _record_has_position(
     record: ActivityRecord,
-    coordinate_overrides: Mapping[int, tuple[float, float]] | None,
+    coordinate_overrides: Mapping[int, _Position] | None,
 ) -> bool:
     latitude, longitude = _record_coordinates(record, coordinate_overrides)
     return latitude is not None and longitude is not None
@@ -1359,7 +1456,7 @@ def _record_has_position(
 
 def _record_coordinates(
     record: ActivityRecord,
-    coordinate_overrides: Mapping[int, tuple[float, float]] | None,
+    coordinate_overrides: Mapping[int, _Position] | None,
 ) -> tuple[float | None, float | None]:
     if coordinate_overrides is not None and record.index in coordinate_overrides:
         return coordinate_overrides[record.index]
@@ -1427,7 +1524,7 @@ def _record_x(record: ActivityRecord, first_timestamp: datetime | None) -> float
 
 def _compact_repair_report(
     plan: RepairPlan,
-    course: CourseData,
+    course: CourseData | None,
     config: CourseReconstructionConfig,
     minimum_confidence: IntegrityConfidence,
 ) -> dict[str, object]:

@@ -162,31 +162,67 @@ Roadmap следует порядку milestone из [`docs/MILESTONES.md`](docs
     acquisition/cache/snapshot provenance;
   - OSM не используется в Integrity Detector.
 
-- [ ] **M10 / Task 011 — OSM Reconstruction Bridge (2D first)** — предварительный план,
-  ТЗ ещё не оформлено
-  - **011A:** отдельный `OSMReconstructionProvider`, принимающий только результаты
-    Integrity Detector и typed `RouteResult`, сначала в candidate/dry-run режиме;
-  - **011B:** сопоставление trusted anchors, timestamps и recorded distance с одним или
+- [x] **M10 / Task 011 — Local GPX Gap Reconstruction**
+  ([task](tasks/011-local-gpx-gap-reconstruction.md)) — завершена 2026-09-03;
+  280 Core tests passed, 5 private fixtures skipped; следующий этап — M11 / Task 012
+  - единая course-independent маска координат и список пустот: исходные missing и
+    координаты, отброшенные по доказательствам Integrity Detector;
+  - независимый локальный GPX matching для каждого prefix/internal/suffix gap;
+    правдоподобный крюк в другом месте не блокирует восстановление;
+  - реальные соседние observations остаются границами стыковки, а расширение
+    alignment context не расширяет разрешённую область изменений;
+  - отдельные решения об invalidation и reconstruction, partial result и lossless
+    FIT audit, включая доказанно плохие координаты без найденной замены;
+  - общий HTML-шаблон показывает исходные пустоты, удалённые координаты,
+    candidates, applied/skipped/unresolved и причины локальных отказов;
+  - `--fill-missing-from-course` разрешает привязку пустот к GPX, включая course
+    endpoints, без отдельного подтверждения старта/финиша;
+  - synthetic locality/safety regressions и универсальный сквозной acceptance,
+    без привязки к конкретному треку;
+  - без подключения OSM/DEM; предпосылка для Task 012 выполнена.
+
+- [x] **Task 011A — Unreachable Terminal GNSS**
+  ([task](tasks/011a-unreachable-terminal-gnss.md)) — независимое от реконструкции
+  доказательство недостижимых координат без правой опоры; без GPX в detector.
+  Завершена 2026-09-04: 363 tests passed, 6 skipped; lint/type checks пройдены.
+
+- [x] **Task 011B — Pause-aware Reconstruction**
+  ([task](tasks/011b-pause-aware-reconstruction.md)) — завершена 2026-09-04;
+  нормальные паузы не блокируют GPX gaps; распределение движения и safety по активному
+  времени, неизменные FIT timestamps/events, timing audit и lossless regressions.
+  Проверки: 408 passed, 6 skipped; Ruff/mypy; пакет 8/8, шесть остальных FIT побайтно прежние.
+
+- [x] **Task 011C — Absent FIT Coordinate Fields**
+  ([task](tasks/011c-absent-fit-coordinate-fields.md)) — добавление отсутствующих
+  native coordinate fields только для принятых кандидатов, с lossless schema audit;
+  завершена 2026-09-04: 427 passed, 6 skipped; 8/8 пакетных запусков успешны.
+
+- [ ] **M11 / Task 012 — OSM Reconstruction Bridge (2D first)** — после Task 011, 011A, 011B и 011C;
+  предварительный план, ТЗ ещё не оформлено
+  - **012A:** отдельный `OSMReconstructionProvider` поверх gap/candidate contract из
+    Task 011 и typed `RouteResult`, сначала в candidate/dry-run режиме;
+  - **012B:** сопоставление trusted anchors, timestamps и recorded distance с одним или
     несколькими OSM route candidates без изменения FIT;
-  - **011C:** консервативное применение только однозначных 2D-маршрутов с высокой
+  - **012C:** консервативное применение только однозначных 2D-маршрутов с высокой
     уверенностью; меняются координаты и необходимые агрегаты, но не правдоподобная
     исходная altitude;
-  - GPX-course и OSM-only режимы остаются разными reconstruction strategies;
+  - GPX-course и OSM остаются разными reconstruction strategies; OSM рассматривается
+    локально для unresolved gaps без course или без допустимого GPX candidate;
   - ambiguous/low-confidence варианты остаются unresolved;
   - полный audit candidate geometry, confidence, applied/skipped участков и OSM
     provenance в console/JSON/HTML reports.
 
-- [ ] **M11 / Task 012 — DEM-backed Elevation** — отдельная optional подсистема
-  - **012A:** выбрать DEM dataset, лицензию, resolution и зафиксировать vertical datum;
-  - **012B:** immutable tile cache с coverage, hashes, offline reuse и bounded download;
-  - **012C:** детерминированный sampler для route polyline, bounded interpolation и
+- [ ] **M12 / Task 013 — DEM-backed Elevation** — отдельная optional подсистема
+  - **013A:** выбрать DEM dataset, лицензию, resolution и зафиксировать vertical datum;
+  - **013B:** immutable tile cache с coverage, hashes, offline reuse и bounded download;
+  - **013C:** детерминированный sampler для route polyline, bounded interpolation и
     явные missing-coverage diagnostics;
-  - **012D:** GPX route export с `<ele>`, raw/smoothed elevation profiles и расчётом
+  - **013D:** GPX route export с `<ele>`, raw/smoothed elevation profiles и расчётом
     ascent/descent по именованной filtering policy;
   - сравнивать DEM-профиль с сохранённой FIT/course altitude как независимое evidence;
   - DEM не используется Integrity Detector и не заменяет правдоподобные FIT-высоты.
 
-- [ ] **M12 / Task 013 — Elevation-aware OSM Reconstruction** — после M10 и M11
+- [ ] **M13 / Task 014 — Elevation-aware OSM Reconstruction** — после M11 и M12
   - использовать DEM-профиль как optional признак для ранжирования alternatives;
   - объединять geometry, time, recorded distance/pace и elevation evidence в
     консервативный confidence без привязки к конкретной тренировке;
@@ -195,12 +231,14 @@ Roadmap следует порядку milestone из [`docs/MILESTONES.md`](docs
   - отсутствие DEM или несовпадение vertical datum не блокирует однозначный 2D repair;
   - неоднозначные кандидаты не применяются автоматически.
 
-Таким образом, routing завершён, а ближайший путь остаётся двухмерным: подключить его к
-repair в dry-run и проверить однозначные восстановления. DEM добавляется после этого
-как независимый enrichment/evidence layer до расширенного автоматического выбора.
+Таким образом, routing package завершён, но его интеграция с repair отложена до
+исправления локальной GPX-реконструкции в Task 011 и учёта пауз в Task 011B. Затем Task 012 подключает routing
+к тем же пустотам в dry-run и проверяет однозначные 2D-восстановления. DEM добавляется
+после этого как независимый enrichment/evidence layer до расширенного выбора.
 Эксплуатационное усиление routing (hard query timeout/workers, широкие benchmarks,
 другие платформы и capabilities negotiation) вынесено за объём 010F:
 возвращаться по измеренной потребности, а к timeout — до unattended batch/server режима.
-Это не дополнительные обязательные этапы перед первым локальным 011A dry-run.
+Это не дополнительные обязательные этапы перед первым локальным 012A dry-run;
+Task 011, в отличие от них, является обязательной предпосылкой.
 Garmin/COROS/Strava integrations, web UI и automatic pipeline остаются отдельными
 будущими направлениями.

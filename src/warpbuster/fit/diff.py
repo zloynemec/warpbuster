@@ -65,6 +65,7 @@ def diff_preservation(
     changed_count = 0
     expected_count = 0
     unexpected_count = 0
+    added_coordinate_count = 0
     changed_records: set[int] = set()
     metric_counts = {
         "all": [0, 0],
@@ -90,6 +91,13 @@ def diff_preservation(
                     metric_counts[category][1] += 1
             if unchanged:
                 continue
+            if (
+                left.message_type == "record"
+                and field_key in (("native", "position_lat"), ("native", "position_long"))
+                and field_key not in left_fields
+                and field_key in right_fields
+            ):
+                added_coordinate_count += 1
             changed_count += 1
             display_name = _display_field_name(field_key)
             expected = (left.message_type, display_name) in _EXPECTED_REPAIR_FIELDS
@@ -129,6 +137,8 @@ def diff_preservation(
         sensors=_metric(metric_counts["sensors"]),
         developer_fields=_metric(metric_counts["developer"]),
         unknown_fields=_metric(metric_counts["unknown"]),
+        added_coordinate_field_count=added_coordinate_count,
+        definition_count_delta=len(fixed.definitions) - len(original.definitions),
     )
 
 

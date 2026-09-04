@@ -150,35 +150,21 @@ def test_safety_boundary_has_no_course_parameter() -> None:
     )
 
 
-def test_mixed_region_is_exposed_in_json_and_console(tmp_path: Path) -> None:
-    """Both report forms explain unsafe anchors and the bounded wider region."""
+def test_local_gap_evidence_is_exposed_without_composite_write_envelopes(tmp_path: Path) -> None:
+    """Diagnostic envelopes remain course-free; the report audits exact editable holes."""
     activity = _mixed_region_activity(include_distant_spike=False)
     integrity = analyze_integrity(activity)
     course_path = tmp_path / "irrelevant.gpx"
-    write_gpx_activity(
-        course_path,
-        [[(55.0, 37.0, None, None), (55.0, 37.001, None, None)]],
-    )
+    write_gpx_activity(course_path, [[(55.0, 37.0, None, None), (55.0, 37.001, None, None)]])
     course = read_gpx_course(course_path)
-    config = _safety_config()
-
-    plan = build_course_repair_plan(activity, integrity, course, config)
-    report = repair_report(plan, course, config)
-    interval_plans = report["interval_plans"]
-    assert isinstance(interval_plans, list)
-    mixed = interval_plans[0]["composite_gnss_region"]
-    assert mixed["start_record_index"] == 3
-    assert mixed["end_record_index"] == 9
-    assert mixed["repair_eligible"] is False
-    assert mixed["reconstructable"] is True
-    assert [component["kind"] for component in mixed["components"]] == [
-        "positioned",
-        "missing",
-    ]
-
-    console = repair_console(plan, course, config)
-    assert "kind=composite_region" in console
-    assert "composite_components=2" in console
+    plan = build_course_repair_plan(activity, integrity, course, _safety_config())
+    report = repair_report(plan, course, _safety_config())
+    assert report["coordinate_coverage"]["invalidated"] == 2
+    assert len(report["gap_inventory"]) == 3
+    assert {item["record_index"] for item in report["coordinate_dispositions"]} == {4, 7}
+    console = repair_console(plan, course, _safety_config())
+    assert "Coordinate coverage:" in console
+    assert "Invalidations: 2" in console
 
 
 def _safety_config() -> CourseReconstructionConfig:

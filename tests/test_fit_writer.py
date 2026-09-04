@@ -17,12 +17,12 @@ from warpbuster.integrity import analyze_integrity
 from warpbuster.models.activity import ActivityData, FitPreservationData
 from warpbuster.models.integrity import IntegrityConfidence
 from warpbuster.models.reconstruction import (
-    IntervalRepairPlan,
+    GapRepairPlan,
     ReconstructionReason,
     RepairIntervalAction,
     RepairPlan,
     RepairPlanStatus,
-    UnresolvedInterval,
+    UnresolvedGap,
 )
 from warpbuster.reconstruction import build_course_repair_plan
 from warpbuster.report.fit import write_result_console, write_result_report
@@ -136,30 +136,27 @@ def test_writer_refuses_overwrite_and_applies_high_candidate_from_partial_plan(
         write_repaired_fit(activity, plan, source_path, overwrite=True)
 
     planned_candidate = plan.interval_plans[0]
-    assert isinstance(planned_candidate, IntervalRepairPlan)
+    assert isinstance(planned_candidate, GapRepairPlan)
     planned_interval = planned_candidate.interval
-    unresolved = UnresolvedInterval(
+    unresolved = UnresolvedGap(
         interval=replace(
             planned_interval,
             start_record_index=17,
             end_record_index=17,
-            trusted_before_record_index=16,
-            trusted_after_record_index=18,
+            gap_id="gap-17-17",
+            anchor_before_record_index=16,
+            anchor_after_record_index=18,
         ),
         confidence=IntegrityConfidence.LOW,
         reasons=(ReconstructionReason.ANCHOR_BEFORE_NOT_MATCHED,),
-        anchor_before_candidate_count=0,
-        anchor_after_candidate_count=0,
-        anchor_before_stability=None,
-        anchor_after_stability=None,
-        mixed_region=None,
     )
     partial = replace(
         plan,
         status=RepairPlanStatus.PARTIAL,
         confidence=IntegrityConfidence.LOW,
         detected_interval_count=2,
-        unresolved_intervals=(unresolved,),
+        unresolved_gaps=(unresolved,),
+        gaps=(*plan.gaps, unresolved.interval),
     )
     partial_output = tmp_path / "partial.fit"
     result = write_repaired_fit(activity, partial, partial_output)
@@ -204,7 +201,6 @@ def test_writer_uses_explicit_minimum_confidence_threshold(
     medium_candidate = replace(
         plan.interval_plans[0],
         confidence=IntegrityConfidence.MEDIUM,
-        repair_eligible=False,
     )
     medium_plan = replace(
         plan,
@@ -214,9 +210,10 @@ def test_writer_uses_explicit_minimum_confidence_threshold(
     )
 
     high_output = tmp_path / "high.fit"
-    with pytest.raises(FitWriteError, match="minimum confidence HIGH"):
-        write_repaired_fit(activity, medium_plan, high_output)
-    assert not high_output.exists()
+    high_result = write_repaired_fit(activity, medium_plan, high_output)
+    assert high_result.selection.applied_interval_count == 0
+    assert read_fit(high_output).records[16].latitude is None
+    assert high_result.distance_field_change_count == 0
 
     medium_output = tmp_path / f"{minimum_confidence.value}.fit"
     result = write_repaired_fit(

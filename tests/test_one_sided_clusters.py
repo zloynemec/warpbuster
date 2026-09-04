@@ -17,11 +17,11 @@ from warpbuster.models.integrity import (
     OneSidedClusterReason,
 )
 from warpbuster.models.reconstruction import (
-    IntervalRepairPlan,
-    ReconstructionReason,
+    CoordinateState,
+    GapRepairPlan,
     RepairIntervalAction,
 )
-from warpbuster.reconstruction import build_course_repair_plan, select_repair_intervals
+from warpbuster.reconstruction import build_repair_plan, select_repair_intervals
 from warpbuster.report.analyze import analyze_report
 from warpbuster.report.repair import repair_report
 
@@ -133,29 +133,31 @@ def test_medium_one_sided_candidate_requires_explicit_medium_selection(tmp_path:
         if latitude is not None and longitude is not None
     ]
     write_gpx_activity(course_path, [points])
-    plan = build_course_repair_plan(
+    plan = build_repair_plan(
         activity,
         integrity,
         read_gpx_course(course_path),
         CourseReconstructionConfig(
-            anchor_match_tolerance_m=1.0,
-            high_confidence_anchor_distance_m=1.0,
+            anchor_match_tolerance_m=75.0,
+            high_confidence_anchor_distance_m=50.0,
             minimum_course_span_m=1.0,
-            anchor_candidate_deduplication_m=2.0,
             anchor_stability_min_normal_transitions=3,
             anchor_stability_scan_max_records=5,
             one_sided_drift_stable_record_count=3,
         ),
+        fill_missing_from_course=True,
+        minimum_invalidation_confidence=IntegrityConfidence.MEDIUM,
     )
 
     assert len(plan.interval_plans) == 1
     candidate = plan.interval_plans[0]
-    assert isinstance(candidate, IntervalRepairPlan)
+    assert isinstance(candidate, GapRepairPlan)
     assert candidate.confidence is IntegrityConfidence.MEDIUM
     assert candidate.repair_eligible is False
-    assert candidate.anchor_connector_distance_m > 15.0
-    assert candidate.reconstruction_path_distance_m > candidate.course_span_distance_m
-    assert ReconstructionReason.INTERVAL_MEDIUM_CONFIDENCE in candidate.reasons
+    assert candidate.provenance is not None
+    assert candidate.provenance.connector_distance_m > 15.0
+    assert candidate.reconstruction_path_distance_m > candidate.provenance.course_span_distance_m
+    assert (candidate.interval.start_record_index, candidate.interval.end_record_index) == (6, 17)
     default_selection = select_repair_intervals(plan)
     medium_selection = select_repair_intervals(plan, IntegrityConfidence.MEDIUM)
     assert default_selection.decisions[0].action is RepairIntervalAction.SKIPPED
@@ -167,7 +169,22 @@ def test_abnormal_distance_allocation_falls_back_to_smooth_timestamps(tmp_path: 
     """A corrupted distance step cannot reintroduce an impossible candidate transition."""
     activity = make_activity(_one_sided_observations())
     embedded = [float(index) for index in range(len(activity.records))]
-    embedded[5:19] = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 55.0, 56.0, 57.0, 58.0, 59.0, 60.0, 61.0, 62.0]
+    embedded[5:19] = [
+        0.0,
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        105.0,
+        106.0,
+        107.0,
+        108.0,
+        109.0,
+        110.0,
+        111.0,
+        112.0,
+    ]
     activity = replace(
         activity,
         records=tuple(
@@ -187,7 +204,7 @@ def test_abnormal_distance_allocation_falls_back_to_smooth_timestamps(tmp_path: 
     ]
     write_gpx_activity(course_path, [points])
 
-    plan = build_course_repair_plan(
+    plan = build_repair_plan(
         activity,
         integrity,
         read_gpx_course(course_path),
@@ -197,14 +214,20 @@ def test_abnormal_distance_allocation_falls_back_to_smooth_timestamps(tmp_path: 
             anchor_stability_scan_max_records=5,
             one_sided_drift_stable_record_count=3,
         ),
+        fill_missing_from_course=True,
+        minimum_invalidation_confidence=IntegrityConfidence.MEDIUM,
     )
 
     assert len(plan.interval_plans) == 1
-    assert plan.interval_plans[0].allocation_method.value == "timestamps"
+    candidate = plan.interval_plans[0]
+    assert isinstance(candidate, GapRepairPlan)
+    assert candidate.provenance is not None
+    assert candidate.provenance.allocation_method.value == "timestamps"
+    assert "distance_implausible" in candidate.provenance.signal_diagnostics
 
 
-def test_reconstruction_expands_core_to_stable_course_corridor(tmp_path: Path) -> None:
-    """Speed-plausible drift around a detected core is not retained as trusted track."""
+def test_course_corridor_never_expands_independently_proven_scope(tmp_path: Path) -> None:
+    """Physically plausible lateral movement outside the proof must remain untouched."""
     observations = _one_sided_observations()
     observations.extend(eastward_observations([23.0, 24.0], [69.0, 72.0]))
     metres_per_latitude_degree = 111_195.0
@@ -250,43 +273,39 @@ def test_reconstruction_expands_core_to_stable_course_corridor(tmp_path: Path) -
         one_sided_drift_stable_record_count=3,
         one_sided_drift_search_max_records=20,
     )
-    plan = build_course_repair_plan(
+    plan = build_repair_plan(
         activity,
         integrity,
         course,
         reconstruction_config,
+        fill_missing_from_course=True,
+        minimum_invalidation_confidence=IntegrityConfidence.MEDIUM,
     )
-
-    assert len(plan.interval_plans) == 1
-    candidate = plan.interval_plans[0]
-    assert isinstance(candidate, IntervalRepairPlan)
-    assert (candidate.interval.start_record_index, candidate.interval.end_record_index) == (4, 19)
-    assert (
-        candidate.interval.trusted_before_record_index,
-        candidate.interval.trusted_after_record_index,
-    ) == (3, 20)
-    refinement = candidate.boundary_refinement
-    assert refinement is not None
-    assert (refinement.detected_start_record_index, refinement.detected_end_record_index) == (
-        6,
-        17,
+    without_course = build_repair_plan(
+        activity,
+        integrity,
+        minimum_invalidation_confidence=IntegrityConfidence.MEDIUM,
     )
-    assert (refinement.expanded_before_record_count, refinement.expanded_after_record_count) == (
-        2,
-        2,
+    assert plan.coordinate_mask == without_course.coordinate_mask
+    assert {(gap.start_record_index, gap.end_record_index) for gap in plan.gaps} == {(6, 17)}
+    assert all(
+        item.state is CoordinateState.PRESERVED
+        for item in plan.coordinate_mask
+        if item.record_index < 6 or item.record_index > 17
     )
-    assert ReconstructionReason.STABLE_COURSE_CORRIDOR in refinement.reasons
+    assert all(
+        6 <= update.record_index <= 17
+        for candidate in plan.interval_plans
+        for update in candidate.coordinate_updates
+    )
     rendered = repair_report(
         plan,
         course,
         reconstruction_config,
         minimum_confidence=IntegrityConfidence.MEDIUM,
     )
-    interval_reports = rendered["interval_plans"]
-    assert isinstance(interval_reports, list)
-    boundary_report = interval_reports[0]["boundary_refinement"]
-    assert boundary_report["detected_start_record_index"] == 6
-    assert boundary_report["refined_start_record_index"] == 4
+    assert rendered["gap_inventory"][0]["start_record_index"] == 6
+    assert rendered["gap_inventory"][0]["end_record_index"] == 17
 
 
 def test_json_exposes_one_sided_proof_and_rejection_reasons() -> None:

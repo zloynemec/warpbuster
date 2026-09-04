@@ -101,6 +101,25 @@ class ReconstructionReason(StrEnum):
     MISSING_POSITION_FIELDS_UNAVAILABLE = "missing_position_fields_unavailable"
     MISSING_CANDIDATE_TRANSITION_IMPLAUSIBLE = "missing_candidate_transition_implausible"
     OVERLAPS_PRIMARY_RECONSTRUCTION = "overlaps_primary_reconstruction"
+    NO_COURSE = "no_course"
+    MISSING_COMPLETION_DISABLED = "missing_completion_disabled"
+    INSUFFICIENT_CORRUPTION_PROOF = "insufficient_corruption_proof"
+    INVALIDATION_BELOW_THRESHOLD = "invalidation_below_threshold"
+    NO_TRUSTED_LOCAL_ANCHOR = "no_trusted_local_anchor"
+    LOCAL_COURSE_MATCH_NOT_FOUND = "local_course_match_not_found"
+    LOCAL_COURSE_MATCH_AMBIGUOUS = "local_course_match_ambiguous"
+    LOCAL_DISTANCE_INCONSISTENT = "local_distance_inconsistent"
+    TIMING_UNUSABLE = "timing_unusable"
+    TIMER_PAUSE = "timer_pause"
+    TIMER_STATE_UNRESOLVED = "timer_state_unresolved"
+    NO_ACTIVE_TIME = "no_active_time"
+    PAUSE_DISTANCE_CONFLICT = "pause_distance_conflict"
+    ACTIVE_TIME_TRAVERSAL_IMPLAUSIBLE = "active_time_traversal_implausible"
+    CONTINUITY_BREAK = "continuity_break"
+    SEARCH_LIMIT_REACHED = "search_limit_reached"
+    POSITION_FIELDS_UNPATCHABLE = "position_fields_unpatchable"
+    INDEPENDENT_CORRUPTION_PROOF = "independent_corruption_proof"
+    COURSE_ASSUMPTION = "course_assumption"
 
 
 class GnssComponentKind(StrEnum):
@@ -146,6 +165,7 @@ class MissingCourseRunKind(StrEnum):
 
     PREFIX = "prefix"
     SUFFIX = "suffix"
+    INTERNAL = "internal"
 
 
 class RepairIntervalAction(StrEnum):
@@ -222,7 +242,7 @@ class CandidateCoordinate:
     original_longitude: float | None
     candidate_latitude: float
     candidate_longitude: float
-    course_distance_m: float
+    course_distance_m: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -391,8 +411,8 @@ class UnresolvedMissingCourseRun:
     reasons: tuple[ReconstructionReason, ...]
 
 
-type RepairTarget = CorruptedInterval | MissingCourseRun
-type RepairCandidate = IntervalRepairPlan | MissingCourseCompletionPlan
+type RepairTarget = CorruptedInterval | MissingCourseRun | ReconstructionGap
+type RepairCandidate = IntervalRepairPlan | MissingCourseCompletionPlan | GapRepairPlan
 
 
 @dataclass(frozen=True, slots=True)
@@ -414,7 +434,7 @@ class RepairPlan:
     """Complete dry-run result containing available candidates and unresolved intervals."""
 
     activity_path: Path
-    course_path: Path
+    course_path: Path | None
     status: RepairPlanStatus
     confidence: IntegrityConfidence
     detected_interval_count: int
@@ -426,6 +446,11 @@ class RepairPlan:
     output_written: bool
     unresolved_missing_runs: tuple[UnresolvedMissingCourseRun, ...] = ()
     missing_completion_enabled: bool = False
+    coordinate_mask: tuple[CoordinateDisposition, ...] = ()
+    gaps: tuple[ReconstructionGap, ...] = ()
+    unresolved_gaps: tuple[UnresolvedGap, ...] = ()
+    minimum_invalidation_confidence: IntegrityConfidence = IntegrityConfidence.HIGH
+    maximum_new_transition_speed_mps: float = 10.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -449,6 +474,23 @@ class RepairSelection:
     detected_interval_count: int
     selected_interval_plans: tuple[RepairCandidate, ...]
     decisions: tuple[RepairIntervalDecision, ...]
+    invalidations: tuple[CoordinateDisposition, ...] = ()
+    minimum_invalidation_confidence: IntegrityConfidence = IntegrityConfidence.HIGH
+
+    @property
+    def has_changes(self) -> bool:
+        """Coordinate cleaning is independent of replacement availability."""
+        return bool(self.selected_interval_plans or self.invalidations)
+
+    @property
+    def unresolved_invalidated_indices(self) -> frozenset[int]:
+        """Invalidated records for which no replacement was selected."""
+        filled = {
+            update.record_index
+            for candidate in self.selected_interval_plans
+            for update in candidate.coordinate_updates
+        }
+        return frozenset(item.record_index for item in self.invalidations) - filled
 
     @property
     def applied_interval_count(self) -> int:
@@ -458,9 +500,146 @@ class RepairSelection:
     @property
     def skipped_interval_count(self) -> int:
         """Return how many detected intervals will remain untouched."""
-        return self.detected_interval_count - self.applied_interval_count
+        return len(self.decisions) - self.applied_interval_count
 
     @property
     def is_partial(self) -> bool:
         """Return whether at least one detected interval remains untouched."""
         return self.skipped_interval_count > 0
+
+
+class CoordinateState(StrEnum):
+    """Geometry state established without a reconstruction provider."""
+
+    ORIGINAL_MISSING = "original_missing"
+    INVALIDATED = "invalidated"
+    PRESERVED = "preserved"
+
+
+class GapOrigin(StrEnum):
+    """Origin is orthogonal to the location or reconstruction result of a gap."""
+
+    ORIGINAL_MISSING = "original_missing"
+    INVALIDATED = "invalidated"
+    MIXED = "mixed"
+
+
+@dataclass(frozen=True, slots=True)
+class CoordinateDisposition:
+    """Immutable per-record coordinate evidence and invalidation decision."""
+
+    record_index: int
+    state: CoordinateState
+    original_latitude: float | None
+    original_longitude: float | None
+    anchor_eligible: bool
+    confidence: IntegrityConfidence
+    proof_ranges: tuple[tuple[int, int], ...] = ()
+    proof_reasons: tuple[str, ...] = ()
+    reasons: tuple[ReconstructionReason, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ReconstructionGap:
+    """Provider-independent contiguous edit scope; preserved points split gaps."""
+
+    gap_id: str
+    start_record_index: int
+    end_record_index: int
+    start_timestamp: datetime | None
+    end_timestamp: datetime | None
+    kind: MissingCourseRunKind
+    origin: GapOrigin
+    continuity_id: int
+    anchor_before_record_index: int | None
+    anchor_after_record_index: int | None
+    original_missing_count: int
+    invalidated_count: int
+    invalidation_confidence: IntegrityConfidence | None
+    reasons: tuple[ReconstructionReason, ...] = ()
+
+    @property
+    def record_count(self) -> int:
+        return self.end_record_index - self.start_record_index + 1
+
+
+@dataclass(frozen=True, slots=True)
+class LocalAlignmentEvidence:
+    """Measured context deltas and projection uncertainty, not global FIT totals."""
+
+    record_range: tuple[int, int]
+    observed_distance_m: float
+    observed_distance_source: str
+    course_span_distance_m: float
+    projection_error_budget_m: float
+    maximum_observation_error_m: float
+
+
+@dataclass(frozen=True, slots=True)
+class ReconstructionTiming:
+    """Anchor-inclusive timing audit, separate from recorded timestamp semantics."""
+
+    elapsed_seconds: float
+    paused_seconds: float
+    active_seconds: float
+    pause_count: int
+    open_pause: bool
+
+
+@dataclass(frozen=True, slots=True)
+class CoursePathProvenance:
+    """GPX-specific evidence, separate from the generic edit scope and updates."""
+
+    source_path: Path
+    source_sha256: str
+    direction: CourseDirection
+    anchor_before: CourseAnchorMatch
+    anchor_after: CourseAnchorMatch
+    context_ranges: tuple[tuple[int, int], ...]
+    course_span_distance_m: float
+    connector_distance_m: float
+    endpoint_source: str | None
+    allocation_method: AllocationMethod
+    signal_quality: str
+    signal_diagnostics: tuple[str, ...]
+    alignment_contexts: tuple[LocalAlignmentEvidence, ...] = ()
+    distance_signal_status: str = "unassessed"
+    speed_signal_status: str = "unassessed"
+    recorded_distance_delta_m: float | None = None
+    integrated_speed_distance_m: float | None = None
+    signal_distance_error_budget_m: float | None = None
+    timing: ReconstructionTiming | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class GapRepairPlan:
+    """Minimal path candidate contract; only optional provenance refers to GPX."""
+
+    interval: ReconstructionGap
+    coordinate_updates: tuple[CandidateCoordinate, ...]
+    confidence: IntegrityConfidence
+    reasons: tuple[ReconstructionReason, ...]
+    reconstruction_path_distance_m: float
+    preserve_recorded_distance: bool
+    provenance: CoursePathProvenance | None = None
+    fields_to_change: tuple[str, ...] = ("position_lat", "position_long")
+    dependent_fields_to_recalculate: tuple[str, ...] = ()
+
+    @property
+    def reconstruction_scope_ranges(self) -> tuple[tuple[int, int], ...]:
+        return ((self.interval.start_record_index, self.interval.end_record_index),)
+
+    @property
+    def repair_eligible(self) -> bool:
+        return self.confidence is IntegrityConfidence.HIGH
+
+
+@dataclass(frozen=True, slots=True)
+class UnresolvedGap:
+    """Local rejection with the precise inspected context retained for audit."""
+
+    interval: ReconstructionGap
+    reasons: tuple[ReconstructionReason, ...]
+    context_ranges: tuple[tuple[int, int], ...] = ()
+    confidence: IntegrityConfidence = IntegrityConfidence.LOW
+    timing: ReconstructionTiming | None = None

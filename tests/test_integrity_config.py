@@ -29,6 +29,8 @@ def test_integrity_thresholds_are_named_and_serializable() -> None:
         "one_sided_anchor_min_normal_transitions": 15,
         "one_sided_anchor_scan_max_records": 60,
         "one_sided_max_diagnostics": 100,
+        "tail_anchor_min_normal_transitions": 15,
+        "tail_position_error_budget_m": 50.0,
         "vertical_warning_speed_mps": None,
         "vertical_warning_single_transition_speed_mps": 10.0,
         "vertical_warning_min_delta_m": 4.0,

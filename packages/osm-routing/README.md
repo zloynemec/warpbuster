@@ -218,7 +218,8 @@ the audit also rejects normalized engine `surface=impassable`. A raw OSM tag wit
 same spelling is not assumed to produce the same normalized value.
 
 No multi-route GPX/HTML export, DEM, activity evidence, extra acquisition or FIT writing
-is included. Selecting candidates for reconstruction belongs to Task 011.
+is included. Selecting OSM candidates for reconstruction belongs to Task 012, after
+the local GPX gap reconstruction corrections in Task 011.
 
 ## Task 010A diagnostic spike
 

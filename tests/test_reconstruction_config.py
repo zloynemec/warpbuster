@@ -30,9 +30,13 @@ def test_reconstruction_thresholds_are_named_and_serializable() -> None:
         "mixed_region_max_clean_gap_records": 15,
         "missing_alignment_min_position_records": 30,
         "missing_alignment_max_distance_ratio_error": 0.15,
+        "signal_distance_absolute_tolerance_m": 3.0,
         "missing_completion_max_course_speed_mps": 10.0,
         "missing_completion_max_connector_speed_mps": 10.0,
         "missing_completion_max_run_records": 50_000,
+        "local_alignment_max_context_records": 300,
+        "local_alignment_max_context_seconds": 300.0,
+        "local_alignment_max_path_evaluations": 128,
     }
 
 
@@ -58,9 +62,18 @@ def test_reconstruction_thresholds_are_named_and_serializable() -> None:
         ("mixed_region_search_max_records", 0),
         ("missing_alignment_min_position_records", 0),
         ("missing_alignment_max_distance_ratio_error", 0.0),
+        ("signal_distance_absolute_tolerance_m", 0.0),
+        ("signal_distance_absolute_tolerance_m", -1.0),
+        ("signal_distance_absolute_tolerance_m", float("nan")),
+        ("signal_distance_absolute_tolerance_m", float("inf")),
         ("missing_completion_max_course_speed_mps", 0.0),
         ("missing_completion_max_connector_speed_mps", 0.0),
         ("missing_completion_max_run_records", 0),
+        ("local_alignment_max_context_records", 0),
+        ("local_alignment_max_path_evaluations", 0),
+        ("local_alignment_max_context_seconds", 0.0),
+        ("local_alignment_max_context_seconds", float("nan")),
+        ("local_alignment_max_context_seconds", float("inf")),
     ],
 )
 def test_reconstruction_thresholds_reject_non_positive_values(

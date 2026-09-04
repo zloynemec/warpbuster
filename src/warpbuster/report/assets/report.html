@@ -105,6 +105,7 @@
     .diagnostic-evidence summary { cursor: pointer; color: var(--blue); }
     .diagnostic-evidence p { margin: 5px 0; overflow-wrap: anywhere; }
     .reference-note { margin: 10px 0; padding: 10px 12px; border-left: 4px solid var(--purple); background: #f5f0ff; color: #4a3480; }
+    .gap-marker { background: #0f766e; color: white; border: 2px solid white; border-radius: 6px; text-align: center; font-weight: 800; line-height: 26px; }
     .empty { color: var(--muted); padding: 10px 0; }
     footer { color: var(--muted); padding: 20px 0 38px; font-size: 12px; }
     @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -116,6 +117,7 @@
   <header>
     <h1>WarpBuster activity report</h1>
     <p class="subtitle" id="source-path"></p>
+    <p class="hint" id="fit-compatibility" hidden></p>
   </header>
   <main>
     <div class="grid" id="summary"></div>
@@ -125,8 +127,8 @@
       <div class="controls"><button id="fit-map" type="button">Fit whole track</button></div>
       <p class="reference-note" id="course-reference" hidden></p>
       <div class="legend">
-        <span><i class="swatch" style="background:#64748b"></i>Original</span>
-        <span><i class="swatch" style="background:#1d6fb8"></i>Repaired</span>
+        <span><i class="swatch" style="background:#64748b"></i>Original / preserved</span>
+        <span><i class="swatch" style="background:#1d6fb8"></i>Reconstructed</span>
         <span><i class="swatch" style="background:#0f766e"></i>Candidate</span>
         <span><i class="swatch" style="background:#6b46c1"></i>Course</span>
         <span><i class="swatch" style="background:#c53030"></i>Corrupted</span>
@@ -134,11 +136,18 @@
         <span><i class="swatch" style="background:#d97706;border-top:1px dashed white"></i>Missing data</span>
       </div>
       <div id="map" role="application" aria-label="Interactive track map"></div>
-      <p class="hint">Interactive OpenStreetMap: drag to pan, use +/− or the mouse wheel to zoom, and toggle layers in the top-right control. Solid lines contain recorded or repaired coordinates; dashed orange bridges mark unknown geometry across missing positions.</p>
+      <p class="hint">Interactive OpenStreetMap: drag to pan, use +/− or the mouse wheel to zoom, and toggle layers in the top-right control. In repair output, grey lines are preserved coordinates and blue lines are reconstructed coordinates including joins. Dashed orange bridges mark unknown geometry, not a recovered path. Kilometre labels use FIT distance; distance uncertainty is shown in the summary and marker popups. G-numbers identify gaps, not the spans between kilometre labels.</p>
+    </section>
+
+    <section id="gap-section" hidden>
+      <h2>Local gap reconstruction</h2>
+      <p class="hint">G-numbers identify reconstruction gaps, not corrupted detector regions. Click a row to inspect its local path. Course start/finish are assumptions authorized by --fill-missing-from-course; preserved observations are not snapped to the course.</p>
+      <p id="gap-policy" class="reference-note"></p>
+      <div id="gap-inventory"></div>
     </section>
 
     <section>
-      <h2>Numbered detector regions</h2>
+      <h2>Numbered input detector regions</h2>
       <p class="hint">A number identifies a display region, not its severity. The GPX course is a reference overlay only and is excluded from integrity detection. MISSING does not mean CORRUPTED. A visually unusual unnumbered FIT section may simply lack sufficient course-independent evidence.</p>
       <div id="diagnostic-regions"></div>
     </section>
@@ -178,7 +187,7 @@
     <section class="repair-only">
       <h2>Missing-position completion</h2>
       <div id="missing-completion"></div>
-      <p class="hint">This opt-in reconstruction fills only absent coordinates. Existing GPS coordinates, timestamps, telemetry and a plausible recorded-distance stream remain unchanged.</p>
+      <p class="hint">Reconstruction fills original missing or independently invalidated coordinates. Preserved GPS observations, timestamps and recorded telemetry remain unchanged. Demonstrably impossible distance increments can be corrected locally; plausible distance is not replaced merely to match the course.</p>
     </section>
 
     <section class="repair-only">
@@ -264,18 +273,26 @@
 
     document.title = `WarpBuster — ${text(data.inspect.source.path)}`;
     document.getElementById("source-path").textContent = `${data.report_kind.replaceAll("_", " ")} · ${text(data.inspect.source.path)}`;
+    const fitWarnings = data.inspect.source.compatibility_warnings || [];
+    if (fitWarnings.length) {
+      const warning = document.getElementById("fit-compatibility");
+      warning.hidden = false;
+      warning.textContent = `FIT compatibility warning: ${fitWarnings.join(" ")}`;
+    }
     document.getElementById("footer").textContent = `Generated locally by WarpBuster ${data.generator.version}. This file contains embedded activity coordinates and telemetry; treat it as private data. The map loads Leaflet from unpkg.com and visible tiles from tile.openstreetmap.org.`;
     if (!repair) document.querySelectorAll(".repair-only").forEach((node) => { node.hidden = true; });
 
+    const shownDistance = data.output_summary ? data.output_summary.recorded_distance_m : data.inspect.recorded_distance_m;
+    const distanceLabel = data.output_summary ? `Output distance${repair?.distance?.quality === "uncertain" ? " (uncertain)" : ""}` : "Input distance";
     const summaryItems = [
-      ["Integrity", analysis.status, true],
+      ["Input integrity", analysis.status, true],
       ["Confidence", analysis.confidence, true],
       ["Records", data.inspect.record_count, false],
-      ["Distance", data.inspect.recorded_distance_m === null ? "n/a" : `${number(data.inspect.recorded_distance_m / 1000)} km`, false],
+      [distanceLabel, shownDistance === null ? "n/a" : `${number(shownDistance / 1000)} km`, false],
       ["Duration", data.inspect.duration_seconds === null ? "n/a" : `${number(data.inspect.duration_seconds / 3600)} h`, false],
       ["Sport", `${text(analysis.activity.sport)} / ${text(analysis.activity.sub_sport)}`, false],
       ["Intervals", analysis.summary.corrupted_interval_count, false],
-      ["Missing positions", analysis.summary.missing_position_record_count, false],
+      ["Input missing positions", analysis.summary.missing_position_record_count, false],
     ];
     if (data.tracks.course) summaryItems.push([
       "Reference course",
@@ -283,6 +300,8 @@
       false,
     ]);
     if (repair) summaryItems.splice(2, 0, ["Repair plan", repair.status, true], ["Application", repair.selection.application_status, true]);
+    if (repair) summaryItems.push(["Gap geometry", repair.geometry_status, true], ["Distance / metrics", repair.distance.status, false]);
+    if (data.output_summary) summaryItems.push(["Output missing positions", data.output_summary.missing_position_count, false], ["Written FIT verified", writeResult?.post_write_verified ? "yes" : "no", false]);
     const summary = document.getElementById("summary");
     for (const [label, value, asBadge] of summaryItems) {
       const card = document.createElement("div"); card.className = "card";
@@ -318,6 +337,10 @@
     const diagnosticMetricSummary = (region) => {
       const metrics = region.metrics || {};
       if (region.kind === "corrupted_interval") {
+        if (metrics.reachability) {
+          const proof = metrics.reachability;
+          return `${text(metrics.detection_kind)}; anchor ${text(metrics.trusted_before_record_index)}; ${text(proof.positioned_record_count)} unreachable positions; limit ${number(proof.speed_limit_mps)} m/s + ${metres(proof.position_error_budget_m)} error budget; minimum excess ${metres(proof.minimum_excess_distance_m)}; stopped: ${text(proof.stop_reason)}`;
+        }
         const bridge = metrics.bridge || {};
         return `${text(metrics.detection_kind)}; bridge ${metres(bridge.distance_m)} / ${number(bridge.apparent_speed_mps)} m/s; anchors ${text(metrics.trusted_before_record_index)} → ${text(metrics.trusted_after_record_index)}`;
       }
@@ -398,6 +421,45 @@
       regionTable.appendChild(body); wrap.appendChild(regionTable); diagnosticRoot.appendChild(wrap);
     }
 
+    const gapInventory = repair && repair.gap_inventory ? repair.gap_inventory : [];
+    const gapFeatures = new Map();
+    document.getElementById("gap-section").hidden = !gapInventory.length;
+    if (gapInventory.length) {
+      const gapEvidence = (gap) => {
+        const details = document.createElement("details"), summary = document.createElement("summary"), pre = document.createElement("pre");
+        summary.textContent = "Proof / path";
+        const proof = [...new Set((repair.coordinate_dispositions || []).filter((item) => item.record_index >= gap.start_record_index && item.record_index <= gap.end_record_index && item.proof_ranges.length).map((item) => JSON.stringify({ ranges: item.proof_ranges, confidence: item.confidence, reasons: item.proof_reasons })))].map((item) => JSON.parse(item));
+        pre.textContent = JSON.stringify({ invalidation_proof: proof, course_policy: repair.summary.missing_completion_enabled ? "--fill-missing-from-course" : "proven corrupted scope only", timing: gap.timing, path: gap.provenance }, null, 2);
+        details.append(summary, pre); return details;
+      };
+      const coverage = repair.coordinate_coverage;
+      const stage = data.report_kind === "repair_write" ? "Output" : "Preview";
+      document.getElementById("gap-policy").textContent = `${stage}: original missing ${coverage.original_missing}; invalidated ${coverage.invalidated}; filled ${coverage.filled}; unresolved ${coverage.unresolved}; untouched positioned ${coverage.untouched_positioned}. Distance: ${repair.distance.status}, quality ${repair.distance.quality}. Local corrections do not estimate unresolved gaps. Recorded speed is retained telemetry, not claimed independent of GPS. G-numbers identify record ranges, not spans between kilometre labels.`;
+      const gapTable = table(["Gap", "Records / time", "Elapsed / paused / active (s), anchors included", "Origin", "Geometry status", "Invalidation / path confidence", "Missing / invalidated / filled", "Actual join anchors", "Context", "Endpoint source", "Distance / input signal", "Reasons", "Evidence"], gapInventory.map((gap) => [
+        `G${gap.number}`,
+        `${gap.start_record_index}..${gap.end_record_index}\n${text(gap.start_timestamp)} → ${text(gap.end_timestamp)}`,
+        gap.timing ? `${number(gap.timing.elapsed_seconds)} / ${number(gap.timing.paused_seconds)} / ${number(gap.timing.active_seconds)}\nPauses: ${gap.timing.pause_count}${gap.timing.open_pause ? " (open)" : ""}\nAllocation: ${text(gap.provenance?.allocation_method)}${gap.provenance?.signal_diagnostics?.includes("active_time_estimated") ? " (active time, estimated)" : ""}` : "n/a",
+        gap.origin, badge(gap.status), `${text(gap.invalidation_confidence)} / ${text(gap.path_confidence)}`,
+        `${gap.original_missing_count} / ${gap.invalidated_count} / ${gap.filled_count}`,
+        `${text(gap.anchor_before_record_index)} → ${text(gap.anchor_after_record_index)}`,
+        gap.context_ranges.map((range) => range.join("..")).join("; "), text(gap.endpoint_source), `${gap.distance_action} / ${gap.distance_signal_status}`, [...gap.reasons, ...(gap.selection_reasons || [])].join(", "),
+        gapEvidence(gap),
+      ]));
+      document.getElementById("gap-inventory").appendChild(gapTable);
+      gapTable.querySelectorAll("tbody tr").forEach((row, index) => {
+        row.style.cursor = "pointer";
+        row.addEventListener("click", (event) => {
+          if (event.target instanceof Element && event.target.closest("details, summary")) return;
+          const feature = gapFeatures.get(gapInventory[index].gap_id);
+          if (!feature || !map) return;
+          map.fitBounds(feature.bounds, { padding: [42, 42], maxZoom: 18 });
+          feature.marker.openPopup();
+          if (feature.path) feature.path.addTo(map);
+          document.getElementById("map").scrollIntoView({ behavior: "smooth", block: "center" });
+        });
+      });
+    }
+
     const decisionRows = repair ? repair.selection.intervals.map((item) => [
       `${item.start_record_index}..${item.end_record_index}`,
       item.target_kind,
@@ -410,7 +472,7 @@
     document.getElementById("repair-decisions").appendChild(table(["Records", "Kind", "Action", "Confidence", "Candidate", "Updates", "Reasons"], decisionRows));
 
     const missingCompletionRows = repair ? repair.interval_plans
-      .filter((item) => item.detection_kind === "missing_course_completion")
+      .filter((item) => item.detection_kind === "missing_course_completion" || item.detection_kind === "gap_reconstruction")
       .map((item) => [
         `${item.start_record_index}..${item.end_record_index}`,
         item.missing_run_kind,
@@ -456,10 +518,10 @@
       item.record_count,
       badge(item.confidence),
       item.detection_kind,
-      `${number(item.bridge.distance_m)} m / ${number(item.bridge.apparent_speed_mps)} m/s`,
+      item.bridge ? `${number(item.bridge.distance_m)} m / ${number(item.bridge.apparent_speed_mps)} m/s` : item.reachability ? `Anchor ${item.trusted_before_record_index}; ${item.reachability.positioned_record_count} unreachable positions; min excess ${metres(item.reachability.minimum_excess_distance_m)}; ${text(item.reachability.stop_reason)}` : "n/a",
       item.reasons.join(", "),
     ]);
-    document.getElementById("intervals").appendChild(table(["Records", "Count", "Confidence", "Kind", "Bridge", "Reasons"], intervalRows));
+    document.getElementById("intervals").appendChild(table(["Records", "Count", "Confidence", "Kind", "Bridge / reachability proof", "Reasons"], intervalRows));
 
     const oneSidedRows = analysis.one_sided_search_diagnostics.retained_clusters.map((item) => [
       `${item.start_record_index}..${text(item.end_record_index, "?")}`,
@@ -519,11 +581,13 @@
 
     const performanceSummary = document.getElementById("repaired-performance-summary");
     document.getElementById("activity-performance-title").textContent = `${text(repairedPerformance?.source_label, data.report_kind === "analyze" ? "Original activity" : "Repaired FIT")} pace & elevation`;
+    const uncertainDistance = repair?.distance?.quality === "uncertain";
+    if (uncertainDistance) document.getElementById("activity-performance-title").textContent += " — distance / pace uncertain";
     if (!repairedPerformance) {
       const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = "Available after a repaired FIT has been written and validated."; performanceSummary.appendChild(empty);
     } else {
       const performanceItems = [
-        ["Average pace", pace(repairedPerformance.average_pace_seconds_per_km)],
+        [uncertainDistance ? "Average pace (uncertain)" : "Average pace", pace(repairedPerformance.average_pace_seconds_per_km)],
         ["Time", clockDuration(repairedPerformance.timer_duration_seconds)],
         ["Total ascent", metres(repairedPerformance.total_ascent_m)],
         ["Total descent", metres(repairedPerformance.total_descent_m)],
@@ -561,6 +625,8 @@
       diffRoot.appendChild(table(["Metric", "Value", "Status"], [
         ["Changed records", diff.changed_record_count, "expected"],
         ["Changed fields", diff.changed_field_count, `${diff.unexpected_changed_field_count} unexpected`],
+        ["Added coordinate fields", diff.added_coordinate_field_count ?? 0, "native FIT record fields"],
+        ["FIT definitions", diff.definitions_unchanged ? "unchanged" : "changed", `count delta: ${diff.definition_count_delta ?? 0}`],
         ["Timestamps", `${number(preservation.timestamps.percentage)}%`, "preserved"],
         ["Sensors", `${number(preservation.sensors.percentage)}%`, "preserved"],
         ["Developer fields", `${number(preservation.developer_fields.percentage)}%`, "preserved"],
@@ -616,9 +682,27 @@
     const primaryFullRows = data.tracks.repaired ? data.tracks.repaired.records : originalRows;
     const originalLayerLabel = data.inspect.source.format === "fit" ? "Original FIT" : "Original GPX";
     addOverlay(originalLayerLabel, splitTrack(layers.original), { color: colors.original, weight: 2.5, opacity: 0.8 }, !hasRepaired && !hasCandidate);
-    addOverlay("Repaired", splitTrack(layers.repaired), { color: colors.repaired, weight: 3, opacity: 0.95 }, hasRepaired);
+    addOverlay("Output FIT (all coordinates)", splitTrack(layers.repaired), { color: colors.repaired, weight: 3, opacity: 0.95 }, false);
+    const updatedRecords = new Set();
+    (data.coordinate_update_ranges || []).forEach(([start, end]) => { for (let i = start; i <= end; i++) updatedRecords.add(i); });
+    const outputSegments = (changed) => {
+      const segments = []; let segment = []; let previous = null;
+      const flush = () => { if (segment.length) segments.push(segment); segment = []; };
+      for (const row of layers.repaired) {
+        const [index, lat, lon, continuity] = row;
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) { flush(); previous = null; continue; }
+        if (previous && previous[3] === continuity && (updatedRecords.has(previous[0]) || updatedRecords.has(index)) === changed) {
+          if (!segment.length) segment.push([previous[1], previous[2]]);
+          segment.push([lat, lon]);
+        } else flush();
+        previous = row;
+      }
+      flush(); return segments;
+    };
+    addOverlay("Preserved coordinates", outputSegments(false), { color: colors.original, weight: 3, opacity: 0.95 }, hasRepaired);
+    addOverlay("Reconstructed coordinates (including joins)", outputSegments(true), { color: colors.repaired, weight: 4, opacity: 0.95 }, hasRepaired);
     addOverlay("Candidate", splitTrack(layers.candidate), { color: colors.candidate, weight: 3, opacity: 0.95, dashArray: "8 6" }, !hasRepaired && hasCandidate);
-    addOverlay("Reference course", layers.course.filter((segment) => segment.length), { color: colors.course, weight: 2.5, opacity: 0.8, dashArray: "6 5" }, data.report_kind === "analyze");
+    addOverlay("Reference course", layers.course.filter((segment) => segment.length), { color: colors.course, weight: 2.5, opacity: 0.8, dashArray: "6 5" });
     const corruptedSegments = analysis.corrupted_intervals.flatMap((item) => splitTrack(layers.original, [item.start_record_index, item.end_record_index]));
     addOverlay("Corrupted intervals", corruptedSegments, { color: colors.corrupted, weight: 6, opacity: 0.9 }, !hasRepaired);
     const skippedSegments = repair ? repair.selection.intervals.filter((item) => item.action === "skipped").flatMap((item) => splitTrack(layers.original, [item.start_record_index, item.end_record_index])) : [];
@@ -631,8 +715,8 @@
     addOverlay("Missing-data bridges", missingBridges(primaryRows), { color: colors.missing, weight: 3, opacity: 0.9, dashArray: "7 7" });
 
     const diagnosticLayerDefinitions = {
-      one_sided_diagnostic: { label: "One-sided diagnostics", color: colors.tainted, weight: 6, enabled: true, dashArray: "7 5" },
-      abnormal_transition_run: { label: "Suspicious / impossible transitions", color: colors.skipped, weight: 6, enabled: true },
+      one_sided_diagnostic: { label: "Input one-sided diagnostics", color: colors.tainted, weight: 6, enabled: !hasRepaired, dashArray: "7 5" },
+      abnormal_transition_run: { label: "Input suspicious / impossible transitions", color: colors.skipped, weight: 6, enabled: !hasRepaired },
       geometry_warning: { label: "Geometry warnings", color: colors.purple, weight: 5, enabled: false, dashArray: "5 5" },
       vertical_warning: { label: "Vertical warnings", color: colors.blue, weight: 5, enabled: false, dashArray: "3 5" },
     };
@@ -658,9 +742,11 @@
       const bucket = Math.floor(row[5] / distanceMarkerStepMetres);
       if (bucket <= distanceBucket) continue;
       distanceBucket = bucket;
-      const label = `${bucket}`;
+      const label = String(bucket);
       const icon = L.divIcon({ className: "distance-marker", html: label, iconSize: [26, 16], iconAnchor: [13, 8] });
-      markerLayers.push(L.marker([row[2], row[3]], { icon, title: `${label} km` }));
+      const distanceMarker = L.marker([row[2], row[3]], { icon, title: `${label} km · record ${row[0]}` });
+      distanceMarker.bindPopup(`FIT distance: ${number(row[5] / 1000, 3)} km; record ${row[0]}; ${text(row[1])}. Quality: ${repair?.distance?.quality || "source_unverified"}. Not a reconstruction-gap boundary.`);
+      markerLayers.push(distanceMarker);
     }
     if (markerLayers.length) {
       const markerGroup = L.layerGroup(markerLayers).addTo(map);
@@ -688,9 +774,26 @@
       diagnosticMarkers.push(marker);
     });
     if (diagnosticMarkers.length) {
-      const diagnosticMarkerGroup = L.layerGroup(diagnosticMarkers).addTo(map);
+      const diagnosticMarkerGroup = L.layerGroup(diagnosticMarkers);
+      if (!hasRepaired) diagnosticMarkerGroup.addTo(map);
       overlayLayers["Numbered detector regions"] = diagnosticMarkerGroup;
     }
+    const gapMarkers = [];
+    const gapPaths = [];
+    (data.gap_markers || []).forEach((geometry) => {
+      if (!geometry.marker) return;
+      const gap = gapInventory.find((item) => item.gap_id === geometry.gap_id);
+      const marker = L.marker(geometry.marker, { icon: L.divIcon({ className: "gap-marker", html: `G${geometry.number}`, iconSize: [38, 30], iconAnchor: [19, 15] }), title: `Gap G${geometry.number}` });
+      const popup = document.createElement("div");
+      popup.textContent = `G${geometry.number}: ${gap.kind} · ${gap.origin} · ${gap.status}; records ${gap.start_record_index}..${gap.end_record_index}; ${gap.reasons.join(", ")}`;
+      marker.bindPopup(popup);
+      const path = geometry.candidate_geometry.length ? L.polyline(geometry.candidate_geometry, { color: colors.candidate, weight: 5, dashArray: "5 5" }) : null;
+      gapFeatures.set(geometry.gap_id, { marker, path, bounds: geometry.bounds });
+      gapMarkers.push(marker);
+      if (path) gapPaths.push(path);
+    });
+    if (gapMarkers.length) overlayLayers["Numbered reconstruction gaps"] = L.layerGroup(gapMarkers).addTo(map);
+    if (gapPaths.length) overlayLayers["All proposed gap paths (including skipped)"] = L.layerGroup(gapPaths);
     L.control.layers({}, overlayLayers, { collapsed: true }).addTo(map);
     L.control.scale({ imperial: false }).addTo(map);
 

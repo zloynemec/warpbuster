@@ -9,12 +9,15 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from itertools import pairwise
+from math import isfinite
 from pathlib import Path
 
 import fitdecode
 from fitdecode.utils import compute_crc  # type: ignore[import-untyped]
 
+from warpbuster.fit.compat import CompatibleFitReader
 from warpbuster.fit.diff import diff_fit
+from warpbuster.fit.reader import read_fit
 from warpbuster.fit.validate import validate_fit
 from warpbuster.geo import geodesic_distance_m
 from warpbuster.models.activity import ActivityData, ActivityRecord, FitPreservationData
@@ -22,6 +25,7 @@ from warpbuster.models.fit import FitWriteResult
 from warpbuster.models.integrity import IntegrityConfidence
 from warpbuster.models.reconstruction import (
     CandidateCoordinate,
+    CoordinateState,
     RepairCandidate,
     RepairPlan,
     RepairSelection,
@@ -77,13 +81,42 @@ def write_repaired_fit(
     destination = Path(output_path) if output_path is not None else default_output_path(source_path)
     if destination.resolve() == source_path.resolve():
         raise FitWriteError("output path must differ from the original FIT path")
+    if plan.course_path is not None and destination.resolve() == plan.course_path.resolve():
+        raise FitWriteError("output path must differ from the input course path")
     if destination.exists() and not overwrite:
         raise FitWriteError(f"output already exists: {destination}")
     if not destination.parent.exists():
         raise FitWriteError(f"output directory does not exist: {destination.parent}")
 
-    requests = _patch_requests(activity, selection.selected_interval_plans)
-    patched_bytes, category_counts = _patch_fit_bytes(preservation.raw_bytes, requests)
+    if len(plan.coordinate_mask) != len(activity.records):
+        raise FitWriteError("writer requires a complete independent coordinate mask")
+    if plan.activity_path.resolve() != source_path.resolve() or any(
+        item.record_index != record.index
+        or (item.original_latitude, item.original_longitude) != (record.latitude, record.longitude)
+        for record, item in zip(activity.records, plan.coordinate_mask, strict=True)
+    ):
+        raise FitWriteError("coordinate mask does not match the source activity")
+    for candidate in selection.selected_interval_plans:
+        for update in candidate.coordinate_updates:
+            if (
+                not 0 <= update.record_index < len(plan.coordinate_mask)
+                or plan.coordinate_mask[update.record_index].state is CoordinateState.PRESERVED
+            ):
+                raise FitWriteError("coordinate update is outside the independent edit mask")
+    _validate_composed_geometry(activity, plan, selection)
+    unresolved_invalidated = selection.unresolved_invalidated_indices
+    requests = list(_patch_requests(activity, selection.selected_interval_plans))
+    for item in selection.invalidations:
+        if item.record_index not in unresolved_invalidated:
+            continue
+        record = activity.records[item.record_index]
+        for field_name in ("position_lat", "position_long"):
+            requests.append(
+                _record_request(
+                    record, field_name, 0x7FFFFFFF, raw_value=True, category="coordinate"
+                )
+            )
+    patched_bytes, category_counts = _patch_fit_bytes(preservation.raw_bytes, tuple(requests))
     temporary_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -102,13 +135,22 @@ def write_repaired_fit(
         if not validation.valid:
             raise FitWriteError("patched FIT failed validation")
         diff = diff_fit(source_path, temporary_path)
-        if not diff.structure_compatible or not diff.definitions_unchanged:
-            raise FitWriteError("patched FIT changed message or definition structure")
+        if not diff.structure_compatible:
+            raise FitWriteError("patched FIT changed data message structure")
+        if (
+            diff.definitions_unchanged != (category_counts.get("definition_added", 0) == 0)
+            or diff.added_coordinate_field_count != category_counts.get("coordinate_added", 0)
+            or diff.definition_count_delta != category_counts.get("definition_added", 0)
+            or temporary_path.read_bytes() != patched_bytes
+        ):
+            raise FitWriteError("patched FIT contains unplanned schema or byte changes")
         if diff.unexpected_changed_field_count:
             raise FitWriteError(
                 "patched FIT contains "
                 f"{diff.unexpected_changed_field_count} unexpected field changes"
             )
+        written = read_fit(temporary_path)
+        _verify_written_repair(activity, written, plan, selection, tuple(requests))
         if overwrite:
             os.replace(temporary_path, destination)
         else:
@@ -132,17 +174,119 @@ def write_repaired_fit(
         selection=selection,
         validation=replace(validation, path=destination),
         diff=replace(diff, fixed_path=destination),
+        plan=replace(plan, output_written=True),
+        post_write_verified=True,
     )
 
 
 def _require_writeable_selection(selection: RepairSelection) -> None:
-    if len(selection.decisions) != selection.detected_interval_count:
-        raise FitWriteError("repair selection must describe every detected interval")
-    if not selection.selected_interval_plans:
+    if not selection.has_changes:
         raise FitWriteError(
             "no reconstruction candidate meets minimum confidence "
             f"{selection.minimum_confidence.value.upper()}"
         )
+
+
+def _validate_composed_geometry(
+    activity: ActivityData,
+    plan: RepairPlan,
+    selection: RepairSelection,
+    *,
+    written: ActivityData | None = None,
+) -> None:
+    """Check only new edges, including both immediate neighbors, before any write."""
+    updates = {
+        update.record_index: update
+        for candidate in selection.selected_interval_plans
+        for update in candidate.coordinate_updates
+    }
+    if written is not None:
+        for index, update in tuple(updates.items()):
+            record = written.records[index]
+            if record.latitude is None or record.longitude is None:
+                raise FitWriteError("written replacement has missing coordinates")
+            updates[index] = replace(
+                update, candidate_latitude=record.latitude, candidate_longitude=record.longitude
+            )
+    for update in updates.values():
+        if not (
+            isfinite(update.candidate_latitude)
+            and -90 <= update.candidate_latitude <= 90
+            and isfinite(update.candidate_longitude)
+            and -180 <= update.candidate_longitude <= 180
+        ):
+            raise FitWriteError("candidate coordinates must be finite and within geographic bounds")
+    # Check the actual fixed-width FIT coordinates, including rounding at joins.
+    updates = {
+        index: replace(
+            update,
+            candidate_latitude=round(update.candidate_latitude * _SEMICIRCLES_PER_DEGREE)
+            / _SEMICIRCLES_PER_DEGREE,
+            candidate_longitude=round(update.candidate_longitude * _SEMICIRCLES_PER_DEGREE)
+            / _SEMICIRCLES_PER_DEGREE,
+        )
+        for index, update in updates.items()
+    }
+    limit = plan.maximum_new_transition_speed_mps
+    if not isfinite(limit) or limit <= 0:
+        raise FitWriteError("invalid new-transition speed limit")
+    pairs = {
+        (i - 1, i) for index in updates for i in (index, index + 1) if 0 < i < len(activity.records)
+    }
+    for a_index, b_index in sorted(pairs):
+        a, b = activity.records[a_index], activity.records[b_index]
+        if a.continuity_id != b.continuity_id:
+            raise FitWriteError("reconstruction crosses a continuity boundary")
+        if a.timestamp is None or b.timestamp is None or b.timestamp <= a.timestamp:
+            raise FitWriteError("reconstruction edge has unusable timestamps")
+        a_lat, a_lon = _repaired_position(a, updates)
+        b_lat, b_lon = _repaired_position(b, updates)
+        if a_lat is None or a_lon is None or b_lat is None or b_lon is None:
+            raise FitWriteError("reconstruction has no immediate positioned neighbor")
+        distance = geodesic_distance_m(a_lat, a_lon, b_lat, b_lon)
+        if not isfinite(distance) or distance / (b.timestamp - a.timestamp).total_seconds() > limit:
+            raise FitWriteError(
+                "reconstruction creates an implausible boundary or internal transition"
+            )
+
+
+def _verify_written_repair(
+    original: ActivityData,
+    written: ActivityData,
+    plan: RepairPlan,
+    selection: RepairSelection,
+    requests: tuple[_PatchRequest, ...],
+) -> None:
+    """Verify the decoded temporary FIT before atomic publication, not just the plan."""
+    if len(original.records) != len(written.records):
+        raise FitWriteError("written record count changed")
+    updates = {
+        u.record_index: u
+        for candidate in selection.selected_interval_plans
+        for u in candidate.coordinate_updates
+    }
+    invalidated = selection.unresolved_invalidated_indices
+    for a, b in zip(original.records, written.records, strict=True):
+        expected = (a.latitude, a.longitude)
+        if a.index in invalidated:
+            expected = (None, None)
+        elif a.index in updates:
+            update = updates[a.index]
+            expected = (
+                round(update.candidate_latitude * _SEMICIRCLES_PER_DEGREE)
+                / _SEMICIRCLES_PER_DEGREE,
+                round(update.candidate_longitude * _SEMICIRCLES_PER_DEGREE)
+                / _SEMICIRCLES_PER_DEGREE,
+            )
+        if (b.latitude, b.longitude) != expected or a.timestamp != b.timestamp:
+            raise FitWriteError("written coordinates/timestamps disagree with the selected scope")
+    _validate_composed_geometry(original, plan, selection, written=written)
+    # Re-encoding planned fields must be an exact no-op, including quantization
+    # and cumulative/summary corrections. This also checks untruncated FIT fields.
+    raw = written.preservation.raw_bytes
+    verified, _counts = _patch_fit_bytes(raw, requests)
+    if verified != raw:
+        raise FitWriteError("written fields disagree with planned metric/coordinate corrections")
 
 
 def _patch_requests(
@@ -269,6 +413,9 @@ def _distance_corrections(
 
     for previous, current in pairwise(activity.records):
         corrections[current.index] = corrections[previous.index]
+        if current.continuity_id != previous.continuity_id:
+            # Do not turn a recording boundary into a reconstructed edge.
+            continue
         if (
             previous.index not in distance_recalculation_indices
             and current.index not in distance_recalculation_indices
@@ -447,22 +594,48 @@ def _patch_fit_bytes(
     data_message_index = 0
     header_count = 0
     crc_offsets: list[int] = []
+    # Offsets stay in the original stream until every in-place patch is complete.
+    expansions: list[tuple[int, int, bytes, bytes, bytes, int]] = []
 
     try:
-        with fitdecode.FitReader(
-            raw_bytes,
-            check_crc=fitdecode.CrcCheck.RAISE,
-            error_handling=fitdecode.ErrorHandling.RAISE,
-            keep_raw_chunks=True,
-        ) as reader:
+        with CompatibleFitReader(raw_bytes) as reader:
             for frame in reader:
                 if isinstance(frame, fitdecode.FitHeader):
                     header_count += 1
                 elif isinstance(frame, fitdecode.FitCRC):
                     crc_offsets.append(int(frame.chunk.offset))
                 elif isinstance(frame, fitdecode.FitDataMessage):
+                    additions: list[_PatchRequest] = []
                     for request in patches_by_message.get(data_message_index, ()):
                         _apply_request(patched, frame, request, applied_requests, category_counts)
+                        if (request.message_index, request.field_name) not in applied_requests:
+                            additions.append(request)
+                    if additions:
+                        definition, original, values, native_size = _coordinate_extension(
+                            frame, additions
+                        )
+                        offset = int(frame.chunk.offset)
+                        expansions.append(
+                            (
+                                offset,
+                                len(frame.chunk.bytes),
+                                definition,
+                                original,
+                                values,
+                                native_size,
+                            )
+                        )
+                        for request in additions:
+                            applied_requests.add((request.message_index, request.field_name))
+                        category_counts["coordinate"] = category_counts.get("coordinate", 0) + len(
+                            additions
+                        )
+                        category_counts["coordinate_added"] = category_counts.get(
+                            "coordinate_added", 0
+                        ) + len(additions)
+                        category_counts["definition_added"] = (
+                            category_counts.get("definition_added", 0) + 2
+                        )
                     data_message_index += 1
     except Exception as error:
         raise FitWriteError(f"cannot patch original FIT structure: {error}") from error
@@ -474,8 +647,66 @@ def _patch_fit_bytes(
     if missing_requests:
         missing = ", ".join(f"message {index}.{name}" for index, name in sorted(missing_requests))
         raise FitWriteError(f"required FIT fields are absent: {missing}")
+    if expansions:
+        parts: list[bytes] = []
+        cursor = 0
+        for offset, size, definition, original, values, native_size in expansions:
+            # Restore immediately: other records sharing this local ID must retain
+            # their original schema and payload.
+            parts.append(bytes(patched[cursor:offset]))
+            parts.append(definition)
+            parts.append(bytes(patched[offset : offset + 1 + native_size]))
+            parts.append(values)
+            parts.append(bytes(patched[offset + 1 + native_size : offset + size]))
+            parts.append(original)
+            cursor = offset + size
+        parts.append(bytes(patched[cursor:]))
+        patched = bytearray(b"".join(parts))
+        header_size = patched[0]
+        if header_size not in (12, 14):
+            raise FitWriteError("schema expansion requires a 12- or 14-byte FIT header")
+        patched[4:8] = (len(patched) - header_size - 2).to_bytes(4, "little")
+        if header_size == 14:
+            patched[12:14] = compute_crc(patched[:12]).to_bytes(2, "little")
     patched[-2:] = compute_crc(patched[:-2]).to_bytes(2, byteorder="little")
     return bytes(patched), category_counts
+
+
+def _coordinate_extension(
+    frame: object, requests: list[_PatchRequest]
+) -> tuple[bytes, bytes, bytes, int]:
+    """Append only native sint32 coordinates, before any developer payload.
+
+    FIT definitions use a one-byte field count and three-byte native descriptors.
+    Neither the original definition nor existing payload bytes are re-encoded.
+    """
+    definition = frame.def_mesg  # type: ignore[attr-defined]
+    original = bytes(definition.chunk.bytes)
+    fields = definition.field_defs
+    field_numbers = {field.def_num for field in fields}
+    coordinate_numbers = {"position_lat": 0, "position_long": 1}
+    descriptors = bytearray()
+    values = bytearray()
+    for request in requests:
+        number = coordinate_numbers.get(request.field_name)
+        if (
+            frame.name != "record"  # type: ignore[attr-defined]
+            or number is None
+            or number in field_numbers
+            or request.category != "coordinate"
+            or not request.raw_value
+        ):
+            raise FitWriteError(f"cannot add FIT field {request.message_type}.{request.field_name}")
+        field_numbers.add(number)
+        descriptors.extend((number, 4, 0x85))  # FIT sint32 semicircles
+        values.extend(struct.pack(f"{definition.endian}i", round(request.value)))
+    count = len(fields) + len(requests)
+    if count > 255:
+        raise FitWriteError("coordinate extension exceeds FIT native field count limit")
+    boundary = 6 + 3 * len(fields)
+    expanded = original[:5] + bytes((count,)) + original[6:boundary]
+    expanded += bytes(descriptors) + original[boundary:]
+    return expanded, original, bytes(values), sum(int(field.size) for field in fields)
 
 
 def _apply_request(

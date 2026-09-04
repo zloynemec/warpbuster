@@ -388,7 +388,7 @@ Private probes Orion/Andromeda допускаются только как доп
 - raw OSM tag index для полного access audit;
 - worker-process timeout и широкая performance stabilization — вне окончательного
   объёма [Task 010F](010f-minimal-integration-readiness.md), отложены;
-- применение OSM geometry к ActivityData/FIT — Task 011;
+- применение OSM geometry к ActivityData/FIT — Task 012;
 - DEM и исправление высоты.
 
 ## Согласованные решения

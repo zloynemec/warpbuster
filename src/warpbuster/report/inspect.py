@@ -112,6 +112,8 @@ def inspect_console(activity: ActivityData) -> str:
         for field in activity.developer_fields
     )
     lines.append(f"Unknown fields: {len(activity.unknown_fields)}")
+    if isinstance(activity.preservation, FitPreservationData):
+        lines.extend(f"Warning: {item}" for item in activity.preservation.compatibility_warnings)
     return "\n".join(lines)
 
 
@@ -127,6 +129,7 @@ def _source_report(activity: ActivityData) -> dict[str, object]:
             {
                 "crc_valid": preservation.crc_valid,
                 "fit_profile_version": preservation.profile_version,
+                "compatibility_warnings": list(preservation.compatibility_warnings),
             }
         )
     elif isinstance(preservation, GpxPreservationData):

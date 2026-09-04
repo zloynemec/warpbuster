@@ -322,7 +322,8 @@ Task: `tasks/009-osm-manager.md`
 
 ## M9 — Valhalla-backed Pedestrian/Trail Routing
 
-**Статус:** завершён 2026-09-03; M9A–M9F выполнены. Следующий этап — M10 / Task 011A.
+**Статус:** завершён 2026-09-03; M9A–M9F выполнены. Следующий этап — M10 / Task 011
+(Local GPX Gap Reconstruction), до интеграции routing.
 
 **Цель:** поверх immutable snapshots из M8 построить отдельный детерминированный adapter
 к Valhalla, который соединяет заданные anchors допустимыми pedestrian/trail paths, но
@@ -363,26 +364,75 @@ Task: `tasks/009-osm-manager.md`
 - полный snapshot/profile/graph provenance;
 - отсутствие FIT, Integrity Detector и reconstruction logic.
 
-010F ограничен проверкой версии. После него следующий шаг — первая локальная интеграция
-011A, а не unattended/server или многоплатформенная production readiness. Packaging,
-широкие benchmarks и runtime workers не являются дополнительными этапами перед первым
+010F ограничен проверкой версии. Перед первой локальной интеграцией routing в 012A
+необходимо завершить Task 011 — исправление GPX-реконструкции. Packaging, широкие
+benchmarks и runtime workers не являются дополнительными этапами перед первым OSM
 candidate/dry-run; к hard timeout нужно вернуться до unattended batch/server режима.
 
 Task: `tasks/010-osm-graph-routing.md`
 
 ---
 
-## Что делать после M9
+## M10 — Local GPX Gap Reconstruction
+
+**Статус:** завершён 2026-09-03. Core suite: 280 passed, 5 skipped (отсутствующие
+private fixtures); lint/type checks пройдены. Следующий этап — M11 / Task 012.
+
+**Цель:** восстанавливать каждую пустоту независимо по локальным данным FIT и GPX,
+сохраняя физически правдоподобные отклонения от курса. Подготовить общий контракт
+пустот до подключения OSM, не реализуя сам OSM bridge.
+
+Результат M10:
+
+- course-independent coordinate validity mask и единый inventory исходных missing
+  и доказанно invalidated координат;
+- локальные prefix/internal/suffix candidates вместо глобального longest-run gate;
+- отдельные write scope, реальные join anchors и bounded alignment context;
+- независимые invalidation/reconstruction decisions, неизменные timestamps/sensors,
+  byte-preserving FIT output и явная политика unresolved coordinates/distance;
+- общий console/JSON/HTML audit без дублирования HTML-шаблона;
+- `--fill-missing-from-course` как разрешение привязки пустот к GPX, включая course
+  endpoints без отдельного подтверждения старта/финиша;
+- synthetic locality, false-positive, preservation и сквозные tests без привязки
+  требований к конкретному private track.
+
+Task 011 заменяет ограничения missing completion из 006D и course-driven расширение
+write scope из 006B. Завершённые этапы не переоткрываются, но их несовместимые с новым
+инвариантом правила не переносятся в новый planner. Task 005C остаётся отложенной:
+новая задача не превращает odometer mismatch в corruption proof.
+
+Task: [011 — Local GPX Gap Reconstruction](../tasks/011-local-gpx-gap-reconstruction.md).
+
+Дополнение перед routing: [011B — Pause-aware Reconstruction](../tasks/011b-pause-aware-reconstruction.md).
+Завершено 2026-09-04: GPX-реконструкция через нормальные остановки таймера с распределением по
+активному времени, сохранением FIT events/timestamps и локальными причинами отказа.
+Проверки: 408 passed, 6 skipped; Ruff/mypy проходят; 8/8 пакетных запусков успешны.
+
+Дополнение [011C — Absent FIT Coordinate Fields](../tasks/011c-absent-fit-coordinate-fields.md):
+запись принятых кандидатов в records без native coordinate fields. Расширение
+definition локально одной записи, с сохранением developer payload и отдельным
+schema audit. Проверки пригодности пути и сигналов не ослабляются.
+
+20 000 records / 11 synthetic gaps: normalize 0.591 s, detector 0.230 s,
+local GPX planner 0.311 s, HTML 0.159 s (macOS arm64, Python 3.14.7).
+HTML/JSON audit проверен автоматически; ручной browser smoke-test заблокирован
+политикой открытия локального `file://`. Подробности и ограничения — в task report.
+
+---
+
+## Что делать после M10
 
 Порядок следующих epics:
 
-1. **M10 / Task 011 — OSM Reconstruction Bridge (2D first):** сначала typed bridge и
-   dry-run candidates, затем применение только однозначной 2D-геометрии без изменения
-   правдоподобной FIT altitude.
-2. **M11 / Task 012 — DEM-backed Elevation:** отдельные dataset/cache/provenance,
+1. **M11 / Task 012 — OSM Reconstruction Bridge (2D first):** после acceptance Task 011,
+   поверх её gap/candidate contract; сначала typed bridge и dry-run candidates для
+   локально unresolved gaps, затем применение только однозначной 2D-геометрии без
+   изменения правдоподобной FIT altitude.
+2. **M12 / Task 013 — DEM-backed Elevation:** отдельные dataset/cache/provenance,
    sampling route polyline, GPX `<ele>`, elevation profile и ascent/descent policy.
-3. **M12 / Task 013 — Elevation-aware OSM Reconstruction:** optional DEM evidence для
-   alternatives и отдельное восстановление только missing/corrupted altitude.
+3. **M13 / Task 014 — Elevation-aware OSM Reconstruction:** после M11 и M12; optional
+   DEM evidence для alternatives и отдельное восстановление только missing/corrupted
+   altitude.
 
 Прочие будущие epics:
 

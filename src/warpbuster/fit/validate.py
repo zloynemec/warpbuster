@@ -49,7 +49,14 @@ def validate_activity(
     """Validate an already decoded FIT activity without changing it."""
     if not isinstance(activity.preservation, FitPreservationData):
         raise TypeError("FIT validation requires FIT preservation data")
-    issues: list[ValidationIssue] = []
+    issues: list[ValidationIssue] = [
+        ValidationIssue(
+            code=ValidationIssueCode.OPAQUE_FIELD_COMPATIBILITY,
+            severity=ValidationSeverity.WARNING,
+            message=message,
+        )
+        for message in activity.preservation.compatibility_warnings
+    ]
     if not activity.records:
         issues.append(
             ValidationIssue(

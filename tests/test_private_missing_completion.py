@@ -11,7 +11,7 @@ from warpbuster.integrity import analyze_integrity
 from warpbuster.models.integrity import IntegrityConfidence, TransitionClassification
 from warpbuster.models.reconstruction import (
     AllocationMethod,
-    MissingCourseCompletionPlan,
+    GapRepairPlan,
     MissingCourseRunKind,
 )
 from warpbuster.reconstruction import (
@@ -43,8 +43,8 @@ def test_private_m87_missing_endpoints_are_completed_without_distance_changes(
     assert integrity.corrupted_intervals == ()
     assert len(plan.interval_plans) == 2
     prefix, suffix = plan.interval_plans
-    assert isinstance(prefix, MissingCourseCompletionPlan)
-    assert isinstance(suffix, MissingCourseCompletionPlan)
+    assert isinstance(prefix, GapRepairPlan)
+    assert isinstance(suffix, GapRepairPlan)
     assert prefix.interval.kind is MissingCourseRunKind.PREFIX
     assert suffix.interval.kind is MissingCourseRunKind.SUFFIX
     assert (
@@ -57,12 +57,12 @@ def test_private_m87_missing_endpoints_are_completed_without_distance_changes(
         suffix.interval.end_record_index,
         len(suffix.coordinate_updates),
     ) == (4_821, 4_932, 112)
-    assert prefix.allocation_method is AllocationMethod.RECORDED_DISTANCE
-    assert suffix.allocation_method is AllocationMethod.RECORDED_DISTANCE
-    assert prefix.direction.value == "forward"
-    assert prefix.observed_distance_ratio_error == pytest.approx(0.0069, abs=0.001)
-    assert prefix.course_span_distance_m == pytest.approx(6_521.89, abs=0.2)
-    assert suffix.course_span_distance_m == pytest.approx(265.58, abs=0.2)
+    assert prefix.provenance.allocation_method is AllocationMethod.RECORDED_DISTANCE
+    assert suffix.provenance.allocation_method is AllocationMethod.RECORDED_DISTANCE
+    assert prefix.provenance.direction.value == "forward"
+    assert prefix.provenance.endpoint_source == "course_assumption"
+    assert prefix.provenance.course_span_distance_m == pytest.approx(6_521.89, abs=0.2)
+    assert suffix.provenance.course_span_distance_m == pytest.approx(265.58, abs=0.2)
 
     output = tmp_path / "m87.fixed.fit"
     result = write_repaired_fit(

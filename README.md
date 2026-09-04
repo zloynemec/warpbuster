@@ -125,6 +125,31 @@ Alternatives проходят отдельный audit и сравниваютс
 
 Чтение и инспекция FIT:
 
+Корректные FIT читаются строго, независимо от производителя. Для обнаруженного
+в экспорте COROS определения `event.data` (message 21, field 3: `uint32`, размер
+1 байт) поддержано ограниченное исключение: поле сохраняется как непрозрачные
+байты, без интерпретации как `timer_trigger` и без изменения исходного определения.
+Правило выбирается по структуре, не по названию часов или файла. Время, тип события
+и группа таймера читаются обычным способом; учёт пауз не отключается.
+Предупреждение видно в inspect/validate, JSON и HTML-отчётах. Reader, writer и diff
+используют одинаковое правило, CRC остаётся обязательным. Другие ошибки размеров,
+неизвестные developer definitions, обрывы и ошибки CRC по-прежнему блокируют чтение.
+Это не универсальный permissive-режим и не гарантия поддержки всех экспортов COROS.
+
+Task 011B: нормальные timer pauses больше не блокируют GPX-реконструкцию целиком.
+Путь распределяется по пригодной FIT distance, затем по speed, затем — оценочно по
+активному времени. Интеграл speed использует трапеции по активным длительностям
+между records, без выключенного времени. Паузы объединяются и обрезаются границами
+gap вместе с anchors; timestamps/events/sensors и число records не меняются.
+Во время остановки продвижение по реконструированному пути отсутствует. Ненулевая
+distance на полностью остановленном интервале — `pause_distance_conflict`, незакрытая
+пауза внутри окна — `timer_state_unresolved`, отсутствие активного времени —
+`no_active_time`; невозможная скорость за активное время —
+`active_time_traversal_implausible`. Отказы локальны и не разрешают менять сохранённые
+GPS-точки. Допуск на дрейф distance внутри паузы не вводился. HTML/JSON/console
+показывают elapsed/paused/active seconds и allocation method. Наличие паузы не меняет
+Integrity Detector и не является доказательством физической неподвижности.
+
 ```bash
 warpbuster inspect activity.fit
 warpbuster inspect activity.fit --json
@@ -133,6 +158,13 @@ warpbuster inspect activity.gpx --json
 ```
 
 Локальный анализ физических переходов:
+
+Detector также проверяет физически недостижимый GNSS-хвост без здоровой правой опоры.
+Доказательство `unreachable_tail` имеет максимум `MEDIUM`: для удаления требуется
+`--min-invalidation-confidence medium`. GPX не участвует в доказательстве, и отказ
+реконструкции не мешает удалить доказанно ошибочные координаты. Records, время и
+датчики сохраняются. В отчёте вместо отсутствующего bridge показан reachability proof.
+Подробности и ограничения: [Task 011A](tasks/011a-unreachable-terminal-gnss.md).
 
 ```bash
 warpbuster analyze activity.fit
@@ -149,7 +181,9 @@ warpbuster repair activity.fit --course race.gpx --dry-run
 warpbuster repair activity.fit --course race.gpx --dry-run --json
 warpbuster repair activity.fit --course race.gpx --dry-run --html
 warpbuster repair activity.fit --course race.gpx --dry-run --html preview.html
-warpbuster repair activity.fit --course race.gpx --min-confidence medium
+warpbuster repair activity.fit --dry-run --html
+warpbuster repair activity.fit --min-invalidation-confidence medium --html
+warpbuster repair activity.fit --course race.gpx --min-invalidation-confidence medium --min-confidence medium
 warpbuster repair activity.fit --course race.gpx --fill-missing-from-course --min-confidence medium
 warpbuster repair activity.fit --course race.gpx --output activity.fixed.fit --html repair.html
 warpbuster repair activity.fit --course race.gpx --output activity.fixed.fit --html repair.html --overwrite
@@ -172,63 +206,141 @@ Exit code `1` означает, что найдены `SUSPICIOUS` или `IMPOS
 участков, похожих на интерполяцию. Такое предупреждение не меняет integrity status или
 exit code, не создаёт corrupted interval и всегда имеет `repair_eligible=false`.
 
-`repair --dry-run` строит course-based `RepairPlan`, но не изменяет и не создаёт FIT.
-`READY` означает, что все corrupted intervals получили однозначные HIGH candidates;
-`PARTIAL` означает, что candidate существует только для части intervals. Статус плана
-описывает полноту reconstruction, а не запрет записи.
-Перед course matching каждый proposed trusted anchor проходит независимую проверку
-локального NORMAL-контекста. Если рядом продолжаются jumps или missing-position gaps,
-anchor считается unsafe, а отчёт показывает bounded `mixed GNSS region`, внешние
-диагностические anchors и прямой bridge. Такой регион остаётся `MEDIUM/LOW` и никогда не
-становится auto-repairable только из-за подходящего course.
+`repair` сначала независимо от GPX строит маску достоверности координат и единый
+список пустот: исходные missing, доказанно invalidated и mixed. Каждая пустота получает
+свои непосредственные сохранённые anchors и ограниченный локальный контекст.
+Правдоподобное отклонение от курса сохраняется и не блокирует удалённые пустоты.
+Самый длинный GPS run, общая дистанция и GPX-коридор больше не определяют область
+замены. Короткий preserved/UNKNOWN component разделяет edit scopes.
 
-Для составного региона отчёт отдельно показывает detected cores, ordered
-`POSITIONED/MISSING` components и точный reconstruction scope. Явный `MEDIUM` может
-восстановить доказанно затронутые/tainted components и заполнить missing coordinates,
-но физически правдоподобные или неизвестные positioned components остаются byte-identical.
-Каждый connector к сохранённому component проходит physical post-check. Lossless writer
-может заполнить missing coordinate только если соответствующие FIT fields присутствуют
-в исходном message definition как invalid values.
+`--course` необязателен. Без него разрешённые invalidations всё равно могут записать
+очищенный FIT; пустоты получают `no_course`, routing не запускается.
+`--fill-missing-from-course` разрешает GPX-реконструкцию всех prefix/internal/suffix
+пустот, включая mixed. Для начала/конца принимаются соответствующие endpoints GPX
+как `course_assumption`, без дополнительного флага подтверждения. Без opt-in обычный
+repair обрабатывает только внутренние полностью доказанно corrupted scopes; исходные
+missing и endpoint completion остаются видимыми skipped targets.
 
-Если impossible entry сопровождается missing-position gaps, но классический impossible
-exit скрыт dropout-ом, detector выполняет отдельный bounded one-sided scan. Interval
-создаётся только при stable outer anchors, plausible direct bridge и abnormal evidence
-в каждом внутреннем positioned-компоненте. Course в этом proof rule не участвует.
-Уверенность всегда не выше `MEDIUM`: default `HIGH` такой candidate пропускает, для
-применения нужен явный `--min-confidence medium`.
+Два независимых порога:
 
-Для one-sided reconstruction detected core остаётся неизменным audit evidence, но его
-repair scope расширяется наружу до устойчивого configurable course corridor. Это не
-меняет detector и не повышает confidence выше `MEDIUM`, зато локально плавные точки
-внутри gradual drift больше не становятся trusted anchors. Candidate проходит короткий
-входной connector, matched course span и выходной connector. Неравномерная distance/speed
-allocation, создающая abnormal переходы, заменяется timestamp allocation; физически
-невозможный итоговый candidate отклоняется.
+- `--min-invalidation-confidence {high,medium}`, default `high`: разрешает удалить
+  координаты только при независимом detector proof достаточного уровня. Course,
+  `SUSPICIOUS`, `UNKNOWN` и diagnostic `TAINTED` сами по себе таким proof не являются.
+- `--min-confidence {high,medium,low}`, default `high`: выбирает reconstruction
+  candidates. `LOW` никогда не применяется, даже при значении `low`.
+  Original-missing, mixed и endpoint-assumption candidates имеют максимум `MEDIUM`.
 
-Running profile отдельно ищет sustained и single-extreme vertical rates. Эти findings
-помечаются как sensor-consistency warnings: они не создают coordinate interval, не
-меняют integrity status и не дают writer права менять altitude или GNSS coordinates.
+Для чистого missing completion достаточно `--fill-missing-from-course
+--min-confidence medium`. Для доказанной `MEDIUM` corruption дополнительно нужен
+`--min-invalidation-confidence medium`; снижение порога пути не разрешает удаление.
+One-sided detector остаётся прежним: independent impossible entry, stable outer
+anchors, plausible bridge и evidence по компонентам; его scope больше не расширяется
+до GPX-коридора.
 
-Отсутствующий GPS prefix/suffix не считается corruption. При явном
-`--fill-missing-from-course` отдельный reconstruction provider может предложить
-`MEDIUM` candidate, если длинный существующий GPS run целиком физически правдоподобен,
-однозначно совпадает с course и согласован с recorded distance. Поэтому для применения
-нужны сразу этот флаг и `--min-confidence medium`. Existing GPS coordinates не меняются,
-а timestamps, sensors и embedded FIT distance сохраняются. Этот provider работает
-независимо от обычного corruption repair; оба scope объединяются перед одной атомарной
-записью. Внутренние clean gaps пока не заполняются.
+`--dry-run` не создаёт FIT и показывает invalidations, candidates и локальные причины
+отказа. `READY` означает отсутствие unresolved gaps, но не автоматическое разрешение
+всех candidates: selection применяется отдельно. `PARTIAL` разрешает независимую
+запись доступных изменений. `REFUSED` означает отсутствие применимых вариантов,
+`NOT_NEEDED` — отсутствие пустот и разрешённой очистки. В dry-run exit code `0`
+означает выбранные изменения либо no-op; `3` — ни одного разрешённого изменения при
+имеющихся gaps. Ошибки входных данных/аргументов дают `2`.
 
-Команда без `--dry-run` выбирает все доступные interval candidates с confidence не ниже
-`--min-confidence`; default — `high`. Поэтому безопасная HIGH-часть `PARTIAL` plan может
-быть записана, а unresolved и кандидаты ниже порога остаются неизменными. Значения
-параметра: `low`, `medium`, `high`. Если не выбран ни один candidate, output не создаётся.
-Writer создаёт `<stem>.fixed.fit` либо путь из `--output`, сохраняет исходные FIT frames,
-пересчитывает CRC и проверяет output. Existing destination защищён по умолчанию;
-`--overwrite` атомарно заменяет FIT и HTML после успешной validation. Исходный FIT этим
-флагом перезаписать нельзя. Dry-run preview и
-итоговый write report перечисляют каждый interval как `APPLIED` или `SKIPPED` с причиной.
-`warpbuster validate` проверяет FIT/CRC и базовые invariants, а `warpbuster diff`
-показывает expected/unexpected changes и preservation percentages.
+Writer одним атомарным проходом меняет только разрешённые position fields и явно
+поддержанные coordinate-dependent aggregates. При отказе от replacement разрешённая
+invalidation остаётся: плохие координаты записываются как FIT invalid values.
+Если нет ни invalidations, ни выбранных candidates, FIT не создаётся.
+Для выбранных кандидатов отсутствующие в FIT schema position fields добавляются
+как native sint32 поля (Task 011C). Временная definition действует только на
+конкретную record и сразу сменяется исходной; соседние records не расширяются.
+Timestamps, sensors, altitude, unknown/developer fields и сохранённые координаты
+не меняются. Размер контейнера и CRC пересчитываются, FIT diff явно показывает
+число добавленных coordinate fields и изменение definitions. Это возможность
+записать принятый кандидат, а не обход проверок дистанции, скорости и GPX matching.
+
+Recorded distance и speed квалифицируются отдельно, без GPX: пропуски, reset/zero и
+физически невозможные значения диагностируются. Для allocation проверяются сначала
+пригодные distance deltas, затем integrated speed; расхождение первого источника с
+путём не запрещает проверить второй. Допуск длины — `max(3 m, 0.15 × path length)`.
+Time-only interpolation не обходит противоречащие пути правдоподобные измерения.
+
+В успешно восстановленном scope доказанно невозможные приращения distance исправляются
+по новой геометрии независимо от origin: original-missing, invalidated или mixed.
+Используются физические пределы activity profile, а не расхождение с GPX. Правдоподобный
+distance сохраняется; неизвестное происхождение distance/speed не объявляется независимым
+измерением. Partial/non-monotonic distance streams не переписываются с угадыванием reset.
+Другие unresolved gaps не запрещают локальную коррекцию: их исходные приращения сохраняются,
+ни хорда, ни нулевая длина вместо пустоты не придумываются. Downstream cumulative distance
+и поддержанные lap/session totals/average speed получают только накопленную локальную
+поправку. Record speed, sensors и altitude сохраняются. Незавершённая геометрия или
+противоречивый сохранённый сигнал дают `quality=uncertain`, даже после локальной коррекции.
+Перед публикацией writer повторно читает временный FIT и проверяет фактические координаты,
+стыки, timestamps и все запланированные изменения метрик.
+
+Default output — `<stem>.fixed.fit`; путь можно задать через `--output`.
+`--overwrite` заменяет только выходные FIT/HTML, а не исходный FIT или GPX.
+`warpbuster validate` проверяет FIT/CRC; `warpbuster diff` показывает разрешённые и
+неожиданные изменения, сохранность timestamps/sensors/unknown/developer fields.
+
+### Пакетный repair по CSV
+
+Список пяти тестовых пар — `tests/repair_pairs.csv`, колонки `fit,gpx`.
+Пути разрешаются относительно CSV, а не текущего рабочего каталога; абсолютные пути
+тоже поддерживаются. Приватные FIT/GPX остаются в ignored `tests/private/tracks/`.
+
+Из корня проекта:
+
+```bash
+.venv/bin/python scripts/repair_pairs.py tests/repair_pairs.csv
+```
+
+Для каждой пары последовательно запускается `python -m warpbuster repair` с
+`--overwrite --html --fill-missing-from-course --min-invalidation-confidence medium
+--min-confidence medium`. Используется тот же Python, которым запущен скрипт;
+WarpBuster должен быть установлен в этом окружении.
+
+Результаты рядом с исходным FIT: `<stem>.fixed.fit` и `<stem>.repair.html`.
+Имеющиеся выходные файлы перезаписываются; исходные FIT/GPX не меняются.
+Ошибка или отсутствие файлов одной пары не останавливает остальные: в конце выводится
+сводка. Код завершения: `0` — все команды успешны, `1` — были ошибки пар, `2` —
+некорректный CSV, `130` — прерывание. Успешная команда repair может дать частичный
+результат: степень восстановления смотри в её HTML-отчёте.
+
+По завершении создаётся `tests/repair_pairs.reports/index.html`. Вверху указаны дата и
+время начала всего пакетного запуска с локальным часовым смещением, а не время
+завершения генерации отчёта. Ниже расположена сводная таблица:
+
+- имя FIT со ссылкой на полный отчёт;
+- километры **стало / было**;
+- средний темп **стал / был**, `мин:сек/км`;
+- проблемы **исправлено / найдено** — число полностью заполненных gaps G1, G2…
+  относительно всех gaps. Invalidation без заполнения не считается исправленным разрывом.
+
+Дистанция и темп берутся из исходного/выходного FIT тем же расчётом, что в полном отчёте,
+не из длины GPX или средней величины покилометровых темпов. Частичный результат и
+неопределённость метрик подписываются явно; отсутствующие значения — `—`, не нули.
+При ошибке строка остаётся в таблице, но старый отчёт не используется как новый результат.
+
+Каталог содержит `index.html` и копии подробных HTML; ссылки относительные, поэтому
+его можно целиком перенести или раздавать локальным HTTP-сервером. FIT/GPX в него не
+копируются. При совпадении имён FIT из разных директорий копии получают порядковый префикс.
+Для уже запущенного сервера можно указать его каталог:
+
+```bash
+.venv/bin/python scripts/repair_pairs.py tests/repair_pairs.csv --report-dir /path/to/served-reports
+```
+
+Сводка и копии перезаписываются при каждом запуске. Default-каталоги `*.reports/`
+исключены из Git: отчёты содержат приватные данные. `--report-dir` не запускает сервер.
+
+Проверить пути и показать команды **без запуска repair и записи FIT/HTML**:
+
+```bash
+.venv/bin/python scripts/repair_pairs.py tests/repair_pairs.csv --dry-run
+```
+
+Повторы FIT и пересечения выходных путей с другими входами (включая сводку) запрещены
+ещё до запуска. `--dry-run` не создаёт ни сводку, ни каталог отчётов.
+Скрипт не изменяет detector/reconstruction и не добавляет собственную логику repair.
 
 ### Интерактивный HTML-отчёт
 
@@ -237,8 +349,17 @@ course/candidate, applied/skipped intervals, findings, speed/altitude/HR graphs 
 diff после записи. Отдельная таблица сравнивает embedded FIT distance, map geometry,
 solid known geometry и elevation gain для original/course/repaired. Missing-position
 runs перечисляются с anchors, временем, straight chord, recorded distance delta и bridge
-speed. Missing-completion table отдельно показывает prefix/suffix action, course span,
-connector, allocation, alignment error и сохранение FIT distance. Отдельная таблица
+speed. Единая таблица пустот связана с маркерами **G1, G2, …** на карте: origin,
+invalidation/path confidence, actual anchors, context, applied/skipped/unresolved и
+причины. Раскрываемый «Proof / path» показывает независимый proof scope, GPX branch,
+source hash, длины, ошибки локальной проекции, connectors и качество allocation.
+При unresolved geometry или distance signal блок темпа помечен «distance / pace uncertain».
+Отчёт разделяет исходную диагностику, состояние геометрии пустот и состояние метрик;
+верхняя дистанция после записи берётся из выходного FIT. На карте сохранённые координаты
+серые, реконструированные участки и их стыки синие. Километровые метки основаны на FIT
+distance без дополнительных знаков; uncertainty остаётся в сводке и подсказках меток.
+G-номера — отдельные ID пустот, не километровые границы.
+Отдельная таблица
 one-sided GNSS clusters показывает boundaries, confidence,
 reconstructability, anchor context, bridge, tainted components и reasons.
 

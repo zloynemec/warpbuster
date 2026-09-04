@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from warpbuster.models.integrity import IntegrityConfidence
 from warpbuster.models.reconstruction import (
+    CoordinateState,
     RepairIntervalAction,
     RepairIntervalDecision,
     RepairPlan,
     RepairSelection,
     RepairSelectionReason,
+    UnresolvedGap,
+    UnresolvedMissingCourseRun,
 )
 
 _CONFIDENCE_RANK = {
@@ -27,7 +30,8 @@ def select_repair_intervals(
     decisions: list[RepairIntervalDecision] = []
     for interval_plan in plan.interval_plans:
         meets_threshold = (
-            _CONFIDENCE_RANK[interval_plan.confidence] >= _CONFIDENCE_RANK[minimum_confidence]
+            interval_plan.confidence is not IntegrityConfidence.LOW
+            and _CONFIDENCE_RANK[interval_plan.confidence] >= _CONFIDENCE_RANK[minimum_confidence]
         )
         if meets_threshold:
             selected.append(interval_plan)
@@ -50,6 +54,10 @@ def select_repair_intervals(
                 reconstruction_reasons=interval_plan.reasons,
             )
         )
+    missing_targets: tuple[UnresolvedMissingCourseRun | UnresolvedGap, ...] = (
+        *plan.unresolved_missing_runs,
+        *plan.unresolved_gaps,
+    )
     decisions.extend(
         RepairIntervalDecision(
             interval=unresolved.interval,
@@ -72,7 +80,7 @@ def select_repair_intervals(
             selection_reasons=(RepairSelectionReason.NO_RECONSTRUCTION_CANDIDATE,),
             reconstruction_reasons=unresolved.reasons,
         )
-        for unresolved in plan.unresolved_missing_runs
+        for unresolved in missing_targets
     )
     decisions.sort(key=lambda decision: decision.interval.start_record_index)
     selected.sort(key=lambda candidate: candidate.interval.start_record_index)
@@ -81,4 +89,8 @@ def select_repair_intervals(
         detected_interval_count=plan.detected_interval_count,
         selected_interval_plans=tuple(selected),
         decisions=tuple(decisions),
+        invalidations=tuple(
+            item for item in plan.coordinate_mask if item.state is CoordinateState.INVALIDATED
+        ),
+        minimum_invalidation_confidence=plan.minimum_invalidation_confidence,
     )

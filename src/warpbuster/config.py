@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -54,6 +55,10 @@ class IntegrityConfig:
             either proposed trusted anchor.
         one_sided_max_diagnostics: Maximum candidate diagnostics retained; aggregate
             counters are never truncated.
+        tail_anchor_min_normal_transitions: Consecutive adjacent NORMAL transitions
+            required before a tail entry and for reachable recovery (count); default 15.
+        tail_position_error_budget_m: Combined anchor/observation position uncertainty
+            added to the physical reachability radius, in metres; default 50.
         vertical_warning_speed_mps: Sustained absolute vertical speed in metres per
             second that merits a sensor-consistency warning. ``None`` disables the
             scan for activity types without a justified profile.
@@ -98,6 +103,8 @@ class IntegrityConfig:
     one_sided_anchor_min_normal_transitions: int = 15
     one_sided_anchor_scan_max_records: int = 60
     one_sided_max_diagnostics: int = 100
+    tail_anchor_min_normal_transitions: int = 15
+    tail_position_error_budget_m: float = 50.0
     vertical_warning_speed_mps: float | None = None
     vertical_warning_single_transition_speed_mps: float = 10.0
     vertical_warning_min_delta_m: float = 4.0
@@ -192,6 +199,13 @@ class IntegrityConfig:
             )
         if self.one_sided_max_diagnostics < 0:
             raise ValueError("one_sided_max_diagnostics must not be negative")
+        if self.tail_anchor_min_normal_transitions < 1:
+            raise ValueError("tail_anchor_min_normal_transitions must be at least one")
+        if (
+            not math.isfinite(self.tail_position_error_budget_m)
+            or self.tail_position_error_budget_m < 0
+        ):
+            raise ValueError("tail_position_error_budget_m must be finite and non-negative")
         if self.vertical_warning_min_consecutive_transitions < 2:
             raise ValueError("vertical_warning_min_consecutive_transitions must be at least two")
         if self.vertical_warning_max_count < 0:
@@ -219,32 +233,27 @@ class CourseReconstructionConfig:
     These values affect only optional reconstruction after integrity detection.
     They are deliberately separate from ``IntegrityConfig``.
 
-    ``one_sided_anchor_match_tolerance_m`` permits a wider, explicitly MEDIUM-only
-    match for a course-independent one-sided failure whose trusted anchor drifted
-    before the impossible edge. ``one_sided_anchor_candidate_deduplication_m`` treats
-    nearby projections on the same course branch as equivalent; ambiguity between
-    distinct branches is still refused. ``anchor_stability_min_normal_transitions``
-    is the required consecutive local
-    NORMAL-transition count on each outward side of an anchor. The default 15 gives
-    meaningful context for typical one-second running samples without assuming a time
-    interval. ``anchor_stability_scan_max_records`` caps each directional scan at 60
-    records. ``mixed_region_search_max_records`` limits evidence lookup to 1,500 records
-    on each side of a detected interval. ``mixed_region_max_clean_gap_records`` allows
-    at most 15 clean records between evidence items joined into one diagnostic region.
+    Active local matching uses ``anchor_match_tolerance_m`` (metres),
+    ``anchor_candidate_deduplication_m`` (course chainage metres) and
+    ``ambiguity_score_margin_m`` (metres). Context requires 15 NORMAL transitions;
+    endpoint gaps additionally require 30 observations. The per-side 300-record /
+    300-second caps bound that search. At most 128 full path allocations are tried
+    per gap across all context windows; truncation is never called unique.
 
-    ``one_sided_drift_corridor_tolerance_m`` is the maximum distance from the reference
-    course for records establishing that a one-sided GNSS drift has ended. The course
-    is used here only after course-independent detection and the resulting candidate
-    remains MEDIUM. ``one_sided_drift_stable_record_count`` requires a sustained return
-    to that corridor; ``one_sided_drift_search_max_records`` bounds the outward scan.
+    Local observed progression uses qualified recorded-distance deltas or preserved
+    GPS geometry. The context error budget is observed_length * ratio + the two
+    measured projection errors, with every intermediate point within anchor tolerance.
+    Gap signal consistency allows the larger of the relative tolerance and
+    ``signal_distance_absolute_tolerance_m``: a small absolute budget for short
+    paths, not an expansion of the GPS edit scope or the anchor match radius.
+    The ``missing_completion_*`` speed and record-count bounds now cover all gaps.
 
-    ``missing_alignment_min_position_records`` is the minimum length of a stable
-    observed GPS run used to align endpoint-missing activities. Its recorded-distance
-    versus course-span relative error must not exceed
-    ``missing_alignment_max_distance_ratio_error``. Missing completion additionally
-    limits average path speed, every generated boundary transition, and the number of
-    records with the three ``missing_completion_*`` bounds. These thresholds apply
-    only to the explicit reconstruction provider and never affect integrity detection.
+    Deprecated compatibility fields, not used by the local planner:
+    ``one_sided_anchor_*``, ``one_sided_drift_*``,
+    ``signal_course_length_ratio_*`` and ``anchor_stability_scan_max_records``.
+    They remain readable for old callers/config dumps, not as write-scope controls.
+    ``mixed_region_*`` still configure standalone diagnostic grouping in safety.py;
+    diagnostic envelopes never grant permission to edit coordinates.
     """
 
     anchor_match_tolerance_m: float = 75.0
@@ -267,13 +276,24 @@ class CourseReconstructionConfig:
     mixed_region_max_clean_gap_records: int = 15
     missing_alignment_min_position_records: int = 30
     missing_alignment_max_distance_ratio_error: float = 0.15
+    # Metres: absolute floor for path/signal length comparison on short gaps.
+    # This is a reconstruction tolerance, never evidence of coordinate corruption.
+    signal_distance_absolute_tolerance_m: float = 3.0
     missing_completion_max_course_speed_mps: float = 10.0
     missing_completion_max_connector_speed_mps: float = 10.0
     missing_completion_max_run_records: int = 50_000
+    # Hard per-side alignment context caps, in records and elapsed seconds respectively.
+    # These are maxima, not required window sizes; the nearest sufficient context wins.
+    local_alignment_max_context_records: int = 300
+    local_alignment_max_context_seconds: float = 300.0
+    # Maximum complete path allocations per gap, summed across context windows.
+    local_alignment_max_path_evaluations: int = 128
 
     def __post_init__(self) -> None:
         """Reject unsafe or contradictory reconstruction bounds."""
         positive_values = {
+            "signal_distance_absolute_tolerance_m": self.signal_distance_absolute_tolerance_m,
+            "local_alignment_max_context_seconds": self.local_alignment_max_context_seconds,
             "anchor_match_tolerance_m": self.anchor_match_tolerance_m,
             "high_confidence_anchor_distance_m": self.high_confidence_anchor_distance_m,
             "anchor_candidate_deduplication_m": self.anchor_candidate_deduplication_m,
@@ -297,6 +317,8 @@ class CourseReconstructionConfig:
             ),
         }
         for name, value in positive_values.items():
+            if not math.isfinite(value):
+                raise ValueError(f"{name} must be finite")
             if value <= 0:
                 raise ValueError(f"{name} must be greater than zero")
         if self.high_confidence_anchor_distance_m > self.anchor_match_tolerance_m:
@@ -340,3 +362,7 @@ class CourseReconstructionConfig:
             raise ValueError("missing_alignment_min_position_records must be at least two")
         if self.missing_completion_max_run_records < 1:
             raise ValueError("missing_completion_max_run_records must be at least one")
+        if self.local_alignment_max_context_records < 2:
+            raise ValueError("local_alignment_max_context_records must be at least two")
+        if self.local_alignment_max_path_evaluations < 1:
+            raise ValueError("local_alignment_max_path_evaluations must be at least one")

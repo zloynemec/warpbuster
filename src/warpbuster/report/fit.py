@@ -17,9 +17,11 @@ from warpbuster.models.fit import (
 )
 from warpbuster.models.reconstruction import (
     MissingCourseRun,
+    ReconstructionGap,
     RepairIntervalDecision,
     RepairSelection,
 )
+from warpbuster.report.gaps import distance_policy, gap_audit, gap_console
 
 _CONSOLE_CHANGE_LIMIT = 20
 
@@ -79,6 +81,8 @@ def diff_report(report: FitDiffReport) -> dict[str, object]:
         "fixed_path": str(report.fixed_path),
         "structure_compatible": report.structure_compatible,
         "definitions_unchanged": report.definitions_unchanged,
+        "added_coordinate_field_count": report.added_coordinate_field_count,
+        "definition_count_delta": report.definition_count_delta,
         "original_message_count": report.original_message_count,
         "fixed_message_count": report.fixed_message_count,
         "changed_record_count": report.changed_record_count,
@@ -110,6 +114,8 @@ def diff_console(report: FitDiffReport, *, verbosity: int = 0) -> str:
         f"Fixed: {report.fixed_path}",
         f"Structure compatible: {'yes' if report.structure_compatible else 'no'}",
         f"Definitions unchanged: {'yes' if report.definitions_unchanged else 'no'}",
+        f"Added coordinate fields: {report.added_coordinate_field_count}; "
+        f"definition count delta: {report.definition_count_delta}",
         (
             f"Records changed: {report.changed_record_count}; fields changed: "
             f"{report.changed_field_count} (expected={report.expected_changed_field_count}, "
@@ -144,13 +150,16 @@ def write_result_report(result: FitWriteResult) -> dict[str, object]:
         "source_path": str(result.source_path),
         "output_path": str(result.output_path),
         "output_written": True,
+        "post_write_verified": result.post_write_verified,
         "bytes_written": result.bytes_written,
         "coordinate_field_change_count": result.coordinate_field_change_count,
         "distance_field_change_count": result.distance_field_change_count,
         "summary_field_change_count": result.summary_field_change_count,
+        "distance": distance_policy(result.selection),
         "selection": _write_selection_report(result.selection),
         "validation": validation_report(result.validation),
         "diff": diff_report(result.diff),
+        **(gap_audit(result.plan, result.selection) if result.plan is not None else {}),
     }
 
 
@@ -174,6 +183,10 @@ def write_result_console(result: FitWriteResult) -> str:
         ),
         f"Bytes: {result.bytes_written}",
         (
+            f"FIT schema: added coordinate fields={result.diff.added_coordinate_field_count}; "
+            f"definition count delta={result.diff.definition_count_delta}"
+        ),
+        (
             "Changed fields: "
             f"coordinates={result.coordinate_field_change_count}, "
             f"distance={result.distance_field_change_count}, "
@@ -192,12 +205,18 @@ def write_result_console(result: FitWriteResult) -> str:
         ),
     ]
     lines.extend(_write_decision_console(decision) for decision in result.selection.decisions)
+    lines.append(f"Invalidated coordinate records: {len(result.selection.invalidations)}")
+    lines.append(f"Distance: {distance_policy(result.selection)}")
+    if result.plan is not None:
+        lines.extend(gap_console(result.plan, result.selection))
     return "\n".join(lines)
 
 
 def _write_selection_report(selection: RepairSelection) -> dict[str, object]:
     return {
         "minimum_confidence": selection.minimum_confidence.value,
+        "minimum_invalidation_confidence": selection.minimum_invalidation_confidence.value,
+        "invalidated_record_indices": [item.record_index for item in selection.invalidations],
         "application_status": _write_application_status(selection).casefold(),
         "applied_interval_count": selection.applied_interval_count,
         "skipped_interval_count": selection.skipped_interval_count,
@@ -210,7 +229,9 @@ def _write_selection_report(selection: RepairSelection) -> dict[str, object]:
                 "candidate_available": decision.candidate_available,
                 "coordinate_update_count": decision.coordinate_update_count,
                 "target_kind": (
-                    "missing_course_completion"
+                    "gap_reconstruction"
+                    if isinstance(decision.interval, ReconstructionGap)
+                    else "missing_course_completion"
                     if isinstance(decision.interval, MissingCourseRun)
                     else "corrupted_interval"
                 ),

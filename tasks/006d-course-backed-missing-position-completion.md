@@ -2,6 +2,11 @@
 
 Статус: выполнена.
 
+> Историческая постановка. [Task 011](011-local-gpx-gap-reconstruction.md) заменяет
+> глобальный longest-run gate и endpoint-only ограничения единым локальным planner
+> для prefix/internal/suffix gaps. `--fill-missing-from-course` по-прежнему достаточно
+> для принятия course endpoints как допущения; отдельного подтверждения не требуется.
+
 ## Проблема
 
 Активность может содержать правдоподобные timestamp, distance, speed и sensor streams,
