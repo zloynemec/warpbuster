@@ -427,7 +427,11 @@ HTML/JSON audit проверен автоматически; ручной browse
 1. **M11 / Task 012 — OSM Reconstruction Bridge (2D first):** после acceptance Task 011,
    поверх её gap/candidate contract; сначала typed bridge и dry-run candidates для
    локально unresolved gaps, затем применение только однозначной 2D-геометрии без
-   изменения правдоподобной FIT altitude.
+   изменения правдоподобной FIT altitude. ТЗ первого узкого этапа:
+   [Task 012A](../tasks/012a-osm-reconstruction-dry-run.md) — только internal gaps с
+   двумя anchors, без selection, allocation и FIT writer. Завершена 2026-09-04:
+   typed direct adapter, bounded candidate discovery, console/JSON/HTML audit и native
+   Valhalla end-to-end; 449 Core tests passed, 6 skipped, OSM Manager 56 и routing 292.
 2. **M12 / Task 013 — DEM-backed Elevation:** отдельные dataset/cache/provenance,
    sampling route polyline, GPX `<ele>`, elevation profile и ascent/descent policy.
 3. **M13 / Task 014 — Elevation-aware OSM Reconstruction:** после M11 и M12; optional

@@ -25,7 +25,12 @@ from warpbuster.models.integrity import (
     TransitionClassification,
     TransitionResult,
 )
-from warpbuster.models.reconstruction import CourseData, RepairPlan, RepairSelection
+from warpbuster.models.reconstruction import (
+    CourseData,
+    OSMDryRunResult,
+    RepairPlan,
+    RepairSelection,
+)
 from warpbuster.reconstruction.selection import select_repair_intervals
 from warpbuster.report.analyze import analyze_report
 from warpbuster.report.fit import write_result_report
@@ -126,6 +131,7 @@ def write_repair_html(
     fixed_activity: ActivityData | None = None,
     write_result: FitWriteResult | None = None,
     overwrite: bool = False,
+    osm_result: OSMDryRunResult | None = None,
 ) -> Path:
     """Write a repair report, optionally replacing its destination atomically."""
     if (fixed_activity is None) is not (write_result is None):
@@ -156,6 +162,7 @@ def write_repair_html(
         course,
         config,
         minimum_confidence,
+        osm_result,
     )
     payload["write_result"] = (
         write_result_report(write_result) if write_result is not None else None
@@ -1527,12 +1534,14 @@ def _compact_repair_report(
     course: CourseData | None,
     config: CourseReconstructionConfig,
     minimum_confidence: IntegrityConfidence,
+    osm_result: OSMDryRunResult | None = None,
 ) -> dict[str, object]:
     report = repair_report(
         plan,
         course,
         config,
         minimum_confidence=minimum_confidence,
+        osm_result=osm_result,
     )
     interval_plans = report.get("interval_plans")
     if isinstance(interval_plans, list):

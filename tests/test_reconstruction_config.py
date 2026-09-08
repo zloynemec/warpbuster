@@ -4,7 +4,7 @@ from dataclasses import asdict
 
 import pytest
 
-from warpbuster.config import CourseReconstructionConfig
+from warpbuster.config import CourseReconstructionConfig, OSMReconstructionConfig
 
 
 def test_reconstruction_thresholds_are_named_and_serializable() -> None:
@@ -119,3 +119,30 @@ def test_reconstruction_thresholds_reject_contradictory_ranges() -> None:
 def test_mixed_region_clean_gap_may_be_zero() -> None:
     """Adjacent evidence grouping may be configured without any clean records."""
     assert CourseReconstructionConfig(mixed_region_max_clean_gap_records=0)
+
+
+def test_osm_reconstruction_limits_are_named_and_serializable() -> None:
+    assert asdict(OSMReconstructionConfig()) == {
+        "requested_alternatives": 2,
+        "maximum_gap_queries": 32,
+        "maximum_total_candidate_points": 100_000,
+    }
+    assert OSMReconstructionConfig(requested_alternatives=1).requested_alternatives == 1
+    assert OSMReconstructionConfig(requested_alternatives=2).requested_alternatives == 2
+
+
+@pytest.mark.parametrize(
+    "name,value",
+    [
+        ("requested_alternatives", 0),
+        ("requested_alternatives", 3),
+        ("requested_alternatives", True),
+        ("maximum_gap_queries", 0),
+        ("maximum_gap_queries", 1.5),
+        ("maximum_total_candidate_points", 0),
+        ("maximum_total_candidate_points", True),
+    ],
+)
+def test_osm_reconstruction_limits_reject_invalid_values(name: str, value: object) -> None:
+    with pytest.raises(ValueError, match=name):
+        OSMReconstructionConfig(**{name: value})  # type: ignore[arg-type]

@@ -19,6 +19,7 @@ from warpbuster.models.reconstruction import (
     MissingCourseCompletionPlan,
     MissingCourseRun,
     MixedGnssRegion,
+    OSMDryRunResult,
     ReconstructionGap,
     RepairIntervalAction,
     RepairIntervalDecision,
@@ -29,6 +30,7 @@ from warpbuster.models.reconstruction import (
 )
 from warpbuster.reconstruction.selection import select_repair_intervals
 from warpbuster.report.gaps import gap_audit, gap_candidate_report, gap_console
+from warpbuster.report.osm import osm_reconstruction_console, osm_reconstruction_report
 
 
 def repair_report(
@@ -37,6 +39,7 @@ def repair_report(
     config: CourseReconstructionConfig,
     *,
     minimum_confidence: IntegrityConfidence = IntegrityConfidence.HIGH,
+    osm_result: OSMDryRunResult | None = None,
 ) -> dict[str, object]:
     """Build the stable machine-readable dry-run reconstruction report."""
     selection = select_repair_intervals(plan, minimum_confidence)
@@ -47,7 +50,7 @@ def repair_report(
         len(interval.coordinate_updates) for interval in selection.selected_interval_plans
     )
     decisions = {_decision_key(decision.interval): decision for decision in selection.decisions}
-    return {
+    report = {
         "schema_version": "0.1",
         "scope": "course_reconstruction_dry_run",
         "activity": {"format": "fit", "path": str(plan.activity_path)},
@@ -109,6 +112,9 @@ def repair_report(
         ],
         **gap_audit(plan, selection),
     }
+    if osm_result is not None:
+        report["osm_reconstruction"] = osm_reconstruction_report(osm_result)
+    return report
 
 
 def repair_json(
@@ -117,6 +123,7 @@ def repair_json(
     config: CourseReconstructionConfig,
     *,
     minimum_confidence: IntegrityConfidence = IntegrityConfidence.HIGH,
+    osm_result: OSMDryRunResult | None = None,
 ) -> str:
     """Render deterministic JSON for a dry-run RepairPlan."""
     return json.dumps(
@@ -125,6 +132,7 @@ def repair_json(
             course,
             config,
             minimum_confidence=minimum_confidence,
+            osm_result=osm_result,
         ),
         ensure_ascii=False,
         indent=2,
@@ -139,6 +147,7 @@ def repair_console(
     *,
     minimum_confidence: IntegrityConfidence = IntegrityConfidence.HIGH,
     verbosity: int = 0,
+    osm_result: OSMDryRunResult | None = None,
 ) -> str:
     """Render a compact human-readable dry-run report."""
     selection = select_repair_intervals(plan, minimum_confidence)
@@ -226,6 +235,8 @@ def repair_console(
                 ),
             ]
         )
+    if osm_result is not None:
+        lines.extend(osm_reconstruction_console(osm_result))
     return "\n".join(lines)
 
 

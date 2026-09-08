@@ -123,6 +123,37 @@ Alternatives проходят отдельный audit и сравниваютс
 Поиск неполный: один найденный путь не доказывает уникальность, а выбор для repair
 остаётся будущим этапом. Подробности: [`packages/osm-routing/README.md`](packages/osm-routing/README.md).
 
+Task 012A подключает этот typed routing API к существующему `repair`, но только как
+явный candidate-only dry-run. Сначала OSM Manager и routing package по-прежнему отдельно
+готовят snapshot и graph, затем Core получает точный `graph_id`:
+
+```bash
+warpbuster-osm ensure --gpx coverage.gpx --json > manifest.json
+warpbuster-osm-route prepare manifest.json
+
+warpbuster repair activity.fit \
+  --osm-graph-id sha256:GRAPH_DIGEST \
+  --osm-cache-dir /path/to/osm-routing-cache \
+  --dry-run \
+  --json
+
+warpbuster repair activity.fit \
+  --course race.gpx \
+  --osm-graph-id sha256:GRAPH_DIGEST \
+  --dry-run \
+  --html activity.osm-dry-run.html
+```
+
+OSM рассматривает только оставшиеся internal gaps с двумя исходными trusted anchors и
+не конкурирует с уже найденным GPX candidate. Отчёт сохраняет primary/alternatives,
+snapping, route audit и graph/profile/snapshot provenance. Маршруты не получают
+confidence, не распределяются по FIT records и не могут быть записаны writer-ом;
+`--min-confidence` этого не меняет. `--osm-graph-id` без `--dry-run` отклоняется до
+создания FIT output. Exit `0` означает наличие хотя бы одного OSM candidate set или
+обычного применимого base plan, `3` — штатное отсутствие кандидатов, `2` — ошибку
+аргументов, runtime, graph или route audit. Подробный контракт:
+[Task 012A](tasks/012a-osm-reconstruction-dry-run.md).
+
 Чтение и инспекция FIT:
 
 Корректные FIT читаются строго, независимо от производителя. Для обнаруженного

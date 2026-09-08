@@ -48,6 +48,7 @@ warpbuster = ["py.typed", "report/assets/*.html"]
 [tool.pytest.ini_options]
 addopts = "--strict-config --strict-markers"
 markers = [
+    "integration: offline integration tests that may require an optional local runtime",
     "private: tests that require ignored private activity files",
 ]
 testpaths = ["tests"]

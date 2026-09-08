@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -524,6 +525,39 @@ class GapOrigin(StrEnum):
     MIXED = "mixed"
 
 
+class OSMGapOutcome(StrEnum):
+    """Advisory outcome of one OSM gap evaluation."""
+
+    CANDIDATES_AVAILABLE = "candidates_available"
+    UNRESOLVED = "unresolved"
+    NOT_QUERIED = "not_queried"
+
+
+class OSMDryRunStatus(StrEnum):
+    """Aggregate state that never grants repair eligibility."""
+
+    NOT_NEEDED = "not_needed"
+    CANDIDATES_AVAILABLE = "candidates_available"
+    PARTIAL = "partial"
+    NO_CANDIDATES = "no_candidates"
+
+
+class OSMReconstructionReason(StrEnum):
+    """Stable reasons for retaining or not querying an OSM candidate set."""
+
+    GPX_CANDIDATE_ALREADY_AVAILABLE = "gpx_candidate_already_available"
+    TWO_ANCHORS_REQUIRED = "two_anchors_required"
+    ANCHOR_NOT_ELIGIBLE = "anchor_not_eligible"
+    CONTINUITY_MISMATCH = "continuity_mismatch"
+    INVALID_ANCHOR_POSITION = "invalid_anchor_position"
+    QUERY_LIMIT_REACHED = "query_limit_reached"
+    RESULT_LIMIT_REACHED = "result_limit_reached"
+    OUTSIDE_COVERAGE = "outside_coverage"
+    NO_SNAP = "no_snap"
+    AMBIGUOUS_SNAP = "ambiguous_snap"
+    NO_ROUTE = "no_route"
+
+
 @dataclass(frozen=True, slots=True)
 class CoordinateDisposition:
     """Immutable per-record coordinate evidence and invalidation decision."""
@@ -561,6 +595,82 @@ class ReconstructionGap:
     @property
     def record_count(self) -> int:
         return self.end_record_index - self.start_record_index + 1
+
+
+@dataclass(frozen=True, slots=True)
+class OSMAnchor:
+    """One original preserved FIT position used only as a routing endpoint."""
+
+    record_index: int
+    latitude: float
+    longitude: float
+
+
+@dataclass(frozen=True, slots=True)
+class OSMPathPoint:
+    """One route-polyline point not allocated to an activity record."""
+
+    latitude: float
+    longitude: float
+
+
+@dataclass(frozen=True, slots=True)
+class OSMRouteCandidate:
+    """Detached audited route geometry with no confidence or FIT update semantics."""
+
+    route_id: str
+    role: str
+    coordinates: tuple[OSMPathPoint, ...]
+    _document_json: str
+
+    def as_dict(self) -> dict[str, object]:
+        value: dict[str, object] = json.loads(self._document_json)
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class OSMGapEvaluation:
+    """One ordered candidate-only decision for a provider-neutral gap."""
+
+    interval: ReconstructionGap
+    outcome: OSMGapOutcome
+    queried: bool
+    anchor_before: OSMAnchor | None = None
+    anchor_after: OSMAnchor | None = None
+    candidates: tuple[OSMRouteCandidate, ...] = ()
+    reasons: tuple[OSMReconstructionReason, ...] = ()
+    route_status: str | None = None
+    _routing_document_json: str | None = None
+
+    def routing_document(self) -> dict[str, object] | None:
+        if self._routing_document_json is None:
+            return None
+        value: dict[str, object] = json.loads(self._routing_document_json)
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class OSMDryRunResult:
+    """Advisory OSM evaluations; application is deliberately impossible in 012A."""
+
+    graph_id: str
+    status: OSMDryRunStatus
+    evaluations: tuple[OSMGapEvaluation, ...]
+    requested_alternatives: int
+    maximum_gap_queries: int
+    maximum_total_candidate_points: int
+
+    @property
+    def query_count(self) -> int:
+        return sum(item.queried for item in self.evaluations)
+
+    @property
+    def candidate_count(self) -> int:
+        return sum(len(item.candidates) for item in self.evaluations)
+
+    @property
+    def candidate_gap_count(self) -> int:
+        return sum(item.outcome is OSMGapOutcome.CANDIDATES_AVAILABLE for item in self.evaluations)
 
 
 @dataclass(frozen=True, slots=True)

@@ -134,6 +134,7 @@
         <span><i class="swatch" style="background:#c53030"></i>Corrupted</span>
         <span><i class="swatch" style="background:#b7791f"></i>Skipped</span>
         <span><i class="swatch" style="background:#d97706;border-top:1px dashed white"></i>Missing data</span>
+        <span><i class="swatch" style="background:#e11d48"></i>OSM candidate</span>
       </div>
       <div id="map" role="application" aria-label="Interactive track map"></div>
       <p class="hint">Interactive OpenStreetMap: drag to pan, use +/− or the mouse wheel to zoom, and toggle layers in the top-right control. In repair output, grey lines are preserved coordinates and blue lines are reconstructed coordinates including joins. Dashed orange bridges mark unknown geometry, not a recovered path. Kilometre labels use FIT distance; distance uncertainty is shown in the summary and marker popups. G-numbers identify gaps, not the spans between kilometre labels.</p>
@@ -144,6 +145,13 @@
       <p class="hint">G-numbers identify reconstruction gaps, not corrupted detector regions. Click a row to inspect its local path. Course start/finish are assumptions authorized by --fill-missing-from-course; preserved observations are not snapped to the course.</p>
       <p id="gap-policy" class="reference-note"></p>
       <div id="gap-inventory"></div>
+    </section>
+
+    <section id="osm-reconstruction-section" hidden>
+      <h2>OSM reconstruction candidates</h2>
+      <p id="osm-reconstruction-policy" class="reference-note"></p>
+      <div id="osm-reconstruction-results"></div>
+      <p class="hint">Candidate-only dry-run: routes are not allocated to FIT records, have no reconstruction confidence and cannot be applied in Task 012A. Search is non-exhaustive; one route does not prove uniqueness.</p>
     </section>
 
     <section>
@@ -228,6 +236,7 @@
     const originalRows = data.tracks.original.records;
     const analysis = data.analysis;
     const repair = data.repair;
+    const osmReconstruction = repair?.osm_reconstruction || null;
     const writeResult = data.write_result;
     const repairedPerformance = data.activity_performance || data.repaired_performance;
     const diagnosticRegions = data.diagnostic_regions || [];
@@ -236,7 +245,7 @@
     const diagnosticRegionMarkers = new Map();
     let map = null;
     let focusDiagnosticRegion = (region) => selectDiagnosticRegion(region.display_id, true);
-    const colors = { original: "#64748b", repaired: "#1d6fb8", candidate: "#0f766e", course: "#6b46c1", corrupted: "#c53030", tainted: "#dd6b20", plausible: "#2f855a", unknown: "#64748b", skipped: "#b7791f", missing: "#d97706", recorded: "#2f855a", blue: "#176b87", purple: "#6b46c1", grid: "#dedbd2", ink: "#17202a", muted: "#65717d" };
+    const colors = { original: "#64748b", repaired: "#1d6fb8", candidate: "#0f766e", course: "#6b46c1", osm: "#e11d48", osmAlternative: "#7c3aed", corrupted: "#c53030", tainted: "#dd6b20", plausible: "#2f855a", unknown: "#64748b", skipped: "#b7791f", missing: "#d97706", recorded: "#2f855a", blue: "#176b87", purple: "#6b46c1", grid: "#dedbd2", ink: "#17202a", muted: "#65717d" };
 
     const text = (value, fallback = "n/a") => value === null || value === undefined || value === "" ? fallback : String(value);
     const number = (value, digits = 2) => typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "n/a";
@@ -301,6 +310,7 @@
     ]);
     if (repair) summaryItems.splice(2, 0, ["Repair plan", repair.status, true], ["Application", repair.selection.application_status, true]);
     if (repair) summaryItems.push(["Gap geometry", repair.geometry_status, true], ["Distance / metrics", repair.distance.status, false]);
+    if (osmReconstruction) summaryItems.push(["OSM candidates", `${osmReconstruction.candidate_gap_count} gap(s) / ${osmReconstruction.candidate_count} route(s)`, false], ["OSM application", "disabled", true]);
     if (data.output_summary) summaryItems.push(["Output missing positions", data.output_summary.missing_position_count, false], ["Written FIT verified", writeResult?.post_write_verified ? "yes" : "no", false]);
     const summary = document.getElementById("summary");
     for (const [label, value, asBadge] of summaryItems) {
@@ -458,6 +468,33 @@
           document.getElementById("map").scrollIntoView({ behavior: "smooth", block: "center" });
         });
       });
+    }
+
+    const osmSection = document.getElementById("osm-reconstruction-section");
+    if (osmReconstruction) {
+      osmSection.hidden = false;
+      document.getElementById("osm-reconstruction-policy").textContent = `Graph ${osmReconstruction.graph_id}; snapshot ${text(osmReconstruction.graph?.snapshot_id)}; Valhalla ${text(osmReconstruction.graph?.valhalla_version)}; profile ${text(osmReconstruction.profile?.profile_id)}; ${osmReconstruction.query_count}/${osmReconstruction.gap_count} gap queries; application disabled. OSM is excluded from integrity detection and existing GPX candidates are not replaced.`;
+      const osmRows = osmReconstruction.gap_evaluations.flatMap((evaluation) => {
+        const snapDistance = (side) => evaluation.snapping?.[side]?.selected?.distance_m;
+        if (!evaluation.candidates.length) return [[
+          `G${evaluation.number}`, evaluation.records.join(".."), badge(evaluation.outcome), evaluation.queried ? "yes" : "no", "n/a", "n/a", "n/a", `${number(snapDistance("start"))} / ${number(snapDistance("end"))} m`, "n/a", "n/a", "not allocated / not applicable", evaluation.reasons.join(", "),
+        ]];
+        return evaluation.candidates.map((candidate) => {
+          const endpoint = (candidate.audit?.checks || []).find((check) => check.name === "endpoints");
+          const comparison = candidate.vs_primary;
+          return [
+            `G${evaluation.number}`, evaluation.records.join(".."), badge(evaluation.outcome), "yes", candidate.role, candidate.route_id,
+            `${number(candidate.summary?.length_m)} m`, `${number(snapDistance("start"))} / ${number(snapDistance("end"))} m`,
+            endpoint ? `${number(endpoint.start_delta_m)} / ${number(endpoint.end_delta_m)} m` : "n/a",
+            comparison ? `overlap ${number(comparison.overlap_a)}; distance ratio ${number(comparison.distance_ratio)}` : "primary",
+            "not allocated / not applicable", [...(candidate.warnings || []).map((item) => item.code), ...evaluation.reasons].join(", "),
+          ];
+        });
+      });
+      document.getElementById("osm-reconstruction-results").appendChild(table(
+        ["Gap", "Records", "Outcome", "Queried", "Role", "Route ID", "Length", "Snap start / end", "Endpoint Δ start / end", "Vs primary", "Allocated / applicable", "Reasons / warnings"],
+        osmRows,
+      ));
     }
 
     const decisionRows = repair ? repair.selection.intervals.map((item) => [
@@ -713,6 +750,34 @@
     addOverlay("Composite plausible", compositeSegments("plausible"), { color: colors.plausible, weight: 5, opacity: 0.85 }, false);
     addOverlay("Composite unknown", compositeSegments("unknown"), { color: colors.unknown, weight: 5, opacity: 0.8, dashArray: "4 5" }, false);
     addOverlay("Missing-data bridges", missingBridges(primaryRows), { color: colors.missing, weight: 3, opacity: 0.9, dashArray: "7 7" });
+    const osmPrimarySegments = [], osmAlternativeSegments = [], osmConnectorSegments = [], osmAnchorPoints = [], osmSnapPoints = [];
+    if (osmReconstruction) osmReconstruction.gap_evaluations.forEach((evaluation) => {
+      const anchorBefore = evaluation.anchor_before ? [evaluation.anchor_before.latitude, evaluation.anchor_before.longitude] : null;
+      const anchorAfter = evaluation.anchor_after ? [evaluation.anchor_after.latitude, evaluation.anchor_after.longitude] : null;
+      const snapBefore = evaluation.snapping?.start?.selected?.correlated;
+      const snapAfter = evaluation.snapping?.end?.selected?.correlated;
+      const snapBeforePoint = snapBefore ? [snapBefore.latitude, snapBefore.longitude] : null;
+      const snapAfterPoint = snapAfter ? [snapAfter.latitude, snapAfter.longitude] : null;
+      if (anchorBefore) osmAnchorPoints.push(anchorBefore);
+      if (anchorAfter) osmAnchorPoints.push(anchorAfter);
+      if (snapBeforePoint) osmSnapPoints.push(snapBeforePoint);
+      if (snapAfterPoint) osmSnapPoints.push(snapAfterPoint);
+      if (anchorBefore && snapBeforePoint) osmConnectorSegments.push([anchorBefore, snapBeforePoint]);
+      if (anchorAfter && snapAfterPoint) osmConnectorSegments.push([snapAfterPoint, anchorAfter]);
+      evaluation.candidates.forEach((candidate) => {
+        const points = candidate.coordinates.filter((point) => Number.isFinite(point[0]) && Number.isFinite(point[1]));
+        if (points.length) (candidate.role === "primary" ? osmPrimarySegments : osmAlternativeSegments).push(points);
+      });
+    });
+    addOverlay("OSM primary candidates (not applied)", osmPrimarySegments, { color: colors.osm, weight: 4, opacity: 0.95 }, false);
+    addOverlay("OSM alternative candidates (not applied)", osmAlternativeSegments, { color: colors.osmAlternative, weight: 3, opacity: 0.85, dashArray: "8 5" }, false);
+    addOverlay("OSM anchor connectors (diagnostic)", osmConnectorSegments, { color: colors.missing, weight: 2, opacity: 0.9, dashArray: "3 6" }, false);
+    const addPointOverlay = (label, points, options) => {
+      if (!points.length) return;
+      overlayLayers[label] = L.layerGroup(points.map((point) => L.circleMarker(point, options)));
+    };
+    addPointOverlay("OSM FIT anchors", osmAnchorPoints, { radius: 6, color: colors.original, fillColor: "#fff", fillOpacity: 1, weight: 3 });
+    addPointOverlay("OSM snapped endpoints", osmSnapPoints, { radius: 4, color: colors.osm, fillColor: colors.osm, fillOpacity: 1, weight: 2 });
 
     const diagnosticLayerDefinitions = {
       one_sided_diagnostic: { label: "Input one-sided diagnostics", color: colors.tainted, weight: 6, enabled: !hasRepaired, dashArray: "7 5" },
@@ -800,6 +865,7 @@
     const mapBounds = L.latLngBounds([]);
     splitTrack(primaryRows).forEach((segment) => segment.forEach((point) => mapBounds.extend(point)));
     layers.course.forEach((segment) => segment.forEach((point) => { if (Number.isFinite(point[0]) && Number.isFinite(point[1])) mapBounds.extend(point); }));
+    [...osmPrimarySegments, ...osmAlternativeSegments].forEach((segment) => segment.forEach((point) => mapBounds.extend(point)));
     const fitWholeTrack = () => mapBounds.isValid() ? map.fitBounds(mapBounds, { padding: [28, 28], maxZoom: 17 }) : map.setView([0, 0], 2);
     document.getElementById("fit-map").addEventListener("click", fitWholeTrack);
     focusDiagnosticRegion = (region) => {

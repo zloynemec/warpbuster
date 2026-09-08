@@ -366,3 +366,26 @@ class CourseReconstructionConfig:
             raise ValueError("local_alignment_max_context_records must be at least two")
         if self.local_alignment_max_path_evaluations < 1:
             raise ValueError("local_alignment_max_path_evaluations must be at least one")
+
+
+@dataclass(frozen=True, slots=True)
+class OSMReconstructionConfig:
+    """Operational bounds for advisory OSM candidate discovery only."""
+
+    requested_alternatives: int = 2
+    maximum_gap_queries: int = 32
+    maximum_total_candidate_points: int = 100_000
+
+    def __post_init__(self) -> None:
+        if isinstance(self.requested_alternatives, bool) or not isinstance(
+            self.requested_alternatives, int
+        ):
+            raise ValueError("requested_alternatives must be an integer")
+        if not 1 <= self.requested_alternatives <= 2:
+            raise ValueError("requested_alternatives must be between one and two")
+        for name in ("maximum_gap_queries", "maximum_total_candidate_points"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise ValueError(f"{name} must be an integer")
+            if value < 1:
+                raise ValueError(f"{name} must be at least one")

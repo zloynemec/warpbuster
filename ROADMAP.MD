@@ -198,9 +198,13 @@ Roadmap следует порядку milestone из [`docs/MILESTONES.md`](docs
   завершена 2026-09-04: 427 passed, 6 skipped; 8/8 пакетных запусков успешны.
 
 - [ ] **M11 / Task 012 — OSM Reconstruction Bridge (2D first)** — после Task 011, 011A, 011B и 011C;
-  предварительный план, ТЗ ещё не оформлено
-  - **012A:** отдельный `OSMReconstructionProvider` поверх gap/candidate contract из
-    Task 011 и typed `RouteResult`, сначала в candidate/dry-run режиме;
+  разбит на итерации; 012A завершена, 012B/012C пока остаются предварительным планом
+  - [x] **012A / OSM Reconstruction Provider: Candidate Dry-run**
+    ([task](tasks/012a-osm-reconstruction-dry-run.md)) — завершена 2026-09-04;
+    отдельный `OSMReconstructionProvider` поверх gap contract Task 011 и typed
+    alternatives API, только internal gaps с двумя anchors и candidate-only dry-run;
+    console/JSON/HTML сохраняют route/snapping/graph provenance без allocation и writer.
+    Проверки: 449 Core passed, 6 skipped; OSM Manager 56 passed; routing 292 passed;
   - **012B:** сопоставление trusted anchors, timestamps и recorded distance с одним или
     несколькими OSM route candidates без изменения FIT;
   - **012C:** консервативное применение только однозначных 2D-маршрутов с высокой

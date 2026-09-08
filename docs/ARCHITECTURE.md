@@ -3,8 +3,8 @@
 ## 1. Карта системы
 
 Схема показывает только три текущие точки входа и долговечные артефакты в двух
-end-to-end потоках. Внутренние вызовы намеренно опущены. Valhalla graph пока не
-потребляется Core, что явно отмечено на конечном узле OSM-потока.
+end-to-end потоках. Внутренние вызовы намеренно опущены. Подготовленный Valhalla graph
+подключается к Core только по явному точному `graph_id` в candidate-only dry-run.
 
 ```mermaid
 flowchart TB
@@ -23,10 +23,12 @@ flowchart TB
         manager["warpbuster-osm<br/>fetch · validate · version"]
         snapshot["Immutable OSM snapshot<br/>protocol v1 manifest"]
         router["warpbuster-osm-route<br/>normalize · build · verify"]
-        graph_cache["Content-addressed Valhalla graph cache<br/>not yet consumed by Core"]
+        graph_cache["Content-addressed Valhalla graph cache"]
 
         region_input --> manager --> snapshot --> router --> graph_cache
     end
+
+    graph_cache -. "exact graph_id · explicit dry-run" .-> core
 
     %% Layout only: the two runtime flows remain independent.
     activity ~~~ osm_pipeline
@@ -62,11 +64,13 @@ src/warpbuster/
 │   └── scoring.py
 ├── reconstruction/
 │   ├── base.py
-│   └── course.py
+│   ├── course.py
+│   └── osm.py
 └── report/
     ├── console.py
     ├── json.py
-    └── html.py
+    ├── html.py
+    └── osm.py
 ```
 
 Структура может уточняться, но separation of concerns обязателен.
@@ -153,8 +157,9 @@ GNSS transition и не создаёт `CorruptedInterval`: altitude sensor мо
 - `OSMReconstructionProvider`
 - `TerrainReconstructionProvider`
 
-v0.1 содержит только `CourseReconstructionProvider`. Он получает уже завершённый
-`IntegrityReport`; course не передаётся обратно в detector.
+Применимый repair в v0.1 строит `CourseReconstructionProvider`; advisory Task 012A
+добавляет `OSMReconstructionProvider` только для candidate dry-run. Оба получают уже
+завершённый `IntegrityReport`; course/OSM не передаются обратно в detector.
 
 Перед GPX matching выполняется course-independent safety gate. Для before-anchor
 сканируются последовательные переходы наружу назад, для after-anchor — вперёд.
@@ -206,6 +211,20 @@ speed/transition post-check.
 данные независимо. Их candidates объединяются до selection; overlapping missing scope
 отклоняется в пользу основного repair. Writer выполняет один атомарный pass. Generated
 points не становятся новыми detector evidence или anchors внутри того же запуска.
+
+Task 012A добавляет `OSMReconstructionProvider` после готового immutable coordinate
+mask и `ReconstructionGap` inventory. Он лениво вызывает публичный typed
+`RouteService.alternatives()` отдельного routing package только для internal gaps с
+двумя непосредственными preserved trusted anchors и только по exact `graph_id`.
+Существующий GPX `GapRepairPlan` имеет приоритет и не вызывает OSM-запрос.
+
+OSM-результат — самостоятельный advisory contract: ordered gap evaluations, исходные
+FIT anchors, snapping, primary/alternatives и полный route/graph/profile/snapshot audit.
+Он не создаёт `GapRepairPlan`, `CandidateCoordinate`, confidence или selection action.
+OSM layers в HTML выключены по умолчанию и не являются repaired track. В Task 012A
+CLI требует `--dry-run`, поэтому provider не достигает FIT writer. Domain-результаты
+`OUTSIDE_COVERAGE`, `NO_SNAP`, `AMBIGUOUS_SNAP`, `NO_ROUTE` локальны для gap; нарушение
+graph/runtime/audit завершает весь OSM dry-run controlled error.
 
 ## 7. Repair Plan
 

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 
 from warpbuster import __version__
 from warpbuster.activity_reader import ActivityReadError, read_activity
-from warpbuster.config import CourseReconstructionConfig
+from warpbuster.config import CourseReconstructionConfig, OSMReconstructionConfig
 from warpbuster.fit.diff import diff_fit
 from warpbuster.fit.reader import FitReadError, read_fit
 from warpbuster.fit.validate import validate_fit
@@ -42,7 +43,7 @@ from warpbuster.report.html import (
     write_repair_html,
 )
 from warpbuster.report.inspect import inspect_console, inspect_json
-from warpbuster.report.repair import repair_console, repair_json
+from warpbuster.report.repair import repair_console, repair_json, repair_report
 
 _AUTO_HTML_PATH = object()
 
@@ -182,6 +183,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="fill original/invalidated gaps from GPX, including assumed course start/finish",
     )
     repair_parser.add_argument(
+        "--osm-graph-id",
+        help="discover candidate-only OSM routes from this exact prepared graph (dry-run only)",
+    )
+    repair_parser.add_argument(
+        "--osm-routing-config",
+        type=Path,
+        help="optional osm-routing.toml used with --osm-graph-id",
+    )
+    repair_parser.add_argument(
+        "--osm-cache-dir",
+        type=Path,
+        help="optional prepared graph cache override used with --osm-graph-id",
+    )
+    repair_parser.add_argument(
         "--json",
         action="store_true",
         help="emit a machine-readable RepairPlan",
@@ -300,6 +315,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.fill_missing_from_course and args.course is None:
             print("error: --fill-missing-from-course requires --course", file=sys.stderr)
             return 2
+        if args.osm_graph_id is not None and not args.dry_run:
+            print("error: --osm-graph-id is candidate-only and requires --dry-run", file=sys.stderr)
+            return 2
+        if args.osm_graph_id is None and (
+            args.osm_routing_config is not None or args.osm_cache_dir is not None
+        ):
+            print(
+                "error: --osm-routing-config/--osm-cache-dir require --osm-graph-id",
+                file=sys.stderr,
+            )
+            return 2
         try:
             activity = read_fit(args.activity_file)
             course = read_gpx_course(args.course) if args.course is not None else None
@@ -337,6 +363,47 @@ def main(argv: Sequence[str] | None = None) -> int:
             minimum_invalidation_confidence=args.min_invalidation_confidence,
         )
         selection = select_repair_intervals(plan, args.min_confidence)
+        osm_result = None
+        if args.osm_graph_id is not None:
+            from warpbuster.reconstruction.osm import (
+                OSMReconstructionError,
+                OSMReconstructionProvider,
+                ValhallaRoutingClient,
+            )
+
+            try:
+                osm_config = OSMReconstructionConfig()
+                osm_result = OSMReconstructionProvider(
+                    ValhallaRoutingClient(args.osm_routing_config, args.osm_cache_dir),
+                    osm_config,
+                ).discover(activity, plan, args.osm_graph_id)
+            except OSMReconstructionError as error:
+                if args.json:
+                    document = repair_report(
+                        plan,
+                        course,
+                        config,
+                        minimum_confidence=args.min_confidence,
+                    )
+                    document["osm_reconstruction"] = {
+                        "protocol_version": 1,
+                        "status": "error",
+                        "dry_run": True,
+                        "application_allowed": False,
+                        "graph_id": args.osm_graph_id,
+                        "error": {
+                            "code": error.code,
+                            "message": error.message,
+                            "details": error.details,
+                        },
+                    }
+                    print(json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True))
+                else:
+                    print(
+                        f"error: OSM reconstruction [{error.code}]: {error.message}",
+                        file=sys.stderr,
+                    )
+                return 2
         if args.dry_run:
             if args.html is not None:
                 try:
@@ -349,6 +416,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         args.html,
                         minimum_confidence=args.min_confidence,
                         overwrite=args.overwrite,
+                        osm_result=osm_result,
                     )
                 except (HtmlReportError, OSError) as error:
                     print(f"error: {error}", file=sys.stderr)
@@ -359,6 +427,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     course,
                     config,
                     minimum_confidence=args.min_confidence,
+                    osm_result=osm_result,
                 )
                 if args.json
                 else repair_console(
@@ -367,10 +436,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                     config,
                     minimum_confidence=args.min_confidence,
                     verbosity=args.verbose,
+                    osm_result=osm_result,
                 )
             )
             print(_html_notice(rendered, args.html) if not args.json else rendered)
-            if selection.has_changes or plan.status is RepairPlanStatus.NOT_NEEDED:
+            if (
+                selection.has_changes
+                or plan.status is RepairPlanStatus.NOT_NEEDED
+                or (osm_result is not None and osm_result.candidate_count > 0)
+            ):
                 return 0
             return 3
         if not selection.has_changes:
