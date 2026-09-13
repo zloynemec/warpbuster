@@ -82,6 +82,9 @@ class IntegrityConfig:
             degrees when merging overlapping candidate windows.
         geometry_max_warnings: Maximum warnings retained in a report; aggregate
             diagnostics still count omitted warnings.
+        distance_spike_*: Conservative, bounded proof for an impossible cumulative
+            distance step corroborated by a complete speed stream and conflicting
+            position displacement. Units are metres, seconds, ratios and records.
     """
 
     profile: IntegrityProfile = IntegrityProfile.GENERIC
@@ -118,6 +121,14 @@ class IntegrityConfig:
     geometry_scan_stride_records: int = 16
     geometry_max_bearing_change_degrees: float = 2.0
     geometry_max_warnings: int = 100
+    distance_spike_min_increment_m: float = 50.0
+    distance_spike_signal_absolute_tolerance_m: float = 30.0
+    distance_spike_signal_relative_tolerance: float = 0.20
+    distance_spike_position_excess_m: float = 100.0
+    distance_spike_position_ratio: float = 3.0
+    distance_spike_max_gap_records: int = 2_048
+    distance_spike_max_position_island_records: int = 15
+    distance_spike_max_evidence: int = 100
 
     @classmethod
     def running(cls) -> IntegrityConfig:
@@ -154,6 +165,12 @@ class IntegrityConfig:
                 self.vertical_warning_single_transition_speed_mps
             ),
             "vertical_warning_min_delta_m": self.vertical_warning_min_delta_m,
+            "distance_spike_min_increment_m": self.distance_spike_min_increment_m,
+            "distance_spike_signal_absolute_tolerance_m": (
+                self.distance_spike_signal_absolute_tolerance_m
+            ),
+            "distance_spike_position_excess_m": self.distance_spike_position_excess_m,
+            "distance_spike_position_ratio": self.distance_spike_position_ratio,
         }
         for name, value in positive_values.items():
             if value <= 0:
@@ -224,6 +241,16 @@ class IntegrityConfig:
             raise ValueError("geometry_max_bearing_change_degrees must not exceed 180")
         if self.geometry_max_warnings < 0:
             raise ValueError("geometry_max_warnings must not be negative")
+        if not 0 <= self.distance_spike_signal_relative_tolerance <= 1:
+            raise ValueError(
+                "distance_spike_signal_relative_tolerance must be between zero and one"
+            )
+        if self.distance_spike_max_gap_records < 1:
+            raise ValueError("distance_spike_max_gap_records must be at least one")
+        if self.distance_spike_max_position_island_records < 1:
+            raise ValueError("distance_spike_max_position_island_records must be at least one")
+        if self.distance_spike_max_evidence < 0:
+            raise ValueError("distance_spike_max_evidence must not be negative")
 
 
 @dataclass(frozen=True, slots=True)

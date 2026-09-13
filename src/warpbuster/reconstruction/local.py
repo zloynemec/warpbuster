@@ -243,11 +243,12 @@ def build_repair_plan(
         else:
             unresolved.append(replace(result, timing=clock.audit if clock else None))
     invalidations = any(item.state is CoordinateState.INVALIDATED for item in mask)
+    changes_available = bool(candidates or invalidations or integrity.distance_spike_evidence)
     status = (
         RepairPlanStatus.PARTIAL
-        if (candidates or invalidations) and unresolved
+        if changes_available and unresolved
         else RepairPlanStatus.READY
-        if candidates or invalidations
+        if changes_available
         else RepairPlanStatus.REFUSED
         if gaps
         else RepairPlanStatus.NOT_NEEDED
@@ -257,7 +258,10 @@ def build_repair_plan(
         course_path=course.source_path if course is not None else None,
         status=status,
         confidence=min(
-            (item.confidence for item in candidates),
+            (
+                *(item.confidence for item in candidates),
+                *(item.confidence for item in integrity.distance_spike_evidence),
+            ),
             key=CONFIDENCE_RANK.__getitem__,
             default=IntegrityConfidence.LOW,
         ),
@@ -282,6 +286,7 @@ def build_repair_plan(
         unresolved_gaps=tuple(unresolved),
         minimum_invalidation_confidence=minimum_invalidation_confidence,
         maximum_new_transition_speed_mps=config.missing_completion_max_connector_speed_mps,
+        distance_spike_repairs=integrity.distance_spike_evidence,
     )
 
 

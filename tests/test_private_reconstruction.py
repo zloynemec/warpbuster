@@ -128,6 +128,7 @@ def test_private_partial_output_corrects_proven_distance_and_preserves_unproven_
         if not candidate.preserve_recorded_distance
         for u in candidate.coordinate_updates
     }
+    corrected.update(item.record_index for item in result.selection.distance_spike_repairs)
     for index in range(1, len(fixed.records)):
         if index in corrected or index - 1 in corrected:
             continue

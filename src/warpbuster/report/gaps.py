@@ -88,11 +88,17 @@ def distance_policy(selection: RepairSelection) -> dict[str, object]:
     uncertain = (
         unresolved_geometry or unresolved_signal or bool(selection.unresolved_invalidated_indices)
     )
-    recalculated = any(
+    geometry_recalculated = any(
         not candidate.preserve_recorded_distance for candidate in selection.selected_interval_plans
     )
+    spike_recalculated = bool(selection.distance_spike_repairs)
+    recalculated = geometry_recalculated or spike_recalculated
     return {
-        "policy": "preserved" if not recalculated else "coordinate_dependent_correction",
+        "policy": "preserved"
+        if not recalculated
+        else "coordinate_dependent_correction"
+        if geometry_recalculated
+        else "signal_corroborated_correction",
         "status": "partially_corrected"
         if recalculated and uncertain
         else "corrected"
@@ -112,6 +118,20 @@ def distance_policy(selection: RepairSelection) -> dict[str, object]:
         "unresolved_geometry": unresolved_geometry,
         "unresolved_distance_signal": unresolved_signal,
         "unresolved_invalidated_record_count": len(selection.unresolved_invalidated_indices),
+        "corrected_distance_spike_count": len(selection.distance_spike_repairs),
+        "distance_spike_corrections": [
+            {
+                "previous_record_index": item.previous_record_index,
+                "record_index": item.record_index,
+                "original_increment_m": item.original_increment_m,
+                "replacement_increment_m": item.replacement_increment_m,
+                "removed_distance_m": (item.original_increment_m - item.replacement_increment_m),
+                "position_displacement_m": item.position_displacement_m,
+                "integrated_speed_to_record_m": item.integrated_speed_to_record_m,
+                "confidence": item.confidence.value,
+            }
+            for item in selection.distance_spike_repairs
+        ],
     }
 
 

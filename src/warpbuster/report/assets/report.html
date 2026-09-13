@@ -145,6 +145,7 @@
       <p class="hint">G-numbers identify reconstruction gaps, not corrupted detector regions. Click a row to inspect its local path. Course start/finish are assumptions authorized by --fill-missing-from-course; preserved observations are not snapped to the course.</p>
       <p id="gap-policy" class="reference-note"></p>
       <div id="gap-inventory"></div>
+      <div id="distance-spike-corrections"></div>
     </section>
 
     <section id="osm-reconstruction-section" hidden>
@@ -169,6 +170,8 @@
     <section>
       <h2 id="activity-performance-title">Activity pace &amp; elevation</h2>
       <div class="grid" id="repaired-performance-summary"></div>
+      <h3>Kilometre splits</h3>
+      <div id="kilometre-splits"></div>
       <canvas class="chart" id="split-pace-chart" aria-label="Pace by recorded kilometre histogram"></canvas>
       <canvas class="chart" id="split-elevation-chart" aria-label="Ascent and descent by recorded kilometre histogram"></canvas>
       <div class="hint" id="repaired-performance-notes"></div>
@@ -258,6 +261,7 @@
     const appendText = (parent, value) => parent.appendChild(document.createTextNode(String(value)));
     const distance = (value) => Number.isFinite(value) ? `${number(value / 1000, 3)} km` : "n/a";
     const metres = (value) => Number.isFinite(value) ? `${number(value, 1)} m` : "n/a";
+    const splitLabel = (split) => split.complete_kilometre ? `${split.index}` : `${number(split.start_distance_m / 1000, 1)}–${number(split.end_distance_m / 1000, 2)}`;
     const signedDistance = (value) => Number.isFinite(value) ? `${value >= 0 ? "+" : "−"}${number(Math.abs(value) / 1000, 3)} km` : "n/a";
     const pace = (value) => {
       if (!Number.isFinite(value) || value < 0) return "n/a";
@@ -444,7 +448,7 @@
       };
       const coverage = repair.coordinate_coverage;
       const stage = data.report_kind === "repair_write" ? "Output" : "Preview";
-      document.getElementById("gap-policy").textContent = `${stage}: original missing ${coverage.original_missing}; invalidated ${coverage.invalidated}; filled ${coverage.filled}; unresolved ${coverage.unresolved}; untouched positioned ${coverage.untouched_positioned}. Distance: ${repair.distance.status}, quality ${repair.distance.quality}. Local corrections do not estimate unresolved gaps. Recorded speed is retained telemetry, not claimed independent of GPS. G-numbers identify record ranges, not spans between kilometre labels.`;
+      document.getElementById("gap-policy").textContent = `${stage}: original missing ${coverage.original_missing}; invalidated ${coverage.invalidated}; filled ${coverage.filled}; unresolved ${coverage.unresolved}; untouched positioned ${coverage.untouched_positioned}. Distance: ${repair.distance.status}, quality ${repair.distance.quality}; corrected impossible spikes ${repair.distance.corrected_distance_spike_count || 0}. Unresolved geometry remains a dashed bridge and is not written as invented coordinates. Recorded speed is retained telemetry, not claimed independent of GPS. G-numbers identify record ranges, not spans between kilometre labels.`;
       const gapTable = table(["Gap", "Records / time", "Elapsed / paused / active (s), anchors included", "Origin", "Geometry status", "Invalidation / path confidence", "Missing / invalidated / filled", "Actual join anchors", "Context", "Endpoint source", "Distance / input signal", "Reasons", "Evidence"], gapInventory.map((gap) => [
         `G${gap.number}`,
         `${gap.start_record_index}..${gap.end_record_index}\n${text(gap.start_timestamp)} → ${text(gap.end_timestamp)}`,
@@ -456,6 +460,16 @@
         gapEvidence(gap),
       ]));
       document.getElementById("gap-inventory").appendChild(gapTable);
+      const distanceSpikes = repair.distance.distance_spike_corrections || [];
+      if (distanceSpikes.length) document.getElementById("distance-spike-corrections").appendChild(table(
+        ["Distance step", "Original increment", "Replacement increment", "Removed", "Position displacement", "Integrated speed path", "Confidence"],
+        distanceSpikes.map((item) => [
+          `${item.previous_record_index} → ${item.record_index}`,
+          metres(item.original_increment_m), metres(item.replacement_increment_m),
+          metres(item.removed_distance_m), metres(item.position_displacement_m),
+          metres(item.integrated_speed_to_record_m), badge(item.confidence),
+        ]),
+      ));
       gapTable.querySelectorAll("tbody tr").forEach((row, index) => {
         row.style.cursor = "pointer";
         row.addEventListener("click", (event) => {
@@ -638,6 +652,19 @@
       const notes = document.createElement("ul");
       repairedPerformance.notes.forEach((note) => { const item = document.createElement("li"); item.textContent = note; notes.appendChild(item); });
       document.getElementById("repaired-performance-notes").appendChild(notes);
+      const splitRows = repairedPerformance.splits.map((split) => [
+        splitLabel(split),
+        distance(split.distance_m),
+        clockDuration(split.elapsed_seconds),
+        `${Number.isFinite(split.ascent_m) ? `+${number(split.ascent_m, 1)} m` : "n/a"} / ${Number.isFinite(split.descent_m) ? `−${number(split.descent_m, 1)} m` : "n/a"}`,
+        Number.isFinite(split.average_heart_rate_bpm) ? `${number(split.average_heart_rate_bpm, 0)} bpm` : "n/a",
+        Number.isFinite(split.average_cadence) ? number(split.average_cadence, 0) : "n/a",
+        Number.isFinite(split.coordinate_coverage_ratio) ? `${number(split.coordinate_coverage_ratio * 100, 0)}%` : "n/a",
+      ]);
+      document.getElementById("kilometre-splits").appendChild(table(
+        ["Kilometre", "Distance", "Time", "Ascent / descent", "Heart rate", repairedPerformance.cadence_label, "With coordinates"],
+        splitRows,
+      ));
     }
 
     const missingRows = data.missing_position_runs.map((item) => [
@@ -897,7 +924,6 @@
       series.forEach((item) => { ctx.strokeStyle = item.color; ctx.lineWidth = item.width || 1.5; ctx.setLineDash(item.dashed ? [5, 4] : []); ctx.beginPath(); let active = false; for (const row of originalRows) { const value = row[item.field]; if (!Number.isFinite(value)) { active = false; continue; } const x = sx(row[1]), y = sy(value); active ? ctx.lineTo(x, y) : ctx.moveTo(x, y); active = true; } ctx.stroke(); });
       ctx.setLineDash([]); ctx.fillStyle = colors.muted; ctx.fillText(data.chart_axis.label, width / 2 - 45, height - 7);
     };
-    const splitLabel = (split) => split.complete_kilometre ? `${split.index}` : `${number(split.start_distance_m / 1000, 1)}–${number(split.end_distance_m / 1000, 2)}`;
     const drawSplitBars = (canvas, title, field, { axisFormatter = (value) => number(value, 1) } = {}) => {
       const [ctx, width, height] = prepareCanvas(canvas); ctx.clearRect(0, 0, width, height); const pad = { l: 64, r: 18, t: 30, b: 42 };
       const splits = repairedPerformance ? repairedPerformance.splits : [];

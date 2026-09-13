@@ -38,6 +38,10 @@ class IntervalReason(StrEnum):
     TAINTED_POSITION_COMPONENTS = "tainted_position_components"
     STABLE_PREFIX_ANCHOR = "stable_prefix_anchor"
     OUTSIDE_PHYSICAL_REACHABILITY = "outside_physical_reachability"
+    IMPOSSIBLE_DISTANCE_SPIKE = "impossible_distance_spike"
+    SPEED_DISTANCE_CONSISTENCY = "speed_distance_consistency"
+    POSITION_DISPLACEMENT_CONFLICT = "position_displacement_conflict"
+    SHORT_POSITION_ISLAND = "short_position_island"
 
 
 class IntervalDetectionKind(StrEnum):
@@ -47,6 +51,7 @@ class IntervalDetectionKind(StrEnum):
     ONE_SIDED_CLUSTER = "one_sided_cluster"
     COMPOSITE_REGION = "composite_region"
     UNREACHABLE_TAIL = "unreachable_tail"
+    SIGNAL_CORROBORATED_ISLAND = "signal_corroborated_island"
 
 
 class OneSidedClusterReason(StrEnum):
@@ -192,11 +197,35 @@ class CorruptedInterval:
     reasons: tuple[IntervalReason, ...]
     detection_kind: IntervalDetectionKind = IntervalDetectionKind.CLASSIC_ISLAND
     reachability: TailReachabilityProof | None = None
+    distance_spike_proof: DistanceSpikeEvidence | None = None
 
     @property
     def record_count(self) -> int:
         """Return the number of records in the inclusive affected range."""
         return self.end_record_index - self.start_record_index + 1
+
+
+@dataclass(frozen=True, slots=True)
+class DistanceSpikeEvidence:
+    """Audited distance-step correction, independent of course or routing."""
+
+    previous_record_index: int
+    record_index: int
+    anchor_record_index: int
+    original_increment_m: float
+    replacement_increment_m: float
+    source_before_increment_m: float
+    integrated_speed_before_m: float
+    position_displacement_m: float
+    integrated_speed_to_record_m: float
+    elapsed_from_anchor_seconds: float
+    minimum_increment_m: float
+    maximum_increment_speed_mps: float
+    signal_absolute_tolerance_m: float
+    signal_relative_tolerance: float
+    position_excess_m: float
+    position_ratio: float
+    confidence: IntegrityConfidence = IntegrityConfidence.MEDIUM
 
 
 @dataclass(frozen=True, slots=True)
@@ -356,6 +385,7 @@ class IntegrityReport:
     vertical_warnings: tuple[VerticalWarning, ...]
     vertical_scan_diagnostics: VerticalScanDiagnostics
     config: IntegrityConfig
+    distance_spike_evidence: tuple[DistanceSpikeEvidence, ...] = ()
 
     def count(self, classification: TransitionClassification) -> int:
         """Return how many transitions have a given classification."""

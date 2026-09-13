@@ -197,7 +197,22 @@ Roadmap следует порядку milestone из [`docs/MILESTONES.md`](docs
   native coordinate fields только для принятых кандидатов, с lossless schema audit;
   завершена 2026-09-04: 427 passed, 6 skipped; 8/8 пакетных запусков успешны.
 
-- [ ] **M11 / Task 012 — OSM Reconstruction Bridge (2D first)** — после Task 011, 011A, 011B и 011C;
+- [x] **Task 011D — Signal-corroborated Distance Spikes**
+  ([task](tasks/011d-signal-corroborated-distance-spikes.md)) — завершена 2026-09-13;
+  bounded course-independent proof объединяет короткие невозможные GPS-островки с
+  missing geometry и локально убирает только подтверждённые скачки cumulative distance.
+  Применение остаётся явным `MEDIUM`; неизвестная геометрия не дорисовывается, GPX/OSM
+  не участвуют в доказательстве, delayed odometer updates сохраняются. Проверки:
+  462 passed, 6 skipped; Ruff/mypy пройдены.
+
+- [x] **Task 011E — Per-kilometre Repair Report**
+  ([task](tasks/011e-per-kilometre-repair-report.md)) — завершена 2026-09-13;
+  таблица каждого recorded-distance километра: time, ascent/descent, time-weighted HR,
+  sample-average cadence и фактическая доля дистанции с output coordinates без зачёта
+  missing-data chords. Running cadence учитывает fractional FIT cadence и показывается
+  в steps/min. Проверки: 465 passed, 6 skipped; Ruff/mypy пройдены.
+
+- [ ] **M11 / Task 012 — OSM Reconstruction Bridge (2D first)** — после Task 011, 011A, 011B, 011C и 011D;
   разбит на итерации; 012A завершена, 012B/012C пока остаются предварительным планом
   - [x] **012A / OSM Reconstruction Provider: Candidate Dry-run**
     ([task](tasks/012a-osm-reconstruction-dry-run.md)) — завершена 2026-09-04;

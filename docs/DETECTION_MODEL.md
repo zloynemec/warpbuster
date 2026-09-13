@@ -44,6 +44,21 @@ Bounded interval с impossible entry, где exit transition скрыт missing-
 Если любое условие не выполнено, остаётся `LOW` unresolved diagnostic. Course, OSM,
 reference fixed FIT и distance-to-course не участвуют ни в proof, ни в boundaries.
 
+### Signal-corroborated positioned island
+
+Длинный missing interval может сделать переход между редкими positioned observations
+правдоподобным по среднему elapsed time, хотя одна соседняя FIT record добавляет физически
+невозможный прирост cumulative distance. Такой step является `MEDIUM` evidence только при
+одновременном выполнении трёх проверок: полный допустимый speed stream, совпадение distance
+до step с интегралом speed и GNSS displacement, существенно превышающий пройденный по speed
+путь. Поэтому обычное delayed odometer update не считается corruption.
+
+Если step начинает короткий максимальный positioned island между missing records, весь
+island может быть инвалидирован при явном medium threshold. Stable recovery после missing
+не инвалидируется: исправляется только доказанный boundary distance step. Course, OSM и
+близость к маршруту отсутствуют в proof. Неизвестный путь не превращается в синтетическую
+прямую.
+
 ### Vertical warning
 
 Running profile выполняет отдельную course-independent проверку altitude rate:

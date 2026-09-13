@@ -9,6 +9,7 @@ from warpbuster.config import IntegrityConfig
 from warpbuster.geo import geodesic_distance_m
 from warpbuster.integrity.geometry import detect_geometry_warnings
 from warpbuster.integrity.islands import detect_spoofing_islands
+from warpbuster.integrity.odometer import detect_correlated_distance_spikes
 from warpbuster.integrity.one_sided import detect_one_sided_clusters
 from warpbuster.integrity.tail import detect_unreachable_tails
 from warpbuster.integrity.vertical import detect_vertical_warnings
@@ -54,6 +55,10 @@ def analyze_integrity(
         island_detection.intervals,
     )
     bounded_intervals = island_detection.intervals + one_sided_detection.intervals
+    odometer_detection = detect_correlated_distance_spikes(
+        activity, transitions, effective_config, bounded_intervals
+    )
+    bounded_intervals += odometer_detection.intervals
     tail_intervals = detect_unreachable_tails(
         activity, transitions, effective_config, bounded_intervals
     )
@@ -65,6 +70,7 @@ def analyze_integrity(
         baseline,
         effective_config,
         missing_position_record_count,
+        bool(odometer_detection.evidence),
     )
     return IntegrityReport(
         status=status,
@@ -87,6 +93,7 @@ def analyze_integrity(
         vertical_warnings=vertical_detection.warnings,
         vertical_scan_diagnostics=vertical_detection.diagnostics,
         config=effective_config,
+        distance_spike_evidence=odometer_detection.evidence,
     )
 
 
@@ -243,10 +250,13 @@ def _summarize(
     baseline: BaselineStats,
     config: IntegrityConfig,
     missing_position_record_count: int,
+    has_distance_spike_evidence: bool = False,
 ) -> tuple[IntegrityStatus, IntegrityConfidence]:
     classifications = {transition.classification for transition in transitions}
     if TransitionClassification.IMPOSSIBLE in classifications:
         return IntegrityStatus.CORRUPTED, IntegrityConfidence.HIGH
+    if has_distance_spike_evidence:
+        return IntegrityStatus.CORRUPTED, IntegrityConfidence.MEDIUM
     if TransitionClassification.SUSPICIOUS in classifications:
         return IntegrityStatus.SUSPICIOUS, IntegrityConfidence.LOW
     if TransitionClassification.UNKNOWN in classifications or missing_position_record_count > 0:

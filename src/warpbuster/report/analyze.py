@@ -9,6 +9,7 @@ from warpbuster.models.activity import ActivityData
 from warpbuster.models.integrity import (
     BridgeCandidateDiagnostic,
     CorruptedInterval,
+    DistanceSpikeEvidence,
     GeometryScanDiagnostics,
     GeometryWarning,
     IntegrityReport,
@@ -25,6 +26,7 @@ _MAX_CONSOLE_CANDIDATE_DIAGNOSTICS = 20
 _MAX_CONSOLE_GEOMETRY_WARNINGS = 20
 _MAX_CONSOLE_ONE_SIDED_DIAGNOSTICS = 20
 _MAX_CONSOLE_VERTICAL_WARNINGS = 20
+_MAX_CONSOLE_DISTANCE_SPIKES = 20
 _CLASSIFICATIONS = tuple(TransitionClassification)
 
 
@@ -38,6 +40,7 @@ def analyze_report(activity: ActivityData, integrity: IntegrityReport) -> dict[s
             "local_transitions",
             "spoofing_islands",
             "one_sided_gnss_clusters",
+            "correlated_distance_spikes",
             "geometry_gap_diagnostics",
             "vertical_plausibility",
         ],
@@ -59,6 +62,7 @@ def analyze_report(activity: ActivityData, integrity: IntegrityReport) -> dict[s
             "corrupted_interval_count": len(integrity.corrupted_intervals),
             "geometry_warning_count": integrity.geometry_scan_diagnostics.warning_count,
             "vertical_warning_count": integrity.vertical_scan_diagnostics.warning_count,
+            "distance_spike_count": len(integrity.distance_spike_evidence),
             "classifications": {
                 classification.value: integrity.count(classification)
                 for classification in _CLASSIFICATIONS
@@ -91,6 +95,7 @@ def analyze_report(activity: ActivityData, integrity: IntegrityReport) -> dict[s
         "vertical_warnings": [
             _vertical_warning_report(warning) for warning in integrity.vertical_warnings
         ],
+        "distance_spike_evidence": [asdict(item) for item in integrity.distance_spike_evidence],
         "findings": [
             _transition_report(transition)
             for transition in integrity.transitions
@@ -156,6 +161,7 @@ def analyze_console(
             f"{_number(baseline.relative_suspicious_threshold_mps)} m/s"
         ),
         f"Corrupted intervals: {len(integrity.corrupted_intervals)}",
+        f"Correlated distance spikes: {len(integrity.distance_spike_evidence)}",
         (
             "One-sided GNSS clusters: "
             f"reconstructable="
@@ -166,6 +172,15 @@ def analyze_console(
         f"Vertical warnings: {integrity.vertical_scan_diagnostics.warning_count}",
     ]
     lines.extend(_interval_console(interval) for interval in integrity.corrupted_intervals)
+    lines.extend(
+        _distance_spike_console(proof)
+        for proof in integrity.distance_spike_evidence[:_MAX_CONSOLE_DISTANCE_SPIKES]
+    )
+    if len(integrity.distance_spike_evidence) > _MAX_CONSOLE_DISTANCE_SPIKES:
+        lines.append(
+            f"  ... {len(integrity.distance_spike_evidence) - _MAX_CONSOLE_DISTANCE_SPIKES} "
+            "distance spikes omitted; use --json"
+        )
     lines.extend(
         _one_sided_cluster_console(cluster)
         for cluster in integrity.one_sided_search_diagnostics.retained_clusters[
@@ -195,12 +210,16 @@ def analyze_console(
     if verbosity >= 1:
         lines.append(
             "Pipeline: local_transitions -> spoofing_islands -> "
-            "one_sided_gnss_clusters -> geometry_gap_diagnostics -> vertical_plausibility"
+            "one_sided_gnss_clusters -> correlated_distance_spikes -> "
+            "geometry_gap_diagnostics -> vertical_plausibility"
         )
     if verbosity >= 2:
         lines.extend(_diagnostics_console(integrity))
-    if not findings:
+    if not findings and not integrity.distance_spike_evidence:
         lines.append("Findings: none")
+        return "\n".join(lines)
+
+    if not findings:
         return "\n".join(lines)
 
     lines.append(f"Findings (showing up to {_MAX_CONSOLE_FINDINGS}):")
@@ -276,6 +295,11 @@ def _interval_report(interval: CorruptedInterval) -> dict[str, object]:
             else None
         ),
         "reachability": asdict(interval.reachability) if interval.reachability else None,
+        "distance_spike_proof": (
+            asdict(interval.distance_spike_proof)
+            if interval.distance_spike_proof is not None
+            else None
+        ),
         "bridge": {
             "from_record_index": interval.bridge.from_record_index,
             "to_record_index": interval.bridge.to_record_index,
@@ -438,6 +462,8 @@ def _interval_console(interval: CorruptedInterval) -> str:
         else f"unreachable positions={interval.reachability.positioned_record_count}, "
         f"min excess={interval.reachability.minimum_excess_distance_m:.2f} m"
         if interval.reachability is not None
+        else f"distance spike={interval.distance_spike_proof.original_increment_m:.2f} m"
+        if interval.distance_spike_proof is not None
         else "proof=n/a"
     )
     return (
@@ -446,6 +472,16 @@ def _interval_console(interval: CorruptedInterval) -> str:
         f"kind={interval.detection_kind.value}, "
         f"anchors={interval.trusted_before_record_index}->{interval.trusted_after_record_index}, "
         f"{proof_text}, reasons={reasons}"
+    )
+
+
+def _distance_spike_console(proof: DistanceSpikeEvidence) -> str:
+    return (
+        f"  - distance records {proof.previous_record_index}->{proof.record_index}: "
+        f"{proof.confidence.value.upper()}, original={proof.original_increment_m:.2f} m, "
+        f"replacement={proof.replacement_increment_m:.2f} m, "
+        f"position={proof.position_displacement_m:.2f} m, "
+        f"integrated_speed={proof.integrated_speed_to_record_m:.2f} m"
     )
 
 
@@ -525,6 +561,17 @@ def _diagnostics_console(integrity: IntegrityReport) -> list[str]:
             f"reconstructable={one_sided.reconstructable_cluster_count}, "
             f"unresolved={one_sided.unresolved_cluster_count}, "
             f"records_scanned={one_sided.records_scanned}"
+        ),
+        (
+            "  Distance-spike bounds: "
+            f"increment>={config.distance_spike_min_increment_m:.2f} m, "
+            f"speed>{_number(config.absolute_impossible_speed_mps)} m/s, "
+            f"signal_abs<={config.distance_spike_signal_absolute_tolerance_m:.2f} m, "
+            f"signal_rel<={config.distance_spike_signal_relative_tolerance:.2f}, "
+            f"position_excess>={config.distance_spike_position_excess_m:.2f} m, "
+            f"position_ratio>={config.distance_spike_position_ratio:.2f}, "
+            f"gap_records<={config.distance_spike_max_gap_records}, "
+            f"island_records<={config.distance_spike_max_position_island_records}"
         ),
         (
             "  Geometry thresholds: "

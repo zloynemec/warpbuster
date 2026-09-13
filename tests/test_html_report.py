@@ -4,6 +4,7 @@ import json
 from dataclasses import replace
 from pathlib import Path
 from time import perf_counter
+from types import MappingProxyType
 from typing import Any
 
 import pytest
@@ -13,6 +14,7 @@ from tests.gpx_factory import write_gpx_activity
 from warpbuster.config import IntegrityConfig
 from warpbuster.gpx.course import read_gpx_course
 from warpbuster.integrity import analyze_integrity
+from warpbuster.models.activity import SourceMessage
 from warpbuster.report.html import (
     HtmlReportError,
     _repaired_performance,
@@ -379,10 +381,18 @@ def test_repaired_performance_reports_pace_and_kilometre_ascent_descent() -> Non
     )
     distances = (0.0, 500.0, 1_000.0, 1_500.0, 2_000.0, 2_500.0)
     altitudes = (100.0, 400.0, 100.0, 200.0, 100.0, 80.0)
+    heart_rates = (100, 110, 120, 130, 140, 150)
+    cadences = (70, 72, 74, 76, 78, 80)
     activity = replace(
         activity,
         records=tuple(
-            replace(record, distance=distances[index], altitude=altitudes[index])
+            replace(
+                record,
+                distance=distances[index],
+                altitude=altitudes[index],
+                heart_rate=heart_rates[index],
+                cadence=cadences[index],
+            )
             for index, record in enumerate(activity.records)
         ),
         duration_seconds=900.0,
@@ -404,7 +414,113 @@ def test_repaired_performance_reports_pace_and_kilometre_ascent_descent() -> Non
     assert [split["pace_seconds_per_km"] for split in splits] == [300.0, 300.0, 600.0]
     assert [split["ascent_m"] for split in splits] == [300.0, 100.0, 0.0]
     assert [split["descent_m"] for split in splits] == [300.0, 100.0, 20.0]
+    assert [split["average_heart_rate_bpm"] for split in splits] == [110.0, 130.0, 145.0]
+    assert [split["average_cadence"] for split in splits] == [142.0, 150.0, 158.0]
+    assert [split["coordinate_distance_m"] for split in splits] == [1_000.0, 1_000.0, 500.0]
+    assert [split["coordinate_coverage_ratio"] for split in splits] == [1.0, 1.0, 1.0]
     assert [split["complete_kilometre"] for split in splits] == [True, True, False]
+
+
+def test_kilometre_coordinate_distance_excludes_unknown_edges() -> None:
+    activity = make_activity(
+        [
+            (0.0, 55.0, 37.0),
+            (100.0, 55.0, 37.001),
+            (200.0, None, None),
+            (300.0, 55.0, 37.003),
+            (400.0, 55.0, 37.004),
+            (500.0, 55.0, 37.005),
+        ]
+    )
+    activity = replace(
+        activity,
+        records=tuple(
+            replace(
+                record,
+                distance=index * 400.0,
+                continuity_id=1 if index >= 4 else 0,
+            )
+            for index, record in enumerate(activity.records)
+        ),
+        duration_seconds=500.0,
+        recorded_distance_m=2_000.0,
+    )
+
+    performance = _repaired_performance(activity)
+    splits = performance["splits"]
+
+    assert isinstance(splits, list)
+    assert [split["coordinate_distance_m"] for split in splits] == [400.0, 400.0]
+    assert [split["coordinate_coverage_ratio"] for split in splits] == [0.4, 0.4]
+
+
+def test_kilometre_sensor_averages_exclude_missing_endpoint_intervals() -> None:
+    activity = make_activity(
+        [
+            (0.0, 55.0, 37.0),
+            (100.0, 55.0, 37.005),
+            (200.0, 55.0, 37.01),
+        ]
+    )
+    activity = replace(
+        activity,
+        records=(
+            replace(activity.records[0], distance=0.0, heart_rate=100, cadence=70),
+            replace(activity.records[1], distance=500.0, heart_rate=None, cadence=80),
+            replace(activity.records[2], distance=1_000.0, heart_rate=140, cadence=None),
+        ),
+        duration_seconds=200.0,
+        recorded_distance_m=1_000.0,
+    )
+
+    performance = _repaired_performance(activity)
+    split = performance["splits"][0]
+
+    assert split["average_heart_rate_bpm"] is None
+    assert split["average_cadence"] == pytest.approx(150.0)
+
+
+def test_running_cadence_uses_fractional_fit_cadence_and_steps_per_minute() -> None:
+    activity = make_activity([(0.0, 55.0, 37.0), (100.0, 55.0, 37.01)])
+    records = (
+        replace(activity.records[0], distance=0.0, cadence=59),
+        replace(activity.records[1], distance=1_000.0, cadence=59),
+    )
+    messages = tuple(
+        SourceMessage(
+            index=index,
+            frame_index=index,
+            byte_offset=0,
+            global_message_number=20,
+            message_type="record",
+            occurrence_index=index,
+            fields=MappingProxyType(
+                {
+                    "cadence": 59,
+                    "fractional_cadence": fractional,
+                }
+            ),
+            raw_chunk=b"",
+        )
+        for index, fractional in enumerate((0.25, 0.75))
+    )
+    activity = replace(
+        activity,
+        records=records,
+        duration_seconds=100.0,
+        recorded_distance_m=1_000.0,
+        preservation=replace(activity.preservation, messages=messages),
+    )
+
+    performance = _repaired_performance(activity)
+
+    assert performance["cadence_label"] == "Cadence (steps/min)"
+    assert performance["splits"][0]["average_cadence"] == pytest.approx(119.0)
+
+    cycling_performance = _repaired_performance(replace(activity, sport="cycling"))
+
+    assert cycling_performance["cadence_label"] == "Cadence (FIT /min)"
+    assert cycling_performance["splits"][0]["average_cadence"] == pytest.approx(59.5)
 
 
 def test_missing_run_report_never_bridges_a_continuity_boundary(tmp_path: Path) -> None:

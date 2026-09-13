@@ -457,6 +457,8 @@ def test_repair_write_html_contains_actual_track_and_diff(
     assert performance["splits"][0]["descent_m"] == 16.0
     assert 'id="split-pace-chart"' in rendered
     assert 'id="split-elevation-chart"' in rendered
+    assert 'id="kilometre-splits"' in rendered
+    assert '"Time", "Ascent / descent", "Heart rate", repairedPerformance.cadence_label' in rendered
     assert '["Time", clockDuration(repairedPerformance.timer_duration_seconds)]' in rendered
     assert '["Total ascent", metres(repairedPerformance.total_ascent_m)]' in rendered
     assert '["Total descent", metres(repairedPerformance.total_descent_m)]' in rendered

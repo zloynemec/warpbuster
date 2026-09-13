@@ -64,6 +64,7 @@ def test_analyze_json_contains_machine_readable_reasons(
         "local_transitions",
         "spoofing_islands",
         "one_sided_gnss_clusters",
+        "correlated_distance_spikes",
         "geometry_gap_diagnostics",
         "vertical_plausibility",
     ]
@@ -110,8 +111,8 @@ def test_analyze_double_verbose_shows_detector_diagnostics(
     captured = capsys.readouterr()  # type: ignore[attr-defined]
     assert (
         "Pipeline: local_transitions -> spoofing_islands -> "
-        "one_sided_gnss_clusters -> geometry_gap_diagnostics -> vertical_plausibility"
-        in captured.out
+        "one_sided_gnss_clusters -> correlated_distance_spikes -> "
+        "geometry_gap_diagnostics -> vertical_plausibility" in captured.out
     )
     assert "Detector diagnostics:" in captured.out
     assert "Local thresholds:" in captured.out

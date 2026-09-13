@@ -307,6 +307,14 @@ distance сохраняется; неизвестное происхождени
 Перед публикацией writer повторно читает временный FIT и проверяет фактические координаты,
 стыки, timestamps и все запланированные изменения метрик.
 
+Для неизвестной геометрии отдельный bounded proof может исправить невозможный односекундный
+скачок cumulative distance без GPX: полный правдоподобный speed stream должен согласоваться
+с distance до скачка, а recorded position displacement — существенно противоречить обоим.
+Это `MEDIUM` evidence и требует `--min-confidence medium`; короткие координатные островки
+удаляются отдельно через `--min-invalidation-confidence medium`. Стабильная точка возврата
+сохраняется. Никакие промежуточные координаты не записываются, а HTML показывает оставшийся
+gap пунктиром. Отложенное обновление odometer и неполные/противоречивые signals не исправляются.
+
 Default output — `<stem>.fixed.fit`; путь можно задать через `--output`.
 `--overwrite` заменяет только выходные FIT/HTML, а не исходный FIT или GPX.
 `warpbuster validate` проверяет FIT/CRC; `warpbuster diff` показывает разрешённые и
@@ -404,9 +412,15 @@ status, confidence, reasons, repair eligibility или JSON detector report. О�
 course само по себе не получает номер и не считается corruption.
 
 Analysis report также рассчитывает по исходному FIT беговую сводку: средний темп,
-timer time, total ascent/descent, покилометровый темп и покилометровые набор/спуск.
-Расчёт использует только фактические FIT timestamps, recorded distance и altitude; GPX
-course и отсутствующая candidate geometry в эти показатели не подмешиваются.
+timer time, total ascent/descent и таблицу recorded-distance splits. Для каждого полного
+километра и финального остатка показаны время, набор/спуск, time-weighted ЧСС,
+средний cadence по записанным samples и процент дистанции с координатами. Running cadence
+переводится из FIT strides в шаги как `2 × (cadence + fractional_cadence)`. Координатное
+покрытие суммирует только distance edges, у которых обе output-точки имеют координаты
+и один continuity id: presentation
+bridge через missing records не считается восстановленным путём. Расчёт использует только
+фактические FIT timestamps, recorded distance, altitude и telemetry; GPX course и
+отсутствующая candidate geometry в эти показатели не подмешиваются.
 
 После фактической записи отдельный блок показывает средний темп исправленного FIT,
 время, total ascent/descent и покилометровую pace histogram. Высотная гистограмма содержит

@@ -44,6 +44,14 @@ def test_integrity_thresholds_are_named_and_serializable() -> None:
         "geometry_scan_stride_records": 16,
         "geometry_max_bearing_change_degrees": 2.0,
         "geometry_max_warnings": 100,
+        "distance_spike_min_increment_m": 50.0,
+        "distance_spike_signal_absolute_tolerance_m": 30.0,
+        "distance_spike_signal_relative_tolerance": 0.20,
+        "distance_spike_position_excess_m": 100.0,
+        "distance_spike_position_ratio": 3.0,
+        "distance_spike_max_gap_records": 2_048,
+        "distance_spike_max_position_island_records": 15,
+        "distance_spike_max_evidence": 100,
     }
 
 
@@ -88,6 +96,12 @@ def test_running_profile_has_an_explicit_physical_ceiling() -> None:
         ("geometry_max_path_to_chord_ratio", 0.99),
         ("geometry_scan_stride_records", 0),
         ("geometry_max_bearing_change_degrees", 0.0),
+        ("distance_spike_min_increment_m", 0.0),
+        ("distance_spike_signal_absolute_tolerance_m", 0.0),
+        ("distance_spike_position_excess_m", 0.0),
+        ("distance_spike_position_ratio", 0.0),
+        ("distance_spike_max_gap_records", 0),
+        ("distance_spike_max_position_island_records", 0),
     ],
 )
 def test_integrity_thresholds_reject_non_positive_values(name: str, value: float) -> None:
@@ -110,6 +124,15 @@ def test_diagnostic_detail_limit_can_be_zero_but_not_negative() -> None:
     assert IntegrityConfig(one_sided_max_diagnostics=0).one_sided_max_diagnostics == 0
     with pytest.raises(ValueError, match="one_sided_max_diagnostics"):
         IntegrityConfig(one_sided_max_diagnostics=-1)
+    assert IntegrityConfig(distance_spike_max_evidence=0).distance_spike_max_evidence == 0
+    with pytest.raises(ValueError, match="distance_spike_max_evidence"):
+        IntegrityConfig(distance_spike_max_evidence=-1)
+
+
+def test_distance_spike_relative_tolerance_is_a_ratio() -> None:
+    assert IntegrityConfig(distance_spike_signal_relative_tolerance=0.0)
+    with pytest.raises(ValueError, match="distance_spike_signal_relative_tolerance"):
+        IntegrityConfig(distance_spike_signal_relative_tolerance=1.01)
 
 
 def test_one_sided_clean_gap_and_anchor_window_are_validated() -> None:

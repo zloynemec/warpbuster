@@ -433,3 +433,26 @@ course-less reconstruction, OSM/DEM и изменение existing plausible mov
 отдельных tasks и proof rules.
 
 Статус: Accepted.
+
+## ADR-026 — Correlated distance/speed evidence may correct only the proven step
+
+Средняя скорость перехода между редкими GNSS observations может оставаться физически
+допустимой из-за длинного missing interval. При этом adjacent FIT records способны
+содержать impossible cumulative-distance step. Один такой step или один embedded speed
+не считаются достаточным независимым доказательством.
+
+Task 011D принимает только совместный bounded proof: increment превышает running ceiling;
+полный finite speed stream физически допустим; distance до последнего increment совпадает
+с его интегралом; recorded position displacement существенно и кратно превышает путь по
+speed. Проверка `distance before step` отличает corruption от нормального delayed catch-up.
+Все thresholds и bounds входят в `IntegrityConfig`; generic profile без физического
+ceiling ничего не исправляет.
+
+Proof ограничен `MEDIUM`. Course/OSM не передаются detector-у, происхождение distance/speed
+не приписывается vendor-у или POD. Short positioned island между missing records можно
+инвалидировать отдельным medium threshold; recovery point сохраняется. Writer повторно
+вычисляет proof и заменяет только конкретный increment интегралом speed, после чего
+применяет cumulative correction к следующим record distances и зависимым summaries.
+Неизвестная геометрия остаётся missing; HTML dashed bridge является только отображением.
+
+Статус: Accepted.

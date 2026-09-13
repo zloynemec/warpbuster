@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from math import isfinite
 
+from warpbuster.integrity.odometer import validate_distance_spike_evidence
 from warpbuster.integrity.tail import position_available, reachability_excess
 from warpbuster.models.activity import ActivityData, ActivityRecord, FitPreservationData
 from warpbuster.models.integrity import (
@@ -141,6 +142,29 @@ def _has_scope_proof(
     normal_pairs: set[tuple[int, int]],
 ) -> bool:
     """Diagnostic/composite envelopes alone are not coordinate invalidation proof."""
+    if interval.detection_kind is IntervalDetectionKind.SIGNAL_CORROBORATED_ISLAND:
+        proof = interval.distance_spike_proof
+        start = interval.start_record_index
+        end = interval.end_record_index
+        return (
+            proof is not None
+            and interval.confidence is IntegrityConfidence.MEDIUM
+            and start == proof.record_index
+            and proof.previous_record_index == start - 1
+            and interval.trusted_before_record_index == proof.anchor_record_index
+            and interval.entry_transition.from_record_index == proof.anchor_record_index
+            and interval.entry_transition.to_record_index == start
+            and 0 < start <= end < len(activity.records) - 1
+            and end - start + 1 <= integrity.config.distance_spike_max_position_island_records
+            and not has_position(activity.records[start - 1])
+            and not has_position(activity.records[end + 1])
+            and all(has_position(record) for record in activity.records[start : end + 1])
+            and all(
+                record.continuity_id == activity.records[start].continuity_id
+                for record in activity.records[start : end + 2]
+            )
+            and validate_distance_spike_evidence(activity, proof)
+        )
     if (
         interval.confidence is IntegrityConfidence.LOW
         or interval.entry_transition.classification is not TransitionClassification.IMPOSSIBLE

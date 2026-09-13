@@ -107,7 +107,7 @@ def write_trajectory_activity(
     *,
     retain_invalid_position_fields: bool = False,
     distances_m: list[float] | None = None,
-    speeds_mps: list[float] | None = None,
+    speeds_mps: list[float | None] | None = None,
     altitudes_m: list[float] | None = None,
     timer_events: list[tuple[int, str]] | None = None,
 ) -> bytes:
@@ -139,7 +139,7 @@ def write_trajectory_activity(
         }
         if distances_m is not None:
             record["distance"] = distances_m[index]
-        if speeds_mps is not None:
+        if speeds_mps is not None and speeds_mps[index] is not None:
             record["enhanced_speed"] = speeds_mps[index]
         if altitudes_m is not None:
             record["enhanced_altitude"] = altitudes_m[index]

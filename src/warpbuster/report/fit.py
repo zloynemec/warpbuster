@@ -219,6 +219,7 @@ def _write_selection_report(selection: RepairSelection) -> dict[str, object]:
         "invalidated_record_indices": [item.record_index for item in selection.invalidations],
         "application_status": _write_application_status(selection).casefold(),
         "applied_interval_count": selection.applied_interval_count,
+        "corrected_distance_spike_count": len(selection.distance_spike_repairs),
         "skipped_interval_count": selection.skipped_interval_count,
         "intervals": [
             {

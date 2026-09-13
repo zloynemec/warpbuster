@@ -16,7 +16,7 @@ from pathlib import Path
 from warpbuster import __version__
 from warpbuster.config import CourseReconstructionConfig
 from warpbuster.geo import geodesic_distance_m
-from warpbuster.models.activity import ActivityData, ActivityRecord
+from warpbuster.models.activity import ActivityData, ActivityRecord, FitPreservationData
 from warpbuster.models.fit import FitWriteResult
 from warpbuster.models.integrity import (
     IntegrityConfidence,
@@ -71,6 +71,19 @@ class _DiagnosticRegionDraft:
     evidence: tuple[Mapping[str, object], ...]
     metrics: Mapping[str, object]
     source_key: str
+
+
+@dataclass(frozen=True, slots=True)
+class _KilometreSample:
+    """One monotonic record sample used for per-distance performance metrics."""
+
+    distance_m: float
+    elapsed_seconds: float
+    altitude_m: float | None
+    heart_rate_bpm: float | None
+    cadence: float | None
+    has_position: bool
+    continuity_id: int
 
 
 class HtmlReportError(ValueError):
@@ -592,12 +605,19 @@ def _activity_performance(activity: ActivityData) -> dict[str, object]:
         "total_descent_source": total_descent_source,
         "split_ascent_total_m": _sum_available_split_metric(splits, "ascent_m"),
         "split_descent_total_m": _sum_available_split_metric(splits, "descent_m"),
+        "cadence_label": (
+            "Cadence (steps/min)" if _is_running_activity(activity) else "Cadence (FIT /min)"
+        ),
         "split_count": len(splits),
         "splits": splits,
         "notes": [
             "Average pace uses FIT session.total_timer_time and summary distance when available.",
             "Kilometre pace uses elapsed record timestamps interpolated at recorded-distance boundaries.",
             "Each elevation pair independently sums every positive altitude delta as ascent and every negative delta magnitude as descent inside that distance split.",
+            "Heart rate is time-weighted over intervals with values at both ends; missing sensor intervals are excluded.",
+            "Cadence is the arithmetic mean of recorded samples in each distance split, matching FIT/Garmin summary semantics; zero samples are retained and missing samples are excluded.",
+            "Running cadence is shown as steps per minute: 2 x (FIT cadence + fractional_cadence). Other sports retain FIT cadence per minute.",
+            "Coordinate distance counts only non-decreasing recorded-distance edges whose two endpoints have output coordinates in the same continuity segment.",
             "FIT total ascent/descent may differ from the unsmoothed record-altitude sums used by the kilometre bars.",
             "The final partial kilometre is normalized to min/km and labelled with its actual distance range.",
         ],
@@ -673,7 +693,7 @@ def _kilometre_splits(activity: ActivityData) -> list[dict[str, object]]:
         return []
     origin_distance = first.distance
     origin_timestamp = first.timestamp
-    samples: list[tuple[float, float, float | None]] = []
+    samples: list[_KilometreSample] = []
     for record in activity.records:
         if record.distance is None or record.timestamp is None:
             return []
@@ -684,10 +704,23 @@ def _kilometre_splits(activity: ActivityData) -> list[dict[str, object]]:
         )
         if relative_distance < 0.0 or elapsed_seconds < 0.0:
             return []
-        if samples and (relative_distance < samples[-1][0] or elapsed_seconds < samples[-1][1]):
+        if samples and (
+            relative_distance < samples[-1].distance_m
+            or elapsed_seconds < samples[-1].elapsed_seconds
+        ):
             return []
-        samples.append((relative_distance, elapsed_seconds, altitude))
-    total_distance = samples[-1][0]
+        samples.append(
+            _KilometreSample(
+                distance_m=relative_distance,
+                elapsed_seconds=elapsed_seconds,
+                altitude_m=altitude,
+                heart_rate_bpm=_finite_number(record.heart_rate),
+                cadence=_display_cadence(activity, record),
+                has_position=_record_has_finite_position(record),
+                continuity_id=record.continuity_id,
+            )
+        )
+    total_distance = samples[-1].distance_m
     if total_distance <= 0.0:
         return []
     boundaries = [0.0]
@@ -713,6 +746,22 @@ def _kilometre_splits(activity: ActivityData) -> list[dict[str, object]]:
             start_altitude,
             end_altitude,
         )
+        average_heart_rate_bpm = _time_weighted_heart_rate_between(
+            samples,
+            start_time,
+            end_time,
+        )
+        average_cadence = _sample_average_cadence_between(
+            samples,
+            start_distance,
+            end_distance,
+            include_end=index == len(boundaries) - 1,
+        )
+        coordinate_distance_m = _coordinate_distance_between(
+            samples,
+            start_distance,
+            end_distance,
+        )
         splits.append(
             {
                 "index": index,
@@ -728,13 +777,19 @@ def _kilometre_splits(activity: ActivityData) -> list[dict[str, object]]:
                 ),
                 "ascent_m": ascent_m,
                 "descent_m": descent_m,
+                "average_heart_rate_bpm": average_heart_rate_bpm,
+                "average_cadence": average_cadence,
+                "coordinate_distance_m": coordinate_distance_m,
+                "coordinate_coverage_ratio": (
+                    coordinate_distance_m / split_distance if split_distance > 0.0 else None
+                ),
             }
         )
     return splits
 
 
 def _elevation_totals_between(
-    samples: list[tuple[float, float, float | None]],
+    samples: list[_KilometreSample],
     start_distance_m: float,
     end_distance_m: float,
     start_altitude_m: float | None,
@@ -743,9 +798,9 @@ def _elevation_totals_between(
     altitudes = [
         start_altitude_m,
         *(
-            altitude
-            for distance_m, _elapsed_seconds, altitude in samples
-            if start_distance_m < distance_m < end_distance_m
+            sample.altitude_m
+            for sample in samples
+            if start_distance_m < sample.distance_m < end_distance_m
         ),
         end_altitude_m,
     ]
@@ -766,6 +821,73 @@ def _elevation_totals_between(
     return (ascent_m, descent_m) if edge_count else (None, None)
 
 
+def _time_weighted_heart_rate_between(
+    samples: list[_KilometreSample],
+    start_time_seconds: float,
+    end_time_seconds: float,
+) -> float | None:
+    weighted_total = 0.0
+    covered_seconds = 0.0
+    for previous, current in pairwise(samples):
+        segment_seconds = current.elapsed_seconds - previous.elapsed_seconds
+        overlap_start = max(start_time_seconds, previous.elapsed_seconds)
+        overlap_end = min(end_time_seconds, current.elapsed_seconds)
+        if segment_seconds <= 0.0 or overlap_end <= overlap_start:
+            continue
+        previous_value = previous.heart_rate_bpm
+        current_value = current.heart_rate_bpm
+        if previous_value is None or current_value is None:
+            continue
+        start_fraction = (overlap_start - previous.elapsed_seconds) / segment_seconds
+        end_fraction = (overlap_end - previous.elapsed_seconds) / segment_seconds
+        start_value = previous_value + (current_value - previous_value) * start_fraction
+        end_value = previous_value + (current_value - previous_value) * end_fraction
+        overlap_seconds = overlap_end - overlap_start
+        weighted_total += (start_value + end_value) / 2.0 * overlap_seconds
+        covered_seconds += overlap_seconds
+    return weighted_total / covered_seconds if covered_seconds > 0.0 else None
+
+
+def _coordinate_distance_between(
+    samples: list[_KilometreSample],
+    start_distance_m: float,
+    end_distance_m: float,
+) -> float:
+    covered_distance_m = 0.0
+    for previous, current in pairwise(samples):
+        if (
+            not previous.has_position
+            or not current.has_position
+            or previous.continuity_id != current.continuity_id
+            or current.distance_m <= previous.distance_m
+        ):
+            continue
+        overlap_start = max(start_distance_m, previous.distance_m)
+        overlap_end = min(end_distance_m, current.distance_m)
+        covered_distance_m += max(0.0, overlap_end - overlap_start)
+    return covered_distance_m
+
+
+def _sample_average_cadence_between(
+    samples: list[_KilometreSample],
+    start_distance_m: float,
+    end_distance_m: float,
+    *,
+    include_end: bool,
+) -> float | None:
+    values = [
+        sample.cadence
+        for sample in samples
+        if sample.cadence is not None
+        and start_distance_m <= sample.distance_m
+        and (
+            sample.distance_m < end_distance_m
+            or (include_end and sample.distance_m == end_distance_m)
+        )
+    ]
+    return sum(values) / len(values) if values else None
+
+
 def _sum_available_split_metric(
     splits: list[dict[str, object]],
     field: str,
@@ -782,27 +904,31 @@ def _sum_available_split_metric(
 
 
 def _sample_at_distance(
-    samples: list[tuple[float, float, float | None]],
+    samples: list[_KilometreSample],
     target_distance_m: float,
 ) -> tuple[float, float | None]:
     previous = samples[0]
-    if target_distance_m <= previous[0]:
-        return previous[1], previous[2]
+    if target_distance_m <= previous.distance_m:
+        return previous.elapsed_seconds, previous.altitude_m
     for current in samples[1:]:
-        if target_distance_m > current[0]:
+        if target_distance_m > current.distance_m:
             previous = current
             continue
-        if target_distance_m <= previous[0] or current[0] == previous[0]:
-            return previous[1], previous[2]
-        fraction = (target_distance_m - previous[0]) / (current[0] - previous[0])
-        elapsed_seconds = previous[1] + fraction * (current[1] - previous[1])
+        if target_distance_m <= previous.distance_m or current.distance_m == previous.distance_m:
+            return previous.elapsed_seconds, previous.altitude_m
+        fraction = (target_distance_m - previous.distance_m) / (
+            current.distance_m - previous.distance_m
+        )
+        elapsed_seconds = previous.elapsed_seconds + fraction * (
+            current.elapsed_seconds - previous.elapsed_seconds
+        )
         altitude = (
-            previous[2] + fraction * (current[2] - previous[2])
-            if previous[2] is not None and current[2] is not None
+            previous.altitude_m + fraction * (current.altitude_m - previous.altitude_m)
+            if previous.altitude_m is not None and current.altitude_m is not None
             else None
         )
         return elapsed_seconds, altitude
-    return samples[-1][1], samples[-1][2]
+    return samples[-1].elapsed_seconds, samples[-1].altitude_m
 
 
 def _diagnostic_regions(
@@ -845,6 +971,8 @@ def _diagnostic_regions(
                 detector_stage=(
                     "physical_tail_reachability"
                     if interval.detection_kind is IntervalDetectionKind.UNREACHABLE_TAIL
+                    else "correlated_distance_spikes"
+                    if interval.detection_kind is IntervalDetectionKind.SIGNAL_CORROBORATED_ISLAND
                     else "one_sided_gnss_clusters"
                     if interval.detection_kind is IntervalDetectionKind.ONE_SIDED_CLUSTER
                     else "spoofing_islands"
@@ -1459,6 +1587,35 @@ def _record_has_position(
 ) -> bool:
     latitude, longitude = _record_coordinates(record, coordinate_overrides)
     return latitude is not None and longitude is not None
+
+
+def _record_has_finite_position(record: ActivityRecord) -> bool:
+    return (
+        record.latitude is not None
+        and record.longitude is not None
+        and isfinite(record.latitude)
+        and isfinite(record.longitude)
+    )
+
+
+def _display_cadence(activity: ActivityData, record: ActivityRecord) -> float | None:
+    cadence = _finite_number(record.cadence)
+    if cadence is None:
+        return None
+    preservation = activity.preservation
+    if isinstance(preservation, FitPreservationData):
+        source_index = record.source.message_index
+        if 0 <= source_index < len(preservation.messages):
+            fractional = _finite_number(
+                preservation.messages[source_index].fields.get("fractional_cadence")
+            )
+            if fractional is not None and 0.0 <= fractional < 1.0:
+                cadence += fractional
+    return cadence * 2.0 if _is_running_activity(activity) else cadence
+
+
+def _is_running_activity(activity: ActivityData) -> bool:
+    return isinstance(activity.sport, str) and activity.sport.casefold() == "running"
 
 
 def _record_coordinates(

@@ -10,6 +10,7 @@ from pathlib import Path
 
 from warpbuster.models.integrity import (
     CorruptedInterval,
+    DistanceSpikeEvidence,
     IntegrityConfidence,
     TransitionClassification,
 )
@@ -452,6 +453,7 @@ class RepairPlan:
     unresolved_gaps: tuple[UnresolvedGap, ...] = ()
     minimum_invalidation_confidence: IntegrityConfidence = IntegrityConfidence.HIGH
     maximum_new_transition_speed_mps: float = 10.0
+    distance_spike_repairs: tuple[DistanceSpikeEvidence, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -477,11 +479,14 @@ class RepairSelection:
     decisions: tuple[RepairIntervalDecision, ...]
     invalidations: tuple[CoordinateDisposition, ...] = ()
     minimum_invalidation_confidence: IntegrityConfidence = IntegrityConfidence.HIGH
+    distance_spike_repairs: tuple[DistanceSpikeEvidence, ...] = ()
 
     @property
     def has_changes(self) -> bool:
         """Coordinate cleaning is independent of replacement availability."""
-        return bool(self.selected_interval_plans or self.invalidations)
+        return bool(
+            self.selected_interval_plans or self.invalidations or self.distance_spike_repairs
+        )
 
     @property
     def unresolved_invalidated_indices(self) -> frozenset[int]:

@@ -20,13 +20,13 @@ from warpbuster.fit.diff import diff_fit
 from warpbuster.fit.reader import read_fit
 from warpbuster.fit.validate import validate_fit
 from warpbuster.geo import geodesic_distance_m
+from warpbuster.integrity.odometer import validate_distance_spike_evidence
 from warpbuster.models.activity import ActivityData, ActivityRecord, FitPreservationData
 from warpbuster.models.fit import FitWriteResult
-from warpbuster.models.integrity import IntegrityConfidence
+from warpbuster.models.integrity import DistanceSpikeEvidence, IntegrityConfidence
 from warpbuster.models.reconstruction import (
     CandidateCoordinate,
     CoordinateState,
-    RepairCandidate,
     RepairPlan,
     RepairSelection,
 )
@@ -105,7 +105,7 @@ def write_repaired_fit(
                 raise FitWriteError("coordinate update is outside the independent edit mask")
     _validate_composed_geometry(activity, plan, selection)
     unresolved_invalidated = selection.unresolved_invalidated_indices
-    requests = list(_patch_requests(activity, selection.selected_interval_plans))
+    requests = list(_patch_requests(activity, selection))
     for item in selection.invalidations:
         if item.record_index not in unresolved_invalidated:
             continue
@@ -291,8 +291,9 @@ def _verify_written_repair(
 
 def _patch_requests(
     activity: ActivityData,
-    interval_plans: tuple[RepairCandidate, ...],
+    selection: RepairSelection,
 ) -> tuple[_PatchRequest, ...]:
+    interval_plans = selection.selected_interval_plans
     requests: list[_PatchRequest] = []
     coordinate_updates = {
         update.record_index: update
@@ -360,11 +361,25 @@ def _patch_requests(
         if not interval.preserve_recorded_distance
         for update in interval.coordinate_updates
     }
-    corrections, desired_distances = _distance_corrections(
+    geometry_corrections, _geometry_desired = _distance_corrections(
         activity,
         coordinate_updates,
         distance_recalculation_indices,
     )
+    geometry_edges = {
+        current.index
+        for previous, current in pairwise(activity.records)
+        if previous.index in distance_recalculation_indices
+        or current.index in distance_recalculation_indices
+    }
+    spike_corrections = _distance_spike_corrections(
+        activity, selection.distance_spike_repairs, geometry_edges
+    )
+    corrections = tuple(
+        geometry + spike
+        for geometry, spike in zip(geometry_corrections, spike_corrections, strict=True)
+    )
+    desired_distances = _desired_distances(activity, corrections)
     for record_index, distance_m in desired_distances.items():
         requests.append(
             _record_request(
@@ -378,6 +393,41 @@ def _patch_requests(
     if desired_distances:
         requests.extend(_summary_requests(activity, corrections))
     return tuple(requests)
+
+
+def _distance_spike_corrections(
+    activity: ActivityData,
+    evidence: tuple[DistanceSpikeEvidence, ...],
+    geometry_edges: set[int],
+) -> tuple[float, ...]:
+    deltas: dict[int, float] = {}
+    for proof in evidence:
+        if not validate_distance_spike_evidence(activity, proof):
+            raise FitWriteError("distance-spike proof does not match the source activity")
+        if proof.record_index in geometry_edges:
+            continue
+        if proof.record_index in deltas:
+            raise FitWriteError("duplicate distance-spike correction")
+        deltas[proof.record_index] = proof.replacement_increment_m - proof.original_increment_m
+    cumulative = 0.0
+    corrections = []
+    for record in activity.records:
+        cumulative += deltas.get(record.index, 0.0)
+        corrections.append(cumulative)
+    return tuple(corrections)
+
+
+def _desired_distances(activity: ActivityData, corrections: tuple[float, ...]) -> dict[int, float]:
+    desired: dict[int, float] = {}
+    for record in activity.records:
+        if record.distance is None:
+            continue
+        corrected = record.distance + corrections[record.index]
+        if corrected < 0:
+            raise FitWriteError("distance correction would produce a negative value")
+        if abs(corrected - record.distance) >= _DISTANCE_QUANTIZATION_M / 2.0:
+            desired[record.index] = corrected
+    return desired
 
 
 def _record_request(

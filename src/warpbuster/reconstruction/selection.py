@@ -84,6 +84,12 @@ def select_repair_intervals(
     )
     decisions.sort(key=lambda decision: decision.interval.start_record_index)
     selected.sort(key=lambda candidate: candidate.interval.start_record_index)
+    geometry_distance_indices = {
+        update.record_index
+        for candidate in selected
+        if not candidate.preserve_recorded_distance
+        for update in candidate.coordinate_updates
+    }
     return RepairSelection(
         minimum_confidence=minimum_confidence,
         detected_interval_count=plan.detected_interval_count,
@@ -93,4 +99,11 @@ def select_repair_intervals(
             item for item in plan.coordinate_mask if item.state is CoordinateState.INVALIDATED
         ),
         minimum_invalidation_confidence=plan.minimum_invalidation_confidence,
+        distance_spike_repairs=tuple(
+            item
+            for item in plan.distance_spike_repairs
+            if _CONFIDENCE_RANK[item.confidence] >= _CONFIDENCE_RANK[minimum_confidence]
+            and item.record_index not in geometry_distance_indices
+            and item.previous_record_index not in geometry_distance_indices
+        ),
     )

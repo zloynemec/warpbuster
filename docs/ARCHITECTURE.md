@@ -144,6 +144,14 @@ missing-position runs, проверяет stable outer anchors, direct bridge и
 positioned-компонента. Принятый interval имеет `detection_kind=one_sided_cluster` и
 confidence `MEDIUM`; остальные candidates сохраняются как capped diagnostics.
 
+Отдельный bounded odometer pass рассматривает adjacent record distance steps, но только
+при полном physically plausible speed stream от последней positioned опоры. Он требует,
+чтобы distance до последнего step уже совпадал с интегралом speed, а GNSS displacement
+существенно превышал этот путь. Это исключает delayed odometer catch-up. Proof не получает
+выше `MEDIUM`, не использует course и может выделить только короткий максимальный positioned
+island между missing records. Writer повторно вычисляет proof перед локальной поправкой
+cumulative distance; неизвестная геометрия остаётся gap.
+
 Отдельный O(n) vertical pass проверяет adjacent timestamp/altitude samples. Running
 profile сообщает sustained и single-extreme vertical rates, но warning не классифицирует
 GNSS transition и не создаёт `CorruptedInterval`: altitude sensor может ошибаться
