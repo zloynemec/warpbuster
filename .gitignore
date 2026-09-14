@@ -21,6 +21,8 @@ dist/
 !web/dist/**
 web/.sites-runtime/
 .warpbuster-web/
+docker-compose.prod.yml
+deploy.prod.sh
 
 # Private user activities must never be committed by default.
 tests/private/
