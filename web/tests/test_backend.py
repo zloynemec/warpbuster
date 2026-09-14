@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+import sqlite3
 import subprocess
 import time
 import uuid
@@ -54,6 +55,28 @@ def submit(client, files, key=None):
         headers={**HEADERS, "X-WarpBuster-Upload-ID": key or str(uuid.uuid4())},
         files=files,
     )
+
+
+def test_health_checks_database_without_creating_a_session(app):
+    with TestClient(app, base_url=ORIGIN) as probe:
+        response = probe.get("/health")
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok"}
+        assert response.headers["cache-control"] == "no-store"
+        assert "set-cookie" not in response.headers
+        assert probe.head("/health").status_code == 200
+
+
+def test_health_reports_database_failure_without_details(app, monkeypatch):
+    def unavailable():
+        raise sqlite3.OperationalError("private database path")
+
+    monkeypatch.setattr(app.state.store, "connect", unavailable)
+    with TestClient(app, base_url=ORIGIN) as probe:
+        response = probe.get("/health")
+        assert response.status_code == 503
+        assert response.json() == {"status": "unavailable"}
+        assert "private database path" not in response.text
 
 
 def finish(app, uid):

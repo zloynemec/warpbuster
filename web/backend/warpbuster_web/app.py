@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import hmac
+import sqlite3
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -170,6 +171,21 @@ def create_app(config: WebConfig | None = None, *, start_worker: bool = True):
                 path="/",
             )
         return response
+
+    async def health(request):
+        database_ok = False
+        try:
+            with store.connect() as database:
+                database_ok = database.execute("SELECT 1").fetchone()[0] == 1
+        except OSError, sqlite3.Error:
+            pass
+        worker_ok = not start_worker or bool(worker.thread and worker.thread.is_alive())
+        available = database_ok and worker_ok
+        return JSONResponse(
+            {"status": "ok" if available else "unavailable"},
+            status_code=200 if available else 503,
+            headers={"Cache-Control": "no-store"},
+        )
 
     async def submit(request: Request):
         require_same_origin(request)
@@ -403,6 +419,7 @@ def create_app(config: WebConfig | None = None, *, start_worker: bool = True):
         lifespan=lifespan,
         routes=[
             Route("/", home),
+            Route("/health", health),
             Route("/fix", fix),
             Route("/faq", faq),
             Route("/res/{uid}", result_page),

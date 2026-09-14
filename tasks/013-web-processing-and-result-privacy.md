@@ -44,6 +44,12 @@ Acceptance criteria:
   using the same `pair_id` on every event. It includes file sizes/hashes, invocation
   parameters and duration, but no owner cookies or raw activity contents.
 - File/request sizes, queue/storage capacity and processing duration are bounded.
+  Deployment can override the three positive integer job limits through environment
+  variables; defaults are 1000 total unexpired, 100 per owner session and 50 pending.
 - Synthetic integration tests verify actual repair, cookie isolation, expired sessions,
   guest/wrong-owner denial, invalid files, restart recovery and polling behavior.
 - Existing Core tests stay green. No Core algorithms, thresholds or FIT semantics change.
+- The public repository builds a Python 3.14 container that runs as UID/GID 10001,
+  persists only `/data`, supports a read-only root filesystem and exposes a database-
+  and-worker-aware `/health` probe without creating a session or leaking details.
+  Private production Compose and environment files remain outside this repository.

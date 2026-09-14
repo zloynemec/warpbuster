@@ -13,6 +13,19 @@ REPAIR_POLICY = {
 }
 
 
+def positive_integer_environment(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        raise ValueError(f"{name} must be a positive integer") from None
+    if value <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+    return value
+
+
 @dataclass(frozen=True)
 class WebConfig:
     data_dir: Path = Path(".warpbuster-web")
@@ -25,9 +38,9 @@ class WebConfig:
     record_limit: int = 100_000  # Maximum normalized FIT records / course points.
     retention_seconds: int = 7 * 24 * 3600  # Public report and corrected FIT lifetime.
     session_seconds: int = 30 * 24 * 3600  # Original browser's ownership lifetime.
-    max_jobs: int = 100  # Stored, unexpired jobs across all owners.
-    max_owner_jobs: int = 20  # Unexpired jobs owned by one anonymous session.
-    max_pending_jobs: int = 16  # Queued + processing jobs across all owners.
+    max_jobs: int = 1_000  # Stored, unexpired jobs across all owners.
+    max_owner_jobs: int = 100  # Unexpired jobs owned by one anonymous session.
+    max_pending_jobs: int = 50  # Queued + processing jobs across all owners.
     max_sessions: int = 10_000  # Bound anonymous-session storage.
     log_max_bytes: int = 5 * 1024 * 1024  # Rotate each local event journal at 5 MiB.
     log_backups: int = 3  # Retain this many previous journal files.
@@ -83,4 +96,11 @@ class WebConfig:
             data_dir=Path(os.environ.get("WARPBUSTER_WEB_DATA", str(defaults.data_dir))),
             static_dir=Path(os.environ.get("WARPBUSTER_WEB_STATIC", str(defaults.static_dir))),
             public_origin=os.environ.get("WARPBUSTER_WEB_ORIGIN", defaults.public_origin),
+            max_jobs=positive_integer_environment("WARPBUSTER_WEB_MAX_JOBS", defaults.max_jobs),
+            max_owner_jobs=positive_integer_environment(
+                "WARPBUSTER_WEB_MAX_OWNER_JOBS", defaults.max_owner_jobs
+            ),
+            max_pending_jobs=positive_integer_environment(
+                "WARPBUSTER_WEB_MAX_PENDING_JOBS", defaults.max_pending_jobs
+            ),
         )
