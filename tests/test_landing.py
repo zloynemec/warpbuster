@@ -2,6 +2,7 @@
 
 import base64
 import hashlib
+import re
 import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
 from pathlib import Path
@@ -22,9 +23,11 @@ class Page(HTMLParser):
         self.nodes.append((tag, dict(attrs)))
 
 
-@pytest.mark.parametrize("route", ["index.html", "fix/index.html"])
+@pytest.mark.parametrize(
+    "route", ["index.html", "fix/index.html", "res/index.html", "faq/index.html"]
+)
 def test_local_links_assets_and_fragments_resolve(route: str) -> None:
-    """Both pages can be served from the same static root, including direct /fix access."""
+    """All page shells resolve their navigation and assets from the same static root."""
     page = Page(SITE / route)
     for _tag, attrs in page.nodes:
         for key in ("href", "src"):
@@ -39,9 +42,9 @@ def test_local_links_assets_and_fragments_resolve(route: str) -> None:
                 target /= "index.html"
             assert target.is_file(), f"Broken reference in {route}: {value}"
             if url.fragment:
-                assert any(
-                    node.get("id") == url.fragment for _, node in Page(target).nodes
-                ), f"Missing anchor: {value}"
+                assert any(node.get("id") == url.fragment for _, node in Page(target).nodes), (
+                    f"Missing anchor: {value}"
+                )
 
 
 def test_landing_links_to_fix_and_has_three_steps() -> None:
@@ -50,8 +53,20 @@ def test_landing_links_to_fix_and_has_three_steps() -> None:
     assert sum(tag == "li" for tag, _attrs in page.nodes) == 3
 
 
-@pytest.mark.parametrize("route", ["index.html", "fix/index.html"])
-def test_accessible_page_basics_and_honest_placeholder(route: str) -> None:
+def test_result_script_references_existing_elements_after_copy_changes() -> None:
+    """Removed status notices must not leave callbacks targeting missing DOM elements."""
+    page = Page(SITE / "res/index.html")
+    ids = {attrs.get("id") for _, attrs in page.nodes}
+    script = "\n".join(
+        (SITE / "assets" / name).read_text(encoding="utf-8")
+        for name in ("result.mjs", "result-map.mjs", "run-summary.mjs")
+    )
+    references = set(re.findall(r'byId\("([^"]+)"\)', script))
+    assert references <= ids, f"Missing result elements: {references - ids}"
+
+
+@pytest.mark.parametrize("route", ["index.html", "fix/index.html", "faq/index.html"])
+def test_accessible_page_basics(route: str) -> None:
     page = Page(SITE / route)
     assert any(tag == "html" and attrs.get("lang") == "ru" for tag, attrs in page.nodes)
     assert sum(tag == "h1" for tag, _attrs in page.nodes) == 1
@@ -59,10 +74,26 @@ def test_accessible_page_basics_and_honest_placeholder(route: str) -> None:
     for tag, attrs in page.nodes:
         if tag == "img":
             assert attrs.get("alt")
-    if route == "fix/index.html":
-        assert not any(tag in {"input", "form"} for tag, _attrs in page.nodes)
-        text = (SITE / route).read_text(encoding="utf-8")
-        assert "Веб-интерфейс в разработке" in text  # noqa: RUF001 — Russian UI copy
+
+
+def test_fix_has_two_accessible_file_pickers_and_no_enabled_analysis() -> None:
+    page = Page(SITE / "fix/index.html")
+    inputs = [attrs for tag, attrs in page.nodes if tag == "input"]
+    assert len(inputs) == 2
+    assert {attrs["accept"] for attrs in inputs} == {".fit", ".gpx"}
+    ids = {attrs.get("id") for _, attrs in page.nodes}
+    for attrs in inputs:
+        assert attrs["type"] == "file"
+        assert "multiple" not in attrs
+        assert "disabled" in attrs  # Enabled only when local event handlers are ready.
+        for reference in ("aria-labelledby", "aria-describedby"):
+            assert set((attrs.get(reference) or "").split()) <= ids
+            assert attrs.get(reference)
+    assert any(
+        tag == "button" and attrs.get("id") == "analyze-button" and "disabled" in attrs
+        for tag, attrs in page.nodes
+    )
+    assert not any(tag == "form" for tag, _attrs in page.nodes)
 
 
 def test_original_logo_preserved_byte_for_byte() -> None:
@@ -79,19 +110,22 @@ def test_brand_assets_embed_original_and_preserve_alpha(asset: str) -> None:
     image = svg.find("svg:image", namespace)
     assert image is not None
     encoded = image.attrib["href"].removeprefix("data:image/png;base64,")
-    assert base64.b64decode(encoded, validate=True) == (
-        SITE.parent / "assets" / "warpbuster-logo-original.png"
-    ).read_bytes()
+    assert (
+        base64.b64decode(encoded, validate=True)
+        == (SITE.parent / "assets" / "warpbuster-logo-original.png").read_bytes()
+    )
     matrix = svg.find(".//svg:feColorMatrix", namespace)
     assert matrix is not None
     assert matrix.attrib["values"].split()[-5:] == ["0", "0", "0", "1", "0"]
     assert svg.find(".//svg:feFuncA", namespace) is None
 
 
-@pytest.mark.parametrize("route", ["index.html", "fix/index.html"])
+@pytest.mark.parametrize("route", ["index.html", "fix/index.html", "faq/index.html"])
 def test_shared_branding_on_both_pages(route: str) -> None:
     page = Page(SITE / route)
-    logos = [attrs for tag, attrs in page.nodes if tag == "img" and attrs.get("class") == "brand-logo"]
+    logos = [
+        attrs for tag, attrs in page.nodes if tag == "img" and attrs.get("class") == "brand-logo"
+    ]
     assert len(logos) == 2  # Header and footer.
     assert all(logo.get("src") == "/assets/warpbuster-logo.svg" for logo in logos)
     assert any(
@@ -99,4 +133,11 @@ def test_shared_branding_on_both_pages(route: str) -> None:
         and attrs.get("rel") == "icon"
         and urlsplit(attrs.get("href") or "").path == "/assets/favicon.svg"
         for tag, attrs in page.nodes
+    )
+
+
+@pytest.mark.parametrize("route", ["index.html", "fix/index.html", "res/index.html"])
+def test_faq_is_reachable_from_each_user_flow(route: str) -> None:
+    assert any(
+        tag == "a" and attrs.get("href") == "/faq" for tag, attrs in Page(SITE / route).nodes
     )

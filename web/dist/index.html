@@ -4,8 +4,10 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#203e31">
-    <meta name="description" content="WarpBuster находит физически невозможные GPS-скачки и помогает восстановить повреждённые участки FIT-трека, сохраняя настоящее движение.">
+    <!-- social-meta:start -->
+    <meta name="description" content="Исправь GPS-сбои в записи пробежки, сравни треки и скачай исправленный FIT для Strava или приложения часов с поддержкой импорта FIT.">
     <title>WarpBuster — твой трейл. Без GPS-сбоев.</title>
+    <!-- social-meta:end -->
     <link rel="icon" href="/assets/favicon.svg?v=2" type="image/svg+xml">
     <link rel="stylesheet" href="/assets/styles.css">
   </head>
@@ -18,6 +20,7 @@
       </a>
       <nav aria-label="Основная навигация">
         <a class="nav-guide" href="#how-it-works">Как это работает</a>
+        <a href="/faq">FAQ</a>
         <a class="nav-cta" href="/fix">К исправлению <span aria-hidden="true">↗</span></a>
       </nav>
     </header>
@@ -27,7 +30,7 @@
         <div class="hero-copy">
           <p class="eyebrow"><span class="trail-mark" aria-hidden="true"></span> Для тех, кто бежит дальше</p>
           <h1 id="hero-title">Твой трейл.<br>Без <span class="accent-word">GPS-сбоев.<svg viewBox="0 0 480 18" preserveAspectRatio="none" aria-hidden="true"><path d="M3 12Q225-3 476 9"/></svg></span></h1>
-          <p class="hero-description">Ты преодолел каждый метр. WarpBuster помогает убрать невозможные GPS-скачки из записи пробежки, сохраняя твой настоящий путь.</p>
+          <p class="hero-description">Ты преодолел каждый метр. WarpBuster помогает убрать невозможные GPS-скачки из записи пробежки, сохраняя твой настоящий путь. Скачай исправленный FIT и загрузи его в Strava или родное приложение часов с поддержкой импорта FIT.</p>
           <a class="button" href="/fix">Исправить трек <span aria-hidden="true">↗</span></a>
           <p class="hero-note">FIT-файлы <span aria-hidden="true">/</span> Бережно к твоим данным</p>
         </div>
@@ -47,11 +50,11 @@
       <section class="how page-width" id="how-it-works" aria-labelledby="how-title">
         <div class="section-heading"><div><p class="eyebrow">От файла к настоящему треку</p><h2 id="how-title">Три шага. И снова на тропу.</h2></div><span class="section-index" aria-hidden="true">/ 01—03</span></div>
         <ol class="steps">
-          <li><span class="step-number">01</span><h3>Подготовь запись</h3><p>Экспортируй оригинальный FIT-файл с часов. Если есть GPX маршрута, сохрани и его — он может помочь восстановлению.</p></li>
+          <li><span class="step-number">01</span><h3>Подготовь запись</h3><p>Экспортируй оригинальный FIT-файл с часов и подготовь GPX маршрута. Загрузи оба файла на странице исправления.</p></li>
           <li><span class="step-number">02</span><h3>Проверь сбои</h3><p>WarpBuster находит физически невозможные перемещения. Правдоподобные участки твоего трека остаются как есть.</p></li>
-          <li><span class="step-number">03</span><h3>Сравни результат</h3><p>Проверь предложенные изменения и отчёт перед сохранением FIT. Временные метки остаются исходными.</p></li>
+          <li><span class="step-number">03</span><h3>Сравни и загрузи дальше</h3><p>Сравни исходный и исправленный трек на карте. Скачай исправленный FIT и импортируй пробежку в Strava или родное приложение часов, если оно поддерживает импорт FIT.</p></li>
         </ol>
-        <p class="availability">Веб-интерфейс готовится. Сейчас анализ и восстановление доступны через CLI.</p>
+        <p class="availability">Результат остаётся в формате FIT с исходными временными метками. Загрузка в другие приложения — вручную, через импорт файла.</p>
       </section>
     </main>
 

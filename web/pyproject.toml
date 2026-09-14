@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "warpbuster-web"
+version = "0.1.0"
+description = "Separate local web service for WarpBuster"
+requires-python = ">=3.14"
+dependencies = ["warpbuster==0.1.0", "starlette>=0.52.1,<0.53", "uvicorn>=0.34,<1", "python-multipart>=0.0.20,<1"]
+
+[project.optional-dependencies]
+dev = ["httpx>=0.28,<1", "pytest>=8.3,<9"]
+
+[tool.setuptools.packages.find]
+where = ["backend"]
+
+[tool.ruff]
+extend = "../pyproject.toml"
+
+[tool.ruff.lint]
+ignore = ["RUF001"] # Public Russian UI messages.

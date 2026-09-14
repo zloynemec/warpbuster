@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#203e31">
+    <!-- social-meta:start -->
+    <title>FAQ — как работает WarpBuster</title>
+    <meta name="description" content="Как WarpBuster восстанавливает GPS-трек, сохраняет исходные данные и защищает файлы. Этапы обработки и доступ по публичной ссылке.">
+    <!-- social-meta:end -->
+    <link rel="icon" href="/assets/favicon.svg?v=2" type="image/svg+xml">
+    <link rel="stylesheet" href="/assets/styles.css">
+    <link rel="stylesheet" href="/assets/faq.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">К содержимому</a>
+    <header class="header page-width">
+      <a class="brand" href="/" aria-label="WarpBuster — главная"><img class="brand-logo" src="/assets/warpbuster-logo.svg" width="48" height="32" alt="Логотип WarpBuster">WarpBuster</a>
+      <nav aria-label="Основная навигация"><a class="nav-guide" href="/">На главную</a><a class="nav-cta" href="/fix">К исправлению <span aria-hidden="true">↗</span></a></nav>
+    </header>
+    <main id="main" class="faq-main page-width">
+      <div class="faq-intro">
+        <p class="eyebrow"><span class="trail-mark" aria-hidden="true"></span> Вопросы перед стартом</p>
+        <h1>Как мы сохраняем<br><span>твой путь.</span></h1>
+        <p>Коротко о восстановлении трека, файлах и том, что увидят другие.</p>
+      </div>
+      <nav class="faq-topics" aria-label="Разделы FAQ"><a href="#algorithm">Принцип работы</a><a href="#privacy">После загрузки</a><a href="#sharing">Публичная ссылка</a><a href="#stages">Этапы восстановления</a></nav>
+
+      <section id="algorithm" class="faq-section" aria-labelledby="algorithm-title">
+        <div class="faq-section-label"><span aria-hidden="true">01 / ПРИНЦИП</span><h2 id="algorithm-title">Что меняется в треке?</h2></div>
+        <div class="faq-answer">
+          <p><strong>Стараемся сохранить исходную запись и исправлять только доказанные GPS-сбои.</strong> Сначала проверяем движение по данным FIT: ищем физически невозможные скачки и повреждённые координаты. Петли, развороты и уход с маршрута сами по себе не считаются ошибками.</p>
+          <p>GPX подключается только после поиска сбоев: он помогает восстановить повреждённые участки и пропуски координат. Мы не подгоняем весь забег под план маршрута.</p>
+          <p>Временные метки и показания датчиков сохраняются. Меняем координаты и необходимые связанные значения дистанции и скорости. Восстановленный путь — оценка по доступным данным; если уверенности недостаточно, участок может остаться с пропуском.</p>
+        </div>
+      </section>
+
+      <section id="privacy" class="faq-section" aria-labelledby="privacy-title">
+        <div class="faq-section-label"><span aria-hidden="true">02 / ФАЙЛЫ</span><h2 id="privacy-title">Что будет после загрузки?</h2></div>
+        <div class="faq-answer">
+          <p>FIT и GPX отправляются на сервер, сохраняются парой и обрабатываются. Исходники не перезаписываются. Откроется страница результата: сначала статус обработки, затем карта и отчёт.</p>
+          <p><strong>Файлы и результат хранятся 7 дней с момента загрузки</strong>, затем удаляются. Полностью загруженная пара хранится и после ошибки обработки; неполная загрузка удаляется. В служебном журнале остаются события загрузки и обработки с идентификатором пары; старые журналы удаляются по мере заполнения.</p>
+          <p>Скачать исправленный FIT можно только в браузере, из которого отправлены файлы. Он запоминается с помощью cookie сроком на 30 дней — это не продлевает хранение файлов. После удаления cookie или в другом браузере восстановить доступ к скачиванию нельзя.</p>
+        </div>
+      </section>
+
+      <section id="sharing" class="faq-section" aria-labelledby="sharing-title">
+        <div class="faq-section-label"><span aria-hidden="true">03 / ДОСТУП</span><h2 id="sharing-title">Что видно по ссылке?</h2></div>
+        <div class="faq-answer">
+          <p><strong>Любой, у кого есть ссылка, может открыть результат без входа.</strong> На странице доступны:</p>
+          <ul>
+            <li>Исходный и исправленный треки, а также GPX-маршрут на карте — включая места старта и финиша.</li>
+            <li>Дистанция, время, темп, высота и разбивка по километрам; средние пульс и каденс, если они есть в записи.</li>
+            <li>Сводка обработки и список изменений полей FIT.</li>
+          </ul>
+          <p>Исходные FIT и GPX по ссылке скачать нельзя. Исправленный FIT доступен для скачивания только загрузившему, в исходном браузере. Имена файлов, сведения об устройстве и точные дата и время активности в отчёт не включаются.</p>
+          <p class="faq-note">Ссылку можно переслать дальше. Мессенджер может сохранить превью с показателями забега даже после удаления результата. Фон карты загружается с OpenStreetMap.</p>
+        </div>
+      </section>
+
+      <section id="stages" class="faq-section faq-stages" aria-labelledby="stages-title">
+        <div class="faq-section-label"><span aria-hidden="true">04 / ОБРАБОТКА</span><h2 id="stages-title">Как проходит восстановление?</h2></div>
+        <div class="faq-answer">
+          <ol class="recovery-stages">
+            <li><h3>Чтение файлов</h3><p>Проверяем FIT и GPX, читаем точки, время и данные датчиков. Работаем с исходным FIT без преобразования в GPX и обратно.</p></li>
+            <li><h3>Поиск сбоев</h3><p>Проверяем физическую правдоподобность перемещений по FIT. План маршрута в этой проверке не участвует.</p></li>
+            <li><h3>Выделение пропусков</h3><p>Отмечаем повреждённые и отсутствующие координаты, находим соседние пригодные точки. Правдоподобные координаты сохраняем.</p></li>
+            <li><h3>Подбор участка GPX</h3><p>Ищем подходящий фрагмент маршрута с учётом соседних точек и направления движения. Проверяем неоднозначности на петлях и пересечениях.</p></li>
+            <li><h3>Восстановление координат</h3><p>Распределяем точки по выбранному пути на исходных временных метках, учитывая паузы и пригодные данные дистанции или скорости.</p></li>
+            <li><h3>Отбор изменений</h3><p>Применяем варианты с уверенностью не ниже средней. Если восстановление не прошло проверки, повреждённые координаты могут быть убраны, а пропуск останется.</p></li>
+            <li><h3>Запись исправленного FIT</h3><p>Создаём отдельный файл, обновляя координаты и необходимые итоги дистанции и скорости. Стараемся сохранить все остальные поля, включая нестандартные.</p></li>
+            <li><h3>Проверка и отчёт</h3><p>Повторно читаем FIT, проверяем формат, сохранность времени и датчиков, сравниваем поля. Если проверки не пройдены, файл не выдаётся. При отсутствии изменений новый FIT не создаётся.</p></li>
+          </ol>
+        </div>
+      </section>
+      <div class="faq-start"><p>Загрузи FIT-запись с часов и GPX маршрута.</p><a class="button" href="/fix">Исправить трек <span aria-hidden="true">↗</span></a></div>
+    </main>
+    <footer class="footer page-width"><a class="footer-brand" href="/"><img class="brand-logo" src="/assets/warpbuster-logo.svg" width="36" height="24" alt="Логотип WarpBuster">WarpBuster</a><span>Сохраняем путь. Убираем помехи.</span><a href="/">На главную ↗</a></footer>
+  </body>
+</html>

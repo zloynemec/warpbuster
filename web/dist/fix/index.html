@@ -4,10 +4,12 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#203e31">
-    <meta name="description" content="Будущий интерфейс анализа и восстановления FIT-треков WarpBuster.">
+    <meta name="description" content="Подготовьте оригинальный FIT-файл с часов и GPX маршрута для восстановления GPS-трека в WarpBuster.">
     <title>Исправить трек — WarpBuster</title>
     <link rel="icon" href="/assets/favicon.svg?v=2" type="image/svg+xml">
     <link rel="stylesheet" href="/assets/styles.css">
+    <link rel="stylesheet" href="/assets/fix.css">
+    <script type="module" src="/assets/fix-upload.mjs"></script>
   </head>
   <body class="fix-page">
     <a class="skip-link" href="#main">К содержимому</a>
@@ -15,14 +17,61 @@
       <a class="brand" href="/" aria-label="WarpBuster — главная"><img class="brand-logo" src="/assets/warpbuster-logo.svg" width="48" height="32" alt="Логотип WarpBuster">WarpBuster</a>
       <nav aria-label="Основная навигация"><a href="/">← На главную</a></nav>
     </header>
-    <main id="main" class="fix-main page-width">
-      <p class="eyebrow">Следующая точка маршрута</p>
-      <h1>Место для<br>твоего <span>трека.</span></h1>
-      <p class="fix-description">Здесь появится интерфейс проверки и восстановления FIT-файлов. Мы ещё готовим его к старту.</p>
-      <div class="fix-status"><span class="trail-mark" aria-hidden="true"></span> Веб-интерфейс в разработке</div>
-      <p class="fix-cli">Уже хочешь проверить запись? Анализ и восстановление доступны через CLI — инструкция есть в репозитории проекта.</p>
-      <a class="button" href="https://github.com/zloynemec/warpbuster#readme">Открыть инструкцию CLI <span aria-hidden="true">↗</span></a>
+    <main id="main" class="fix-workspace page-width">
+      <div class="fix-heading">
+        <p class="eyebrow"><span class="trail-mark" aria-hidden="true"></span> Восстановление трека</p>
+        <h1>Каждый метр — <span>твой.</span></h1>
+        <p class="fix-intro">Начнём с двух файлов: записи твоей пробежки и маршрута, по которому ты планировал бежать.</p>
+      </div>
+
+      <section class="upload-section" aria-labelledby="files-title">
+        <div class="upload-heading"><h2 id="files-title">Добавь файлы</h2><span id="ready-count" role="status">Выбрано 0 из 2</span></div>
+        <div class="upload-grid">
+          <article class="upload-card" data-file-card="fit">
+            <div class="file-heading"><span class="file-step">01</span><span class="file-type">.FIT</span></div>
+            <h3 id="fit-title">Запись с часов</h3>
+            <p class="file-explanation" id="fit-help">Оригинальный файл твоей пробежки с GPS-точками, временем и данными датчиков.</p>
+            <p class="file-source">Где взять: экспортируй активность с часов или из приложения производителя в формате FIT.</p>
+            <div class="drop-zone" data-drop-zone="fit">
+              <label class="file-picker" for="fit-file">
+                <input id="fit-file" type="file" accept=".fit" aria-labelledby="fit-title fit-action" aria-describedby="fit-help fit-error" disabled>
+                <svg class="upload-icon" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 21V5m-6 6 6-6 6 6M5 21v6h22v-6"/></svg>
+                <span class="picker-action" id="fit-action">Выбрать FIT-файл</span>
+                <span class="picker-hint">или перетащи его сюда</span>
+              </label>
+            </div>
+            <div class="selection-row" hidden><p class="selected-file" id="fit-selected" role="status"></p><button class="file-remove" type="button" data-remove="fit" aria-label="Убрать FIT-файл">Убрать</button></div>
+            <p class="file-error" id="fit-error" role="alert" hidden></p>
+          </article>
+
+          <article class="upload-card" data-file-card="gpx">
+            <div class="file-heading"><span class="file-step">02</span><span class="file-type">.GPX</span></div>
+            <h3 id="gpx-title">Маршрут забега</h3>
+            <p class="file-explanation" id="gpx-help">План маршрута, по которому ты собирался бежать. Он поможет восстановить повреждённые участки.</p>
+            <p class="file-source">Где взять: скачай GPX у организатора забега или экспортируй маршрут из планировщика.</p>
+            <div class="drop-zone" data-drop-zone="gpx">
+              <label class="file-picker" for="gpx-file">
+                <input id="gpx-file" type="file" accept=".gpx" aria-labelledby="gpx-title gpx-action" aria-describedby="gpx-help gpx-error" disabled>
+                <svg class="upload-icon" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 21V5m-6 6 6-6 6 6M5 21v6h22v-6"/></svg>
+                <span class="picker-action" id="gpx-action">Выбрать GPX-файл</span>
+                <span class="picker-hint">или перетащи его сюда</span>
+              </label>
+            </div>
+            <div class="selection-row" hidden><p class="selected-file" id="gpx-selected" role="status"></p><button class="file-remove" type="button" data-remove="gpx" aria-label="Убрать GPX-файл">Убрать</button></div>
+            <p class="file-error" id="gpx-error" role="alert" hidden></p>
+          </article>
+        </div>
+        <noscript><p class="file-error">Включи JavaScript, чтобы выбрать и отправить файлы. Для работы без браузера используй <a href="https://github.com/zloynemec/warpbuster#readme">инструкцию CLI</a>.</p></noscript>
+        <div class="file-privacy"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2"/></svg><p>После отправки карта, показатели забега по километрам и сравнение будут доступны всем, у кого есть ссылка. Скачать исправленный FIT сможете только вы — в этом браузере.</p></div>
+        <div class="fix-actions">
+          <button class="button analyze-button" id="analyze-button" type="button" disabled aria-describedby="analysis-note">Проверить трек</button>
+          <div><p id="analysis-note" role="status">Подключаемся к сервису обработки…</p><button id="service-retry" class="file-remove" type="button" hidden>Повторить подключение</button></div>
+        </div>
+        <p id="submit-error" class="file-error" role="alert" hidden></p>
+      </section>
+
+      <aside class="fix-principle"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z"/><path d="m8 12 3 3 5-6"/></svg><p><strong>Твой путь остаётся твоим.</strong> Уход с маршрута не считается сбоем. GPX помогает восстановить повреждённые участки и заполнить пропуски координат.</p></aside>
     </main>
-    <footer class="footer page-width"><a class="footer-brand" href="/"><img class="brand-logo" src="/assets/warpbuster-logo.svg" width="36" height="24" alt="Логотип WarpBuster">WarpBuster</a><span>Сохраняем путь. Убираем помехи.</span><a href="/#how-it-works">Как это работает</a></footer>
+    <footer class="footer page-width"><a class="footer-brand" href="/"><img class="brand-logo" src="/assets/warpbuster-logo.svg" width="36" height="24" alt="Логотип WarpBuster">WarpBuster</a><span>Сохраняем путь. Убираем помехи.</span><a href="/faq">FAQ</a><a href="/#how-it-works">Как это работает</a></footer>
   </body>
 </html>

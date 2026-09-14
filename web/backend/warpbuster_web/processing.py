@@ -1,0 +1,211 @@
+"""Isolated Core adapter and allowlisted public projection, never the local HTML payload."""
+
+import argparse
+import json
+import math
+import os
+from pathlib import Path
+
+from warpbuster.config import CourseReconstructionConfig
+from warpbuster.fit.reader import FitReadError, read_fit
+from warpbuster.fit.writer import FitWriteError, write_repaired_fit
+from warpbuster.gpx.course import GpxCourseReadError, read_gpx_course
+from warpbuster.integrity import analyze_integrity
+from warpbuster.models.integrity import IntegrityConfidence
+from warpbuster.reconstruction.local import build_repair_plan
+from warpbuster.reconstruction.selection import select_repair_intervals
+from warpbuster.report.gaps import distance_policy
+
+from .config import REPAIR_POLICY
+from .performance import public_performance
+
+PUBLIC_FIELDS = {
+    ("record", "position_lat"),
+    ("record", "position_long"),
+    ("record", "distance"),
+    ("lap", "total_distance"),
+    ("lap", "avg_speed"),
+    ("lap", "enhanced_avg_speed"),
+    ("session", "total_distance"),
+    ("session", "avg_speed"),
+    ("session", "enhanced_avg_speed"),
+}
+
+
+class ProcessingError(Exception):
+    """An intentionally non-sensitive error code."""
+
+
+def finite(value):
+    return value if isinstance(value, int | float) and math.isfinite(value) else None
+
+
+def track(activity):
+    segments = []
+    current = []
+    continuity = None
+    for record in activity.records:
+        lat, lon = finite(record.latitude), finite(record.longitude)
+        valid = lat is not None and lon is not None and -90 <= lat <= 90 and -180 <= lon <= 180
+        if not valid or record.continuity_id != continuity:
+            if current:
+                segments.append(current)
+            current = []
+        continuity = record.continuity_id
+        if valid:
+            current.append([lat, lon])
+    if current:
+        segments.append(current)
+    return segments
+
+
+def process_job(directory: Path, record_limit: int, *, input_directory: Path | None = None):
+    input_directory = input_directory if input_directory is not None else directory
+    try:
+        activity = read_fit(input_directory / "original.fit")
+    except (FitReadError, OSError, ValueError) as error:
+        raise ProcessingError("invalid_fit") from error
+    try:
+        course = read_gpx_course(input_directory / "course.gpx")
+    except (GpxCourseReadError, OSError, ValueError) as error:
+        raise ProcessingError("invalid_gpx") from error
+    if not activity.records:
+        raise ProcessingError("empty_activity")
+    if len(activity.records) > record_limit or course.point_count > record_limit:
+        raise ProcessingError("too_many_records")
+
+    # Web policy explicitly enables course gap filling and MEDIUM thresholds.
+    # Course never enters detection; the Core defaults remain unchanged.
+    integrity = analyze_integrity(activity)
+    plan = build_repair_plan(
+        activity,
+        integrity,
+        course,
+        CourseReconstructionConfig(),
+        fill_missing_from_course=REPAIR_POLICY["fill_missing_from_course"],
+        minimum_invalidation_confidence=IntegrityConfidence(
+            REPAIR_POLICY["minimum_invalidation_confidence"]
+        ),
+    )
+    minimum_confidence = IntegrityConfidence(REPAIR_POLICY["minimum_confidence"])
+    selection = select_repair_intervals(plan, minimum_confidence)
+    result = None
+    fixed = None
+    if selection.has_changes:
+        try:
+            result = write_repaired_fit(
+                activity,
+                plan,
+                directory / "corrected.fit",
+                minimum_confidence=minimum_confidence,
+            )
+            fixed = read_fit(result.output_path)
+        except (FitWriteError, FitReadError, OSError, ValueError) as error:
+            raise ProcessingError("repair_refused") from error
+        if (
+            not result.validation.valid
+            or not result.post_write_verified
+            or result.diff.unexpected_changed_field_count
+            or result.diff.timestamps.compared_count != result.diff.timestamps.unchanged_count
+            or result.diff.sensors.compared_count != result.diff.sensors.unchanged_count
+        ):
+            raise ProcessingError("repair_refused")
+
+    # Construct every public field explicitly. Never serialize dataclasses, inspect_report,
+    # repair_report, local HTML, exception text, source filenames or preservation objects.
+    report = {
+        "schema_version": 2,
+        "outcome": "repaired"
+        if result
+        else ("unchanged" if plan.status.value == "not_needed" else "unresolved"),
+        "partial": selection.is_partial or bool(selection.unresolved_invalidated_indices),
+        "summary": {
+            "record_count": len(activity.records),
+            "detected_intervals": len(integrity.corrupted_intervals),
+            "applied_intervals": selection.applied_interval_count,
+            "skipped_intervals": selection.skipped_interval_count,
+            "unresolved_points": len(selection.unresolved_invalidated_indices),
+            "original_distance_m": finite(activity.recorded_distance_m),
+            "corrected_distance_m": finite(fixed.recorded_distance_m) if fixed else None,
+        },
+        "tracks": {
+            "original": track(activity),
+            "corrected": track(fixed) if fixed else [],
+            "course": [
+                [[point.latitude, point.longitude] for point in segment.points]
+                for segment in course.segments
+            ],
+        },
+        "performance": public_performance(
+            fixed if fixed else activity,
+            source="corrected" if fixed else "original",
+            distance_quality=distance_policy(selection)["quality"],
+        ),
+        "intervals": [
+            {
+                "start": decision.interval.start_record_index,
+                "end": decision.interval.end_record_index,
+                "confidence": decision.confidence.value,
+                "action": decision.action.value,
+            }
+            for decision in selection.decisions
+        ],
+        "fit_diff": None,
+    }
+    if result:
+        diff = result.diff
+        report["fit_diff"] = {
+            "changed_records": diff.changed_record_count,
+            "changed_fields": diff.changed_field_count,
+            "coordinate_fields": result.coordinate_field_change_count,
+            "distance_fields": result.distance_field_change_count,
+            "summary_fields": result.summary_field_change_count,
+            "timestamps_unchanged": diff.timestamps.compared_count
+            == diff.timestamps.unchanged_count,
+            "sensors_unchanged": diff.sensors.compared_count == diff.sensors.unchanged_count,
+            "developer_fields_unchanged": diff.developer_fields.compared_count
+            == diff.developer_fields.unchanged_count,
+            "unknown_fields_unchanged": diff.unknown_fields.compared_count
+            == diff.unknown_fields.unchanged_count,
+            "truncated_changes": diff.truncated_change_count,
+            "changes": [
+                {
+                    "message": change.message_type,
+                    "index": change.occurrence_index,
+                    "field": change.field_name,
+                    "before": finite(change.original_value),
+                    "after": finite(change.fixed_value),
+                }
+                for change in diff.retained_changes
+                if (change.message_type, change.field_name) in PUBLIC_FIELDS
+            ],
+        }
+    temporary = directory / "result.json.tmp"
+    temporary.write_text(json.dumps(report, ensure_ascii=False, allow_nan=False), encoding="utf-8")
+    temporary.replace(directory / "result.json")
+    return bool(result)
+
+
+def main():
+    os.umask(0o077)
+    parser = argparse.ArgumentParser(description="Process one private FIT/GPX pair")
+    parser.add_argument("directory", type=Path, help="existing output directory")
+    parser.add_argument("record_limit", type=int)
+    parser.add_argument(
+        "--inputs", type=Path, help="input pair directory; defaults to output directory"
+    )
+    args = parser.parse_args()
+    directory = args.directory
+    try:
+        process_job(directory, args.record_limit, input_directory=args.inputs)
+    except ProcessingError as error:
+        (directory / "failure.json").write_text(json.dumps({"code": str(error)}), encoding="utf-8")
+        return 1
+    except Exception:
+        (directory / "failure.json").write_text('{"code":"processing_failed"}', encoding="utf-8")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

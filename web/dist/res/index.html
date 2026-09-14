@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,nofollow,noarchive">
+    <meta name="referrer" content="no-referrer">
+    <meta name="theme-color" content="#203e31">
+    <!-- social-meta:start -->
+    <title>Результат обработки трека — WarpBuster</title>
+    <meta name="description" content="Карта трека, показатели забега и сравнение исходной и исправленной записи.">
+    <!-- social-meta:end -->
+    <link rel="icon" href="/assets/favicon.svg?v=2" type="image/svg+xml">
+    <link rel="stylesheet" href="/assets/styles.css">
+    <link rel="stylesheet" href="/assets/vendor/leaflet/leaflet.css">
+    <link rel="stylesheet" href="/assets/result.css">
+    <script defer src="/assets/vendor/leaflet/leaflet.js"></script>
+    <script type="module" src="/assets/result.mjs"></script>
+  </head>
+  <body class="fix-page">
+    <a class="skip-link" href="#main">К содержимому</a>
+    <header class="header page-width"><a class="brand" href="/" aria-label="WarpBuster — главная"><img class="brand-logo" src="/assets/warpbuster-logo.svg" width="48" height="32" alt="Логотип WarpBuster">WarpBuster</a><nav aria-label="Основная навигация"><a href="/fix">Новый трек ↗</a></nav></header>
+    <main class="result-main page-width" id="main">
+      <p class="eyebrow"><span class="trail-mark" aria-hidden="true"></span> Результат обработки трека</p>
+      <section id="waiting" class="waiting" aria-labelledby="status-title">
+        <div class="spinner" id="spinner" aria-hidden="true"></div>
+        <h1 id="status-title">Проверяем трек.</h1>
+        <p id="status-message" role="status">Уточняем статус обработки…</p>
+        <button id="retry-status" class="button" type="button" hidden>Проверить снова</button>
+        <a id="new-upload" href="/fix" hidden>Начать новую обработку ↗</a>
+        <noscript><p>Включите JavaScript, чтобы увидеть статус и результат. Обработка продолжится на сервере.</p></noscript>
+      </section>
+      <section id="report" hidden aria-labelledby="result-title">
+        <h1 id="result-title">Результат обработки</h1>
+        <p id="result-description" class="result-description"></p>
+        <div class="result-metrics">
+          <div><span>Изменено записей FIT</span><strong id="metric-changes">—</strong></div>
+          <div><span>Дистанция в исходном FIT</span><strong id="metric-before">—</strong></div>
+          <div><span>Дистанция в исправленном FIT</span><strong id="metric-after">—</strong></div>
+        </div>
+        <section class="track-card" aria-labelledby="track-title">
+          <div class="track-heading"><h2 id="track-title">Карта трека</h2><div class="track-toggles"><label class="original-toggle"><input id="show-original" type="checkbox"> Исходный</label><label><input id="show-corrected" type="checkbox"> Исправленный</label><label class="course-toggle" title="Загруженный маршрут GPX"><input id="show-course" type="checkbox"> Трек</label></div></div>
+          <div id="track-view" role="region" aria-label="Интерактивная карта трека"></div>
+          <div class="map-actions"><p id="track-note" class="subtle" role="status">«Трек» — маршрут из загруженного GPX.</p><button id="fit-map" type="button">Показать целиком</button></div>
+        </section>
+        <section id="run-summary" class="run-card" aria-labelledby="run-title">
+          <div class="run-heading"><h2 id="run-title">О забеге</h2><p id="run-source" class="subtle"></p></div>
+          <p id="run-empty" class="subtle" hidden>Сводка для этого результата недоступна.</p>
+          <div id="run-content" hidden>
+            <p id="distance-warning" class="distance-warning" hidden>Дистанция и темп могут быть неточными: часть данных осталась неопределённой.</p>
+            <div class="run-metrics"><div><span>Средний темп</span><strong id="run-pace">—</strong></div><div><span>Время</span><strong id="run-time">—</strong></div><div><span>Набор высоты</span><strong id="run-ascent">—</strong></div><div><span>Сброс высоты</span><strong id="run-descent">—</strong></div></div>
+            <h3>По километрам</h3>
+            <p id="splits-empty" class="subtle" hidden>Недостаточно данных о дистанции и времени для разбивки по километрам.</p>
+            <div id="splits-content" hidden>
+              <div class="table-scroll" tabindex="0" role="region" aria-label="Показатели по километрам"><table class="splits-table"><thead><tr><th scope="col">Км</th><th scope="col">Дистанция</th><th scope="col">Время</th><th scope="col">Темп</th><th scope="col">Набор / сброс</th><th scope="col">Пульс</th><th scope="col" id="cadence-heading">Каденс</th><th scope="col">С координатами</th></tr></thead><tbody id="split-rows"></tbody></table></div>
+              <div class="run-charts"><figure><figcaption>Темп по километрам <span>мин/км</span></figcaption><svg id="pace-chart" viewBox="0 0 900 240" role="img" aria-label="Темп по километрам"></svg></figure><figure><figcaption>Набор и сброс высоты <span>м</span></figcaption><svg id="elevation-chart" viewBox="0 0 900 240" role="img" aria-label="Набор и сброс высоты по километрам"></svg><p class="chart-legend"><span>↑ Набор</span><span>↓ Сброс</span></p></figure></div>
+            </div>
+            <p class="subtle">Средний темп рассчитан по времени и дистанции FIT. Показатели по километрам — по записям активности; последний неполный километр отмечен диапазоном. Суммы высоты по километрам могут отличаться от итогов часов.</p>
+          </div>
+        </section>
+        <div id="owner-download" class="download-panel" hidden>
+          <button id="download-fit" class="button" type="button">Скачать исправленный FIT ↓</button>
+          <p><strong>Скачать FIT можно только в браузере, из которого загружены файлы.</strong><br>Ссылкой на результат можно поделиться. После удаления cookie доступ к скачиванию потеряется.</p>
+        </div>
+        <p id="no-file-note" class="viewer-note" hidden>Исправленный FIT не создавался: безопасных изменений для записи нет.</p>
+        <p id="download-error" class="result-error" role="alert" hidden></p>
+        <div class="share-panel"><label for="share-url">Поделиться результатом</label><div><input id="share-url" type="text" readonly><button id="copy-link" type="button">Копировать ссылку</button></div><p id="copy-status" class="subtle" role="status">По ссылке доступны карта, показатели забега и сравнение.</p></div>
+        <p id="expires-note" class="subtle"></p>
+        <details class="diff-panel" id="diff-panel" hidden><summary>Что изменилось в FIT — diff</summary>
+          <p id="preservation-note"></p><p id="diff-counts" class="subtle"></p>
+          <div class="table-scroll"><table><thead><tr><th scope="col">Поле</th><th scope="col">Запись</th><th scope="col">До</th><th scope="col">После</th></tr></thead><tbody id="diff-rows"></tbody></table></div>
+          <p class="subtle">Значения исходных полей FIT. Координаты position_lat / position_long представлены в semicircles.</p>
+        </details>
+      </section>
+    </main>
+    <footer class="footer page-width"><a class="footer-brand" href="/">WarpBuster</a><span>Сохраняем путь. Убираем помехи.</span><a href="/faq">FAQ</a><a href="/fix">Проверить другой трек</a></footer>
+  </body>
+</html>
