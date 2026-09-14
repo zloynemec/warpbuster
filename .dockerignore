@@ -31,3 +31,4 @@ docker-compose*.yaml
 compose*.yml
 compose*.yaml
 deploy.prod.sh
+PRODUCTION.md
