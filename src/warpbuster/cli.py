@@ -25,6 +25,7 @@ from warpbuster.models.integrity import IntegrityConfidence, IntegrityStatus
 from warpbuster.models.reconstruction import RepairPlanStatus
 from warpbuster.reconstruction import (
     build_repair_plan,
+    rank_gap_candidates,
     select_repair_intervals,
 )
 from warpbuster.report.analyze import analyze_console, analyze_json
@@ -364,6 +365,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         selection = select_repair_intervals(plan, args.min_confidence)
         osm_result = None
+        ranking_result = None
         if args.osm_graph_id is not None:
             from warpbuster.reconstruction.osm import (
                 OSMReconstructionError,
@@ -404,6 +406,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                         file=sys.stderr,
                     )
                 return 2
+        if course is not None or osm_result is not None:
+            ranking_result = rank_gap_candidates(activity, plan, osm_result)
         if args.dry_run:
             if args.html is not None:
                 try:
@@ -417,6 +421,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         minimum_confidence=args.min_confidence,
                         overwrite=args.overwrite,
                         osm_result=osm_result,
+                        ranking_result=ranking_result,
                     )
                 except (HtmlReportError, OSError) as error:
                     print(f"error: {error}", file=sys.stderr)
@@ -428,6 +433,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     config,
                     minimum_confidence=args.min_confidence,
                     osm_result=osm_result,
+                    ranking_result=ranking_result,
                 )
                 if args.json
                 else repair_console(
@@ -437,6 +443,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     minimum_confidence=args.min_confidence,
                     verbosity=args.verbose,
                     osm_result=osm_result,
+                    ranking_result=ranking_result,
                 )
             )
             print(_html_notice(rendered, args.html) if not args.json else rendered)

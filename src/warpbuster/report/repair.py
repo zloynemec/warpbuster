@@ -10,6 +10,7 @@ from warpbuster.models.integrity import CorruptedInterval, IntegrityConfidence
 from warpbuster.models.reconstruction import (
     AnchorStabilityDiagnostic,
     CandidateCoordinate,
+    CandidateRankingResult,
     CourseAnchorMatch,
     CourseBoundaryRefinement,
     CourseData,
@@ -29,6 +30,7 @@ from warpbuster.models.reconstruction import (
     UnresolvedMissingCourseRun,
 )
 from warpbuster.reconstruction.selection import select_repair_intervals
+from warpbuster.report.candidate_ranking import candidate_ranking_console, candidate_ranking_report
 from warpbuster.report.gaps import gap_audit, gap_candidate_report, gap_console
 from warpbuster.report.osm import osm_reconstruction_console, osm_reconstruction_report
 
@@ -40,6 +42,7 @@ def repair_report(
     *,
     minimum_confidence: IntegrityConfidence = IntegrityConfidence.HIGH,
     osm_result: OSMDryRunResult | None = None,
+    ranking_result: CandidateRankingResult | None = None,
 ) -> dict[str, object]:
     """Build the stable machine-readable dry-run reconstruction report."""
     selection = select_repair_intervals(plan, minimum_confidence)
@@ -114,6 +117,8 @@ def repair_report(
     }
     if osm_result is not None:
         report["osm_reconstruction"] = osm_reconstruction_report(osm_result)
+    if ranking_result is not None:
+        report["candidate_ranking"] = candidate_ranking_report(ranking_result)
     return report
 
 
@@ -124,6 +129,7 @@ def repair_json(
     *,
     minimum_confidence: IntegrityConfidence = IntegrityConfidence.HIGH,
     osm_result: OSMDryRunResult | None = None,
+    ranking_result: CandidateRankingResult | None = None,
 ) -> str:
     """Render deterministic JSON for a dry-run RepairPlan."""
     return json.dumps(
@@ -133,6 +139,7 @@ def repair_json(
             config,
             minimum_confidence=minimum_confidence,
             osm_result=osm_result,
+            ranking_result=ranking_result,
         ),
         ensure_ascii=False,
         indent=2,
@@ -148,6 +155,7 @@ def repair_console(
     minimum_confidence: IntegrityConfidence = IntegrityConfidence.HIGH,
     verbosity: int = 0,
     osm_result: OSMDryRunResult | None = None,
+    ranking_result: CandidateRankingResult | None = None,
 ) -> str:
     """Render a compact human-readable dry-run report."""
     selection = select_repair_intervals(plan, minimum_confidence)
@@ -237,6 +245,8 @@ def repair_console(
         )
     if osm_result is not None:
         lines.extend(osm_reconstruction_console(osm_result))
+    if ranking_result is not None:
+        lines.extend(candidate_ranking_console(ranking_result))
     return "\n".join(lines)
 
 

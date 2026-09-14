@@ -450,7 +450,12 @@ HTML/JSON audit проверен автоматически; ручной browse
    GPX-first merge, явное подтверждение route identity, allocation по исходным records,
    проверка pauses/distance/скорости и atomic FIT write с provenance/diff. Неполный
    поиск Valhalla никогда сам по себе не даёт разрешения применения.
-   После него отдельно: [012C — Hybrid Web Production](../tasks/012c-web-hybrid-production.md):
+   Следующий Core-этап: [012D — Выбор лучшего кандидата для разрыва](../tasks/012d-gap-candidate-ranking.md).
+   Реализовано 2026-09-14: общий ranking GPX/OSM, объяснимая рекомендация, близкие
+   варианты и недостаток evidence. Без изменения application/confirmation и записи
+   FIT. Core 585 passed, 17 skipped; на Andromeda G2 — ambiguous между GPX и OSM.
+   Затем отдельно специфицировать принятие рекомендации и применение.
+   После этого: [012C — Hybrid Web Production](../tasks/012c-web-hybrid-production.md):
    Manager acquisition/cache, Routing/Valhalla, persistent mount, process/resource limits,
    Docker, logging и graceful failure. Deployment только по отдельному запросу.
 2. **M12 — DEM-backed Elevation (номер task ещё не назначен):** отдельные dataset/cache/provenance,

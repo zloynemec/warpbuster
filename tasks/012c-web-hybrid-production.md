@@ -4,6 +4,16 @@
 [010G — Direction-safe Trace Audit](010g-direction-safe-trace-audit.md).
 Milestone: M11. Deployment требует отдельного запроса пользователя.
 
+## Уточнение очередности после 010I
+
+До реализации web-выбора выполнить [012D — Выбор лучшего кандидата для разрыва](012d-gap-candidate-ranking.md),
+затем отдельно определить принятие рекомендации и application. Discovery уже собирает
+GPX и OSM совместно; указанное ниже GPX-first относится к текущему application 012B,
+а не к условию запуска OSM поиска. Coverage для discovery должна учитывать все
+eligible internal gaps, включая имеющие GPX-кандидата. Рекомендация 012D сама по себе
+не разрешает запись. Перед реализацией 012C обновить web flow по принятому контракту
+выбора/подтверждения; не вводить его самостоятельно внутри web worker.
+
 ## Scope
 
 Подключить принятый Core-контракт GPX-first → OSM fallback к web worker.

@@ -469,3 +469,99 @@ class OSMApplicationConfig:
             or self.maximum_gap_records < 1
         ):
             raise ValueError("maximum_gap_records must be a positive integer")
+
+
+@dataclass(frozen=True, slots=True)
+class GapCandidateRankingConfig:
+    """Coarse, provider-neutral thresholds for advisory path ranking."""
+
+    maximum_connector_m: float = 100.0
+    connector_good_m: float = 25.0
+    connector_fair_m: float = 50.0
+    context_good_m: float = 25.0
+    context_fair_m: float = 50.0
+    direction_good_degrees: float = 60.0
+    direction_fair_degrees: float = 120.0
+    distance_absolute_tolerance_m: float = 100.0
+    distance_relative_tolerance: float = 0.20
+    context_maximum_points: int = 60
+    context_maximum_age_s: float = 60.0
+    context_maximum_length_m: float = 150.0
+    context_maximum_step_s: float = 5.0
+    context_minimum_points: int = 8
+    direction_minimum_progress_m: float = 20.0
+    direction_path_sample_m: float = 30.0
+    attachment_weight: int = 2
+    context_weight: int = 1
+    direction_weight: int = 1
+    distance_weight: int = 2
+    maximum_recommended_score: int = 5
+    minimum_score_margin: int = 2
+    minimum_observed_evidence_components: int = 2
+    near_best_score_delta: int = 1
+    maximum_candidates_per_gap: int = 64
+    maximum_candidate_points: int = 100_000
+    maximum_projection_work: int = 2_000_000
+
+    def __post_init__(self) -> None:
+        numeric_positive = (
+            "maximum_connector_m",
+            "connector_good_m",
+            "connector_fair_m",
+            "context_good_m",
+            "context_fair_m",
+            "direction_good_degrees",
+            "direction_fair_degrees",
+            "distance_absolute_tolerance_m",
+            "distance_relative_tolerance",
+            "context_maximum_age_s",
+            "context_maximum_length_m",
+            "context_maximum_step_s",
+            "direction_minimum_progress_m",
+            "direction_path_sample_m",
+        )
+        for name in numeric_positive:
+            value = getattr(self, name)
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int | float)
+                or not math.isfinite(value)
+                or value <= 0
+            ):
+                raise ValueError(f"{name} must be finite and positive")
+        integer_positive = (
+            "context_maximum_points",
+            "context_minimum_points",
+            "attachment_weight",
+            "context_weight",
+            "direction_weight",
+            "distance_weight",
+            "minimum_score_margin",
+            "minimum_observed_evidence_components",
+            "near_best_score_delta",
+            "maximum_candidates_per_gap",
+            "maximum_candidate_points",
+            "maximum_projection_work",
+        )
+        for name in integer_positive:
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ValueError(f"{name} must be a positive integer")
+        if (
+            isinstance(self.maximum_recommended_score, bool)
+            or not isinstance(self.maximum_recommended_score, int)
+            or self.maximum_recommended_score < 0
+        ):
+            raise ValueError("maximum_recommended_score must be a non-negative integer")
+        if not self.connector_good_m < self.connector_fair_m <= self.maximum_connector_m:
+            raise ValueError("connector thresholds must be increasing")
+        if not self.context_good_m < self.context_fair_m:
+            raise ValueError("context thresholds must be increasing")
+        if not self.direction_good_degrees < self.direction_fair_degrees <= 180:
+            raise ValueError("direction thresholds must be increasing and at most 180")
+        if self.distance_relative_tolerance > 1:
+            raise ValueError("distance_relative_tolerance must not exceed one")
+        if self.context_minimum_points > self.context_maximum_points:
+            raise ValueError("context_minimum_points must not exceed context_maximum_points")
+        if self.minimum_observed_evidence_components > 4:
+            raise ValueError("minimum_observed_evidence_components must not exceed four")

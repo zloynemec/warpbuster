@@ -155,6 +155,13 @@
       <p class="hint">Candidate-only dry-run: routes are not allocated to FIT records, have no reconstruction confidence and cannot be applied in Task 012A. Search is non-exhaustive; one route does not prove uniqueness.</p>
     </section>
 
+    <section id="candidate-ranking-section" hidden>
+      <h2>Best path candidate</h2>
+      <p id="candidate-ranking-policy" class="reference-note"></p>
+      <div id="candidate-ranking-results"></div>
+      <p class="hint">The recommendation compares discovered GPX and OSM paths. It is advisory and is not applied to the FIT file.</p>
+    </section>
+
     <section>
       <h2>Numbered input detector regions</h2>
       <p class="hint">A number identifies a display region, not its severity. The GPX course is a reference overlay only and is excluded from integrity detection. MISSING does not mean CORRUPTED. A visually unusual unnumbered FIT section may simply lack sufficient course-independent evidence.</p>
@@ -240,6 +247,7 @@
     const analysis = data.analysis;
     const repair = data.repair;
     const osmReconstruction = repair?.osm_reconstruction || null;
+    const candidateRanking = repair?.candidate_ranking || null;
     const writeResult = data.write_result;
     const repairedPerformance = data.activity_performance || data.repaired_performance;
     const diagnosticRegions = data.diagnostic_regions || [];
@@ -315,6 +323,7 @@
     if (repair) summaryItems.splice(2, 0, ["Repair plan", repair.status, true], ["Application", repair.selection.application_status, true]);
     if (repair) summaryItems.push(["Gap geometry", repair.geometry_status, true], ["Distance / metrics", repair.distance.status, false]);
     if (osmReconstruction) summaryItems.push(["OSM candidates", `${osmReconstruction.candidate_gap_count} gap(s) / ${osmReconstruction.candidate_count} route(s)`, false], ["OSM application", "disabled", true]);
+    if (candidateRanking) summaryItems.push(["Candidate ranking", `${candidateRanking.rankings.filter((item) => item.status === "recommended").length} recommendation(s)`, false]);
     if (data.output_summary) summaryItems.push(["Output missing positions", data.output_summary.missing_position_count, false], ["Written FIT verified", writeResult?.post_write_verified ? "yes" : "no", false]);
     const summary = document.getElementById("summary");
     for (const [label, value, asBadge] of summaryItems) {
@@ -527,6 +536,31 @@
       document.getElementById("osm-reconstruction-results").appendChild(table(
         ["Gap", "Records", "Outcome", "Queried", "Role", "Route ID", "Length", "Snap start / end", "Endpoint Δ start / end", "Vs primary", "Allocated / applicable", "Reasons / warnings", "Start context evidence"],
         osmRows,
+      ));
+    }
+
+    const rankingSection = document.getElementById("candidate-ranking-section");
+    if (candidateRanking) {
+      rankingSection.hidden = false;
+      document.getElementById("candidate-ranking-policy").textContent = `${candidateRanking.policy_version}; lower score is better; application disabled. OSM primary means the first routed option and has no ranking bonus.`;
+      const rankingRows = candidateRanking.rankings.flatMap((ranking) => {
+        if (!ranking.candidates.length) return [[ranking.gap_id, badge(ranking.status), "n/a", "n/a", "n/a", "n/a", ranking.reasons.join(", ")]];
+        return ranking.candidates
+          .slice()
+          .sort((a, b) => (a.score ?? 999) - (b.score ?? 999) || a.candidate_id.localeCompare(b.candidate_id))
+          .map((candidate) => {
+            const components = candidate.component_scores || {};
+            const attachment = candidate.evidence?.attachment;
+            const distanceEvidence = candidate.evidence?.distance;
+            const selected = candidate.candidate_id === ranking.recommended_candidate_id;
+            const explanation = !candidate.eligible
+              ? candidate.reasons.join(", ")
+              : `snap ${number(attachment?.start_m)} / ${number(attachment?.end_m)} m; context ${number(candidate.evidence?.context?.median_error_m)} m; direction ${candidate.evidence?.direction?.angle_degrees == null ? "n/a" : `${number(candidate.evidence.direction.angle_degrees)}°`}; distance ${text(distanceEvidence?.status)}`;
+            return [ranking.gap_id, badge(ranking.status), candidate.provider.toUpperCase(), selected ? "recommended" : "option", candidate.score, `${components.attachment ?? "n/a"}/${components.context ?? "n/a"}/${components.direction ?? "n/a"}/${components.distance ?? "n/a"}`, ranking.search_complete ? "complete" : "limited", explanation];
+          });
+      });
+      document.getElementById("candidate-ranking-results").appendChild(table(
+        ["Gap", "Decision", "Provider", "Result", "Score", "Attach/context/direction/distance", "Search", "Evidence"], rankingRows,
       ));
     }
 
@@ -822,6 +856,11 @@
     addOverlay("OSM primary candidates (not applied)", osmPrimarySegments, { color: colors.osm, weight: 4, opacity: 0.95 }, !hasRepaired);
     addOverlay("OSM alternative candidates (not applied)", osmAlternativeSegments, { color: colors.osmAlternative, weight: 3, opacity: 0.85, dashArray: "8 5" }, !hasRepaired);
     addOverlay("OSM anchor connectors (diagnostic)", osmConnectorSegments, { color: colors.missing, weight: 2, opacity: 0.9, dashArray: "3 6" }, false);
+    const recommendedSegments = candidateRanking ? candidateRanking.rankings.flatMap((ranking) => {
+      const candidate = ranking.candidates.find((item) => item.candidate_id === ranking.recommended_candidate_id);
+      return candidate?.coordinates?.length ? [candidate.coordinates] : [];
+    }) : [];
+    addOverlay("Recommended candidate (not applied)", recommendedSegments, { color: colors.blue, weight: 6, opacity: 0.95 }, !hasRepaired);
     const addPointOverlay = (label, points, options) => {
       if (!points.length) return;
       overlayLayers[label] = L.layerGroup(points.map((point) => L.circleMarker(point, options)));

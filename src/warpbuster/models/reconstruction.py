@@ -169,6 +169,22 @@ class RepairPlanStatus(StrEnum):
     REFUSED = "refused"
 
 
+class CandidateRankingStatus(StrEnum):
+    """Advisory result of provider-neutral comparison for one gap."""
+
+    RECOMMENDED = "recommended"
+    AMBIGUOUS = "ambiguous"
+    INSUFFICIENT_EVIDENCE = "insufficient_evidence"
+    NO_ELIGIBLE_CANDIDATES = "no_eligible_candidates"
+    NOT_SUPPORTED = "not_supported"
+    RESOURCE_LIMIT = "resource_limit"
+
+
+class CandidateProvider(StrEnum):
+    GPX = "gpx"
+    OSM = "osm"
+
+
 class MissingCourseRunKind(StrEnum):
     """Supported endpoint morphology for explicit missing-position completion."""
 
@@ -684,6 +700,52 @@ class OSMDryRunResult:
     @property
     def candidate_gap_count(self) -> int:
         return sum(item.outcome is OSMGapOutcome.CANDIDATES_AVAILABLE for item in self.evaluations)
+
+
+@dataclass(frozen=True, slots=True)
+class RankedGapCandidate:
+    """One scored path hypothesis; it never grants FIT write permission."""
+
+    candidate_id: str
+    provider: CandidateProvider
+    eligible: bool
+    score: int | None
+    observed_components: int
+    component_scores: tuple[tuple[str, int], ...]
+    evidence_json: str
+    reasons: tuple[str, ...]
+    coordinates: tuple[OSMPathPoint, ...]
+    source_candidate_id: str
+    source_role: str | None = None
+
+    def evidence(self) -> dict[str, object]:
+        value: dict[str, object] = json.loads(self.evidence_json)
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class GapCandidateRanking:
+    """Explainable recommendation for one immutable reconstruction gap."""
+
+    gap_id: str
+    status: CandidateRankingStatus
+    candidates: tuple[RankedGapCandidate, ...]
+    recommended_candidate_id: str | None = None
+    best_score: int | None = None
+    score_margin: int | None = None
+    near_best_candidate_ids: tuple[str, ...] = ()
+    search_complete: bool = True
+    reasons: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateRankingResult:
+    """Activity-level advisory ranking with bounded resource accounting."""
+
+    rankings: tuple[GapCandidateRanking, ...]
+    policy_version: str
+    config_json: str
+    application_allowed: bool = False
 
 
 @dataclass(frozen=True, slots=True)
