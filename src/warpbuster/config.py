@@ -306,6 +306,8 @@ class CourseReconstructionConfig:
     # Metres: absolute floor for path/signal length comparison on short gaps.
     # This is a reconstruction tolerance, never evidence of coordinate corruption.
     signal_distance_absolute_tolerance_m: float = 3.0
+    # Metres of matching score: maximum advisory penalty for unverified path-length disagreement.
+    signal_path_score_penalty_m: float = 10.0
     missing_completion_max_course_speed_mps: float = 10.0
     missing_completion_max_connector_speed_mps: float = 10.0
     missing_completion_max_run_records: int = 50_000
@@ -320,6 +322,7 @@ class CourseReconstructionConfig:
         """Reject unsafe or contradictory reconstruction bounds."""
         positive_values = {
             "signal_distance_absolute_tolerance_m": self.signal_distance_absolute_tolerance_m,
+            "signal_path_score_penalty_m": self.signal_path_score_penalty_m,
             "local_alignment_max_context_seconds": self.local_alignment_max_context_seconds,
             "anchor_match_tolerance_m": self.anchor_match_tolerance_m,
             "high_confidence_anchor_distance_m": self.high_confidence_anchor_distance_m,
@@ -469,6 +472,22 @@ class OSMApplicationConfig:
             or self.maximum_gap_records < 1
         ):
             raise ValueError("maximum_gap_records must be a positive integer")
+
+
+@dataclass(frozen=True, slots=True)
+class AutomaticOSMApplicationConfig(OSMApplicationConfig):
+    """Approximate forest-path application; units match the confirmed allocator."""
+
+    maximum_connector_m: float = 100.0
+    distance_absolute_tolerance_m: float = 100.0
+    distance_relative_tolerance: float = 0.20
+    # Candidate allocation attempts per gap; each visits at most maximum_gap_records.
+    maximum_candidate_attempts: int = 64
+
+    def __post_init__(self) -> None:
+        OSMApplicationConfig.__post_init__(self)
+        if type(self.maximum_candidate_attempts) is not int or self.maximum_candidate_attempts < 1:
+            raise ValueError("maximum_candidate_attempts must be a positive integer")
 
 
 @dataclass(frozen=True, slots=True)

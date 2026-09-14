@@ -152,7 +152,13 @@
       <h2>OSM reconstruction candidates</h2>
       <p id="osm-reconstruction-policy" class="reference-note"></p>
       <div id="osm-reconstruction-results"></div>
-      <p class="hint">Candidate-only dry-run: routes are not allocated to FIT records, have no reconstruction confidence and cannot be applied in Task 012A. Search is non-exhaustive; one route does not prove uniqueness.</p>
+      <p class="hint">Discovery lists possible routes; the application status identifies the selected path. Search is non-exhaustive. An automatically selected route is an approximate hypothesis, not a confirmed travelled path.</p>
+    </section>
+
+    <section id="automatic-osm-section" hidden>
+      <h2>Automatic repair decisions</h2>
+      <p>Accepted GPX first, then OSM by score, full length and route ID. Failed candidates allow the next alternative.</p>
+      <details><summary>Selection and rejected attempts</summary><pre id="automatic-osm-decisions"></pre></details>
     </section>
 
     <section id="candidate-ranking-section" hidden>
@@ -247,6 +253,7 @@
     const analysis = data.analysis;
     const repair = data.repair;
     const osmReconstruction = repair?.osm_reconstruction || null;
+    const automaticOSM = repair?.automatic_osm || null;
     const candidateRanking = repair?.candidate_ranking || null;
     const writeResult = data.write_result;
     const repairedPerformance = data.activity_performance || data.repaired_performance;
@@ -322,7 +329,12 @@
     ]);
     if (repair) summaryItems.splice(2, 0, ["Repair plan", repair.status, true], ["Application", repair.selection.application_status, true]);
     if (repair) summaryItems.push(["Gap geometry", repair.geometry_status, true], ["Distance / metrics", repair.distance.status, false]);
-    if (osmReconstruction) summaryItems.push(["OSM candidates", `${osmReconstruction.candidate_gap_count} gap(s) / ${osmReconstruction.candidate_count} route(s)`, false], ["OSM application", "disabled", true]);
+    if (osmReconstruction) summaryItems.push(["OSM candidates", `${osmReconstruction.candidate_gap_count} gap(s) / ${osmReconstruction.candidate_count} route(s)`, false]);
+    if (automaticOSM) summaryItems.push(["OSM application", automaticOSM.status || `automatic: ${automaticOSM.decisions.filter((item) => item.status === "osm_selected").length} ${writeResult ? "applied" : "planned"}`, false]);
+    if (automaticOSM) {
+      document.getElementById("automatic-osm-section").hidden = false;
+      document.getElementById("automatic-osm-decisions").textContent = JSON.stringify(automaticOSM, null, 2);
+    }
     if (candidateRanking) summaryItems.push(["Candidate ranking", `${candidateRanking.rankings.filter((item) => item.status === "recommended").length} recommendation(s)`, false]);
     if (data.output_summary) summaryItems.push(["Output missing positions", data.output_summary.missing_position_count, false], ["Written FIT verified", writeResult?.post_write_verified ? "yes" : "no", false]);
     const summary = document.getElementById("summary");
@@ -452,7 +464,7 @@
         const details = document.createElement("details"), summary = document.createElement("summary"), pre = document.createElement("pre");
         summary.textContent = "Proof / path";
         const proof = [...new Set((repair.coordinate_dispositions || []).filter((item) => item.record_index >= gap.start_record_index && item.record_index <= gap.end_record_index && item.proof_ranges.length).map((item) => JSON.stringify({ ranges: item.proof_ranges, confidence: item.confidence, reasons: item.proof_reasons })))].map((item) => JSON.parse(item));
-        pre.textContent = JSON.stringify({ invalidation_proof: proof, provider: gap.provider, reconstruction_policy: gap.provider === "osm" ? "explicitly confirmed OSM route; independent coordinate mask" : repair.summary.missing_completion_enabled ? "--fill-missing-from-course" : "proven corrupted scope only", timing: gap.timing, path: gap.provenance }, null, 2);
+        pre.textContent = JSON.stringify({ invalidation_proof: proof, provider: gap.provider, reconstruction_policy: gap.provider === "osm" ? gap.provenance?.identity_basis : repair.summary.missing_completion_enabled ? "--fill-missing-from-course" : "proven corrupted scope only", automatic_decision: automaticOSM?.decisions.find((item) => item.gap_id === gap.gap_id), timing: gap.timing, path: gap.provenance }, null, 2);
         details.append(summary, pre); return details;
       };
       const coverage = repair.coordinate_coverage;
@@ -496,7 +508,7 @@
     const osmSection = document.getElementById("osm-reconstruction-section");
     if (osmReconstruction) {
       osmSection.hidden = false;
-      document.getElementById("osm-reconstruction-policy").textContent = `Graph ${osmReconstruction.graph_id}; snapshot ${text(osmReconstruction.graph?.snapshot_id)}; Valhalla ${text(osmReconstruction.graph?.valhalla_version)}; profile ${text(osmReconstruction.profile?.profile_id)}; ${osmReconstruction.query_count}/${osmReconstruction.gap_count} gap queries; application disabled. OSM is excluded from integrity detection and existing GPX candidates are not replaced.`;
+      document.getElementById("osm-reconstruction-policy").textContent = `Graph ${osmReconstruction.graph_id}; ${osmReconstruction.query_count}/${osmReconstruction.gap_count} gap queries. ${automaticOSM ? "GPX-first; automatic OSM fallback. See each gap for selection and rejected attempts." : "Candidate discovery only."} OSM is excluded from integrity detection.`;
       const contextEvidence = (evaluation) => {
         const audit = evaluation.snapping?.start?.context;
         if (!audit) {
@@ -521,6 +533,8 @@
           `G${evaluation.number}`, evaluation.records.join(".."), badge(evaluation.outcome), evaluation.queried ? "yes" : "no", "n/a", "n/a", "n/a", `${number(snapDistance("start"))} / ${number(snapDistance("end"))} m`, "n/a", "n/a", "not allocated / not applicable", evaluation.reasons.join(", "), contextEvidence(evaluation),
         ]];
         return evaluation.candidates.map((candidate) => {
+          const automaticDecision = automaticOSM?.decisions.find((item) => item.gap_id === evaluation.gap_id);
+          const chosen = automaticDecision?.selected_route_id === candidate.route_id;
           const endpoint = (candidate.audit?.checks || []).find((check) => check.name === "endpoints");
           const comparison = candidate.vs_primary;
           const attachment = candidate.attachment_options?.[0];
@@ -529,7 +543,7 @@
             `${number(candidate.summary?.length_m)} m`, `${number(attachment?.start?.distance_m ?? snapDistance("start"))} / ${number(attachment?.end?.distance_m ?? snapDistance("end"))} m`,
             endpoint ? `${number(endpoint.start_delta_m)} / ${number(endpoint.end_delta_m)} m` : "n/a",
             comparison ? `overlap ${number(comparison.overlap_a)}; distance ratio ${number(comparison.distance_ratio)}` : "primary",
-            `${candidate.discovery_confidence || "unrated"} hypothesis; not applied`, [...(candidate.warnings || []).map((item) => item.code), ...evaluation.reasons].join(", "), contextEvidence(evaluation),
+            `Discovery: ${candidate.discovery_confidence || "unrated"}; ${chosen ? `application: MEDIUM, ${writeResult ? "applied automatically" : "planned automatically"}` : "not selected"}`, [...(candidate.warnings || []).map((item) => item.code), ...evaluation.reasons].join(", "), contextEvidence(evaluation),
           ];
         });
       });
@@ -853,8 +867,8 @@
         if (points.length) (candidate.role === "primary" ? osmPrimarySegments : osmAlternativeSegments).push(points);
       });
     });
-    addOverlay("OSM primary candidates (not applied)", osmPrimarySegments, { color: colors.osm, weight: 4, opacity: 0.95 }, !hasRepaired);
-    addOverlay("OSM alternative candidates (not applied)", osmAlternativeSegments, { color: colors.osmAlternative, weight: 3, opacity: 0.85, dashArray: "8 5" }, !hasRepaired);
+    addOverlay("OSM primary candidates", osmPrimarySegments, { color: colors.osm, weight: 4, opacity: 0.95 }, !hasRepaired);
+    addOverlay("OSM alternative candidates", osmAlternativeSegments, { color: colors.osmAlternative, weight: 3, opacity: 0.85, dashArray: "8 5" }, !hasRepaired);
     addOverlay("OSM anchor connectors (diagnostic)", osmConnectorSegments, { color: colors.missing, weight: 2, opacity: 0.9, dashArray: "3 6" }, false);
     const recommendedSegments = candidateRanking ? candidateRanking.rankings.flatMap((ranking) => {
       const candidate = ranking.candidates.find((item) => item.candidate_id === ranking.recommended_candidate_id);

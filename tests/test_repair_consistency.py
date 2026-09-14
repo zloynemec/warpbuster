@@ -122,7 +122,7 @@ def test_physical_distance_jump_in_original_missing_can_use_speed(tmp_path: Path
     assert plan.interval_plans[0].provenance.allocation_method.value == "recorded_speed"
 
 
-def test_plausible_conflicting_signals_cannot_be_ignored_for_time(tmp_path: Path) -> None:
+def test_unverified_conflicting_signals_are_reported_with_time_allocation(tmp_path: Path) -> None:
     activity, course = local_fixture(tmp_path, missing=((150, 179),))
     activity = replace(
         activity,
@@ -138,8 +138,9 @@ def test_plausible_conflicting_signals_cannot_be_ignored_for_time(tmp_path: Path
         CourseReconstructionConfig(anchor_match_tolerance_m=5, high_confidence_anchor_distance_m=5),
         fill_missing_from_course=True,
     )
-    assert not plan.interval_plans
-    assert plan.unresolved_gaps[0].reasons[0].value == "local_distance_inconsistent"
+    assert plan.interval_plans[0].provenance.allocation_method.value == "timestamps"
+    assert "distance_path_mismatch" in plan.interval_plans[0].provenance.signal_diagnostics
+    assert not plan.unresolved_gaps
 
 
 def test_plausible_distance_is_preserved_despite_corrupted_coordinates(tmp_path: Path) -> None:

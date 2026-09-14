@@ -160,6 +160,11 @@ def write_result_report(result: FitWriteResult) -> dict[str, object]:
         "validation": validation_report(result.validation),
         "diff": diff_report(result.diff),
         **(gap_audit(result.plan, result.selection) if result.plan is not None else {}),
+        **(
+            {"automatic_osm": json.loads(result.plan.automatic_osm_json)}
+            if result.plan is not None and result.plan.automatic_osm_json is not None
+            else {}
+        ),
     }
 
 

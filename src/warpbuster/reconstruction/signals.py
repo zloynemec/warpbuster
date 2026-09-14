@@ -10,6 +10,72 @@ from math import isfinite
 
 from warpbuster.config import IntegrityConfig
 from warpbuster.models.activity import ActivityRecord
+from warpbuster.models.reconstruction import AllocationMethod
+from warpbuster.models.reconstruction import ReconstructionReason as Reason
+from warpbuster.reconstruction.timing import AllocationClock
+
+
+def allocate_signal_progress(
+    records: tuple[ActivityRecord, ...],
+    length_m: float,
+    config: IntegrityConfig,
+    clock: AllocationClock,
+    *,
+    error_budget_m: float,
+    maximum_speed_mps: float,
+) -> tuple[AllocationMethod, tuple[float, ...], tuple[str, ...]] | Reason:
+    """Choose a usable progress profile; unverified path mismatch is advisory.
+
+    The path is a reconstruction hypothesis. Source speed/distance are not assumed
+    independent of GNSS. Unusable profiles fall back to uniform active time without
+    changing timestamps, pausing semantics, or the physical traversal limit.
+    """
+    if clock.audit.open_pause:
+        return Reason.TIMER_STATE_UNRESOLVED
+    if clock.audit.active_seconds <= 0:
+        return Reason.NO_ACTIVE_TIME
+    if not isfinite(length_m) or length_m <= 0:
+        return Reason.COURSE_TRAVERSAL_IMPLAUSIBLE
+    if length_m / clock.audit.active_seconds > maximum_speed_mps:
+        return Reason.ACTIVE_TIME_TRAVERSAL_IMPLAUSIBLE
+    signals = (
+        ("distance", AllocationMethod.RECORDED_DISTANCE, qualify_distance(records, config)),
+        (
+            "speed",
+            AllocationMethod.RECORDED_SPEED,
+            qualify_speed(records, config, active_deltas=clock.active_deltas),
+        ),
+    )
+    diagnostics = ["timer_pauses_excluded"] if clock.audit.paused_seconds else []
+    usable = []
+    for label, method, signal in signals:
+        if signal.status not in {"plausible", "zero"}:
+            diagnostics.append(f"{label}_{signal.status}")
+            continue
+        if any(
+            active == 0 and b > a
+            for (a, b), active in zip(pairwise(signal.cumulative), clock.active_deltas, strict=True)
+        ):
+            return Reason.PAUSE_DISTANCE_CONFLICT
+        total = signal.cumulative[-1]
+        if total <= 0:
+            diagnostics.append(f"{label}_zero")
+        elif abs(total - length_m) > error_budget_m:
+            diagnostics.append(f"{label}_path_mismatch")
+        else:
+            usable.append((label, method, tuple(value / total for value in signal.cumulative)))
+    for label, method, fractions in usable:
+        if all(
+            (b == a if active == 0 else (b - a) * length_m / active <= maximum_speed_mps)
+            for (a, b), active in zip(pairwise(fractions), clock.active_deltas, strict=True)
+        ):
+            return method, fractions, tuple(diagnostics)
+        diagnostics.append(f"{label}_allocation_implausible")
+    return (
+        AllocationMethod.TIMESTAMPS,
+        tuple(value / clock.audit.active_seconds for value in clock.active_cumulative),
+        (*diagnostics, "active_time_estimated"),
+    )
 
 
 @dataclass(frozen=True)

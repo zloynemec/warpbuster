@@ -119,6 +119,8 @@ def repair_report(
         report["osm_reconstruction"] = osm_reconstruction_report(osm_result)
     if ranking_result is not None:
         report["candidate_ranking"] = candidate_ranking_report(ranking_result)
+    if plan.automatic_osm_json is not None:
+        report["automatic_osm"] = json.loads(plan.automatic_osm_json)
     return report
 
 
@@ -247,6 +249,17 @@ def repair_console(
         lines.extend(osm_reconstruction_console(osm_result))
     if ranking_result is not None:
         lines.extend(candidate_ranking_console(ranking_result))
+    if plan.automatic_osm_json is not None:
+        automatic = json.loads(plan.automatic_osm_json)
+        lines.append("Automatic OSM: GPX-first; approximate routes have MEDIUM confidence")
+        if automatic.get("error"):
+            lines.append(f"  unavailable: {automatic['error']['code']}")
+        for decision in automatic["decisions"]:
+            lines.append(
+                f"  {decision['gap_id']}: {decision['status']}; "
+                f"route={decision.get('selected_route_id', 'none')}; "
+                f"reason={decision.get('reason', 'application_checks_passed')}"
+            )
     return "\n".join(lines)
 
 

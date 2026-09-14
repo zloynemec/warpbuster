@@ -6,20 +6,18 @@ Milestone: M11. Deployment требует отдельного запроса п
 
 ## Уточнение очередности после 010I
 
-До реализации web-выбора выполнить [012D — Выбор лучшего кандидата для разрыва](012d-gap-candidate-ranking.md),
-затем отдельно определить принятие рекомендации и application. Discovery уже собирает
-GPX и OSM совместно; указанное ниже GPX-first относится к текущему application 012B,
-а не к условию запуска OSM поиска. Coverage для discovery должна учитывать все
-eligible internal gaps, включая имеющие GPX-кандидата. Рекомендация 012D сама по себе
-не разрешает запись. Перед реализацией 012C обновить web flow по принятому контракту
-выбора/подтверждения; не вводить его самостоятельно внутри web worker.
+После 012D выполнить [012E — GPX-first и автоматическое применение OSM](012e-automatic-osm-application.md).
+Первая версия: загрузить FIT и GPX, получить исправленный FIT. Ручного выбора
+и подтверждения маршрутов нет. Discovery собирает GPX и OSM совместно; GPX-first
+относится к применению. Межпровайдерная ничья ranking не блокирует принятый GPX.
+Автоматический OSM fallback и application policy реализуются в Core 012E.
 
 ## Scope
 
 Подключить принятый Core-контракт GPX-first → OSM fallback к web worker.
 Не менять detector, правила confidence/selection или Core write scope ради UI.
 
-1. OSM Manager: вычислять bounded coverage только для unresolved internal gaps,
+1. OSM Manager: вычислять bounded coverage для eligible internal gaps совместного discovery,
    acquisition через публичный API, allowlisted источники, проверка manifest/digest,
    атомарный cache, дедупликация параллельных acquisition, quota и eviction без
    удаления используемых snapshots. Никаких приватных FIT/GPX в публичном cache.
@@ -40,9 +38,9 @@ eligible internal gaps, включая имеющие GPX-кандидата. Р
    результат и unresolved diagnostics. Никакой повторной классификации corruption,
    silent lower-confidence apply или частично опубликованного FIT. Writer запускается
    один раз после merge; результат включает FIT diff и preservation validation.
-8. Web flow явно отражает поддержанный Core режим подтверждения маршрута. Не генерировать
-   подтверждения автоматически из наличия одного Valhalla candidate. Если требуется
-   автоматический выбор, сначала отдельный Core milestone независимого route evidence.
+8. Web flow автоматически использует Core 012E: GPX-first, затем выбор и применение
+   OSM для оставшихся gaps. Не запрашивать ручной выбор и не создавать фиктивные
+   confirmations. Причины автоматического выбора и оставшихся пропусков видны в отчёте.
 
 ## Acceptance criteria
 

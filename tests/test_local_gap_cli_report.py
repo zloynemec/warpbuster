@@ -125,7 +125,7 @@ def test_analyze_still_uses_original_geometry_and_fill_requires_course(
     assert not source.with_suffix(".fixed.fit").exists()
 
 
-def test_osm_candidate_discovery_is_repair_dry_run_only(
+def test_unusable_osm_discovery_is_reported_in_preview_and_write_mode(
     tmp_path: Path, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     activity, _ = local_fixture(tmp_path, missing=((150, 179),))
@@ -133,13 +133,13 @@ def test_osm_candidate_discovery_is_repair_dry_run_only(
     client = FakeClient()
     monkeypatch.setattr(osm_module, "ValhallaRoutingClient", lambda *_args: client)
     base = ["repair", str(source), "--osm-graph-id", GRAPH_ID]
-    assert main(base) == 2
-    assert "requires --dry-run" in capsys.readouterr().err
+    assert main(base) == 3
+    assert "no coordinate invalidation" in capsys.readouterr().err
     assert main(["repair", str(source), "--osm-cache-dir", str(tmp_path)]) == 2
     assert "require --osm-graph-id" in capsys.readouterr().err
 
     html = tmp_path / "osm.html"
-    assert main([*base, "--dry-run", "--json", "--html", str(html)]) == 0
+    assert main([*base, "--dry-run", "--json", "--html", str(html)]) == 3
     report = json.loads(capsys.readouterr().out)
     assert report["osm_reconstruction"]["application_allowed"] is False
     assert report["osm_reconstruction"]["candidate_count"] == 1
@@ -180,9 +180,9 @@ def test_osm_operation_error_is_controlled_json_and_never_writes_fit(
     )
     report = json.loads(capsys.readouterr().out)
 
-    assert exit_code == 2
-    assert report["osm_reconstruction"]["status"] == "error"
-    assert report["osm_reconstruction"]["error"] == {
+    assert exit_code == 3
+    assert report["automatic_osm"]["status"] == "unavailable"
+    assert report["automatic_osm"]["error"] == {
         "code": "GRAPH_ENGINE_MISMATCH",
         "message": "prepared graph runtime differs",
         "details": {"graph_id": GRAPH_ID, "runtime": "test"},

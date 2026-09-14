@@ -126,6 +126,8 @@ class ReconstructionReason(StrEnum):
     OSM_CONFIRMATION_CONFLICT = "osm_confirmation_conflict"
     OSM_CONFIRMATION_STALE = "osm_confirmation_stale"
     OSM_ROUTE_CONFIRMED = "osm_route_confirmed"
+    OSM_ROUTE_AUTOMATIC = "automatic_osm_selection"
+    OSM_NO_ACCEPTABLE_ROUTE = "osm_no_acceptable_route"
     OSM_GEOMETRY_INVALID = "osm_geometry_invalid"
     OSM_CONNECTOR_TOO_LONG = "osm_connector_too_long"
     OSM_DISCOVERY_UNRESOLVED = "osm_discovery_unresolved"
@@ -478,6 +480,9 @@ class RepairPlan:
     maximum_new_transition_speed_mps: float = 10.0
     distance_spike_repairs: tuple[DistanceSpikeEvidence, ...] = ()
 
+    # Detached automatic decision audit; never consumed by detector or FIT writer.
+    automatic_osm_json: str | None = None
+
 
 @dataclass(frozen=True, slots=True)
 class RepairIntervalDecision:
@@ -794,6 +799,7 @@ class CoursePathProvenance:
     integrated_speed_distance_m: float | None = None
     signal_distance_error_budget_m: float | None = None
     timing: ReconstructionTiming | None = None
+    signal_path_score_penalty_m: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -812,7 +818,7 @@ class OSMPathProvenance:
 
     graph_id: str
     route_id: str
-    confirmation: OSMRouteConfirmation
+    confirmation: OSMRouteConfirmation | None
     source_sha256: str
     route_document_json: str
     routing_document_json: str
@@ -829,6 +835,9 @@ class OSMPathProvenance:
     snapshot_sha256: str = ""
     identity_basis: str = "caller_confirmed_route"
     distance_quality: str = "source_unverified"
+    signal_diagnostics: tuple[str, ...] = ()
+    observed_distance_m: float | None = None
+    integrated_speed_distance_m: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -454,7 +454,15 @@ HTML/JSON audit проверен автоматически; ручной browse
    Реализовано 2026-09-14: общий ranking GPX/OSM, объяснимая рекомендация, близкие
    варианты и недостаток evidence. Без изменения application/confirmation и записи
    FIT. Core 585 passed, 17 skipped; на Andromeda G2 — ambiguous между GPX и OSM.
-   Затем отдельно специфицировать принятие рекомендации и применение.
+   Завершён 2026-09-14: [012E — GPX-first и автоматическое применение OSM](../tasks/012e-automatic-osm-application.md).
+   Продукт первой версии: два входных файла → очистка → GPX-first → автоматический
+   OSM fallback → исправленный FIT. Ручной выбор и подтверждения в CLI/UI исключены.
+   Единый CLI repair и Core selector; MEDIUM для автоматических OSM гипотез,
+   retry следующего кандидата, partial при отказе. Core 607 passed, 17 skipped;
+   на пяти реальных FIT дополнительно применено 7 OSM gaps, FIT diff без unexpected changes.
+   Уточнение G6: несогласованная GNSS-телеметрия даёт штраф вместо veto для GPX/OSM;
+   общий fallback по активному времени. Core 612 passed, 17 skipped. Повтор шести пар:
+   ещё 7 gaps / 1084 records, G6 Andromeda восстановлен по GPX, FIT checks passed.
    После этого: [012C — Hybrid Web Production](../tasks/012c-web-hybrid-production.md):
    Manager acquisition/cache, Routing/Valhalla, persistent mount, process/resource limits,
    Docker, logging и graceful failure. Deployment только по отдельному запросу.

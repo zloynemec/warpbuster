@@ -92,7 +92,10 @@ def distance_policy(selection: RepairSelection) -> dict[str, object]:
     unresolved_signal = unresolved_signal or any(
         isinstance(candidate, GapRepairPlan)
         and candidate.osm_provenance is not None
-        and candidate.osm_provenance.distance_signal_status != "plausible"
+        and (
+            candidate.osm_provenance.distance_signal_status != "plausible"
+            or "distance_path_mismatch" in candidate.osm_provenance.signal_diagnostics
+        )
         for candidate in selection.selected_interval_plans
     )
     uncertain = (

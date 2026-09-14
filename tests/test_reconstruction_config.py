@@ -31,6 +31,7 @@ def test_reconstruction_thresholds_are_named_and_serializable() -> None:
         "missing_alignment_min_position_records": 30,
         "missing_alignment_max_distance_ratio_error": 0.15,
         "signal_distance_absolute_tolerance_m": 3.0,
+        "signal_path_score_penalty_m": 10.0,
         "missing_completion_max_course_speed_mps": 10.0,
         "missing_completion_max_connector_speed_mps": 10.0,
         "missing_completion_max_run_records": 50_000,

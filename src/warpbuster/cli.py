@@ -6,6 +6,7 @@ import argparse
 import json
 import sys
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 
 from warpbuster import __version__
@@ -24,6 +25,7 @@ from warpbuster.integrity import analyze_integrity
 from warpbuster.models.integrity import IntegrityConfidence, IntegrityStatus
 from warpbuster.models.reconstruction import RepairPlanStatus
 from warpbuster.reconstruction import (
+    apply_automatic_osm_routes,
     build_repair_plan,
     rank_gap_candidates,
     select_repair_intervals,
@@ -36,6 +38,7 @@ from warpbuster.report.fit import (
     validation_json,
     write_result_console,
     write_result_json,
+    write_result_report,
 )
 from warpbuster.report.html import (
     HtmlReportError,
@@ -167,9 +170,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--min-confidence",
         type=_confidence_argument,
         choices=tuple(IntegrityConfidence),
-        default=IntegrityConfidence.HIGH,
+        default=None,
         metavar="{low,medium,high}",
-        help="repair candidates at this confidence or higher (default: high)",
+        help="repair confidence threshold (default: medium with OSM, high otherwise)",
     )
     repair_parser.add_argument(
         "--min-invalidation-confidence",
@@ -185,7 +188,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     repair_parser.add_argument(
         "--osm-graph-id",
-        help="discover candidate-only OSM routes from this exact prepared graph (dry-run only)",
+        help="automatically apply OSM fallback from this exact prepared graph after GPX",
     )
     repair_parser.add_argument(
         "--osm-routing-config",
@@ -316,9 +319,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.fill_missing_from_course and args.course is None:
             print("error: --fill-missing-from-course requires --course", file=sys.stderr)
             return 2
-        if args.osm_graph_id is not None and not args.dry_run:
-            print("error: --osm-graph-id is candidate-only and requires --dry-run", file=sys.stderr)
-            return 2
+        if args.min_confidence is None:
+            args.min_confidence = (
+                IntegrityConfidence.MEDIUM if args.osm_graph_id else IntegrityConfidence.HIGH
+            )
         if args.osm_graph_id is None and (
             args.osm_routing_config is not None or args.osm_cache_dir is not None
         ):
@@ -363,7 +367,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             fill_missing_from_course=args.fill_missing_from_course,
             minimum_invalidation_confidence=args.min_invalidation_confidence,
         )
-        selection = select_repair_intervals(plan, args.min_confidence)
         osm_result = None
         ranking_result = None
         if args.osm_graph_id is not None:
@@ -380,34 +383,33 @@ def main(argv: Sequence[str] | None = None) -> int:
                     osm_config,
                 ).discover(activity, plan, args.osm_graph_id)
             except OSMReconstructionError as error:
-                if args.json:
-                    document = repair_report(
-                        plan,
-                        course,
-                        config,
-                        minimum_confidence=args.min_confidence,
-                    )
-                    document["osm_reconstruction"] = {
-                        "protocol_version": 1,
-                        "status": "error",
-                        "dry_run": True,
-                        "application_allowed": False,
-                        "graph_id": args.osm_graph_id,
-                        "error": {
-                            "code": error.code,
-                            "message": error.message,
-                            "details": error.details,
-                        },
-                    }
-                    print(json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True))
-                else:
-                    print(
-                        f"error: OSM reconstruction [{error.code}]: {error.message}",
-                        file=sys.stderr,
-                    )
-                return 2
+                plan = replace(
+                    plan,
+                    automatic_osm_json=json.dumps(
+                        {
+                            "policy": "gpx-first-automatic-osm-v2",
+                            "status": "unavailable",
+                            "graph_id": args.osm_graph_id,
+                            "error": {
+                                "code": error.code,
+                                "message": error.message,
+                                "details": error.details,
+                            },
+                            "decisions": [],
+                        }
+                    ),
+                )
+                print(
+                    f"warning: OSM [{error.code}]: {error.message}; retaining GPX and cleaning",
+                    file=sys.stderr,
+                )
         if course is not None or osm_result is not None:
             ranking_result = rank_gap_candidates(activity, plan, osm_result)
+        if osm_result is not None:
+            plan = apply_automatic_osm_routes(
+                activity, integrity, plan, osm_result, minimum_confidence=args.min_confidence
+            )
+        selection = select_repair_intervals(plan, args.min_confidence)
         if args.dry_run:
             if args.html is not None:
                 try:
@@ -447,11 +449,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             )
             print(_html_notice(rendered, args.html) if not args.json else rendered)
-            if (
-                selection.has_changes
-                or plan.status is RepairPlanStatus.NOT_NEEDED
-                or (osm_result is not None and osm_result.candidate_count > 0)
-            ):
+            if selection.has_changes or plan.status is RepairPlanStatus.NOT_NEEDED:
                 return 0
             return 3
         if not selection.has_changes:
@@ -466,6 +464,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                         args.html,
                         minimum_confidence=args.min_confidence,
                         overwrite=args.overwrite,
+                        osm_result=osm_result,
+                        ranking_result=ranking_result,
                     )
                 except (HtmlReportError, OSError) as error:
                     print(f"error: {error}", file=sys.stderr)
@@ -476,6 +476,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     course,
                     config,
                     minimum_confidence=args.min_confidence,
+                    osm_result=osm_result,
+                    ranking_result=ranking_result,
                 )
                 if args.json
                 else repair_console(
@@ -484,9 +486,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                     config,
                     minimum_confidence=args.min_confidence,
                     verbosity=args.verbose,
+                    osm_result=osm_result,
+                    ranking_result=ranking_result,
                 )
             )
             print(_html_notice(rendered, args.html) if not args.json else rendered)
+            if plan.status is RepairPlanStatus.NOT_NEEDED:
+                return 0
             print(
                 "error: no coordinate invalidation or reconstruction candidate meets minimum confidence "
                 f"{args.min_confidence.value.upper()}",
@@ -518,6 +524,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     fixed_activity=fixed_activity,
                     write_result=result,
                     overwrite=args.overwrite,
+                    osm_result=osm_result,
+                    ranking_result=ranking_result,
                 )
             except (FitReadError, HtmlReportError, OSError) as error:
                 print(
@@ -526,7 +534,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                     file=sys.stderr,
                 )
                 return 3
-        rendered = write_result_json(result) if args.json else write_result_console(result)
+        if args.json and args.osm_graph_id is not None:
+            document = write_result_report(result)
+            document["repair_plan"] = repair_report(
+                plan,
+                course,
+                config,
+                minimum_confidence=args.min_confidence,
+                osm_result=osm_result,
+                ranking_result=ranking_result,
+            )
+            rendered = json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True)
+        else:
+            rendered = write_result_json(result) if args.json else write_result_console(result)
         print(_html_notice(rendered, args.html) if not args.json else rendered)
         return 0
     if args.command == "validate":

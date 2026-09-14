@@ -188,7 +188,11 @@ def test_timestamp_allocation_is_explicitly_estimated_and_record_cap_is_audited(
     provenance = plan.interval_plans[0].provenance
     assert provenance.allocation_method.value == "timestamps"
     assert provenance.signal_quality == "estimated"
-    assert provenance.signal_diagnostics == ("distance_unavailable", "speed_unavailable")
+    assert provenance.signal_diagnostics == (
+        "distance_unavailable",
+        "speed_unavailable",
+        "active_time_estimated",
+    )
     limited = build_repair_plan(
         activity,
         analyze_integrity(activity),

@@ -49,7 +49,11 @@ from warpbuster.reconstruction.geometry import (
     _project_onto_edge,
     _wrapped_longitude_delta,
 )
-from warpbuster.reconstruction.signals import qualify_distance, qualify_speed
+from warpbuster.reconstruction.signals import (
+    allocate_signal_progress,
+    qualify_distance,
+    qualify_speed,
+)
 from warpbuster.reconstruction.timing import (
     AllocationClock,
     activity_clock,
@@ -79,6 +83,7 @@ class _Path:
     direction: CourseDirection
     score: float
     alignment_contexts: tuple[LocalAlignmentEvidence, ...]
+    signal_penalty_m: float = 0.0
 
     @property
     def span(self) -> float:
@@ -542,6 +547,15 @@ def _reconstruct_gap(
         return UnresolvedGap(gap, (Reason.TIMER_STATE_UNRESOLVED,))
     if clock.audit.active_seconds <= 0:
         return UnresolvedGap(gap, (Reason.NO_ACTIVE_TIME,))
+    # Qualify once per gap, never once per path/context-window combination.
+    signal_totals = tuple(
+        signal.cumulative[-1]
+        for signal in (
+            qualify_distance(timed_records, integrity_config),
+            qualify_speed(timed_records, integrity_config, active_deltas=clock.active_deltas),
+        )
+        if signal.status in {"plausible", "zero"} and signal.cumulative
+    )
     contexts = [context for context in (before, after) if context]
     if (
         not contexts
@@ -574,6 +588,7 @@ def _reconstruct_gap(
                 _options(used_after, 1, index, config) if used_after else ((), reason)
             )
             paths = _paths(before_options, after_options, gap, index)
+            paths = tuple(_score_path_signals(path, signal_totals, config) for path in paths)
             if not paths:
                 reason = (
                     before_reason
@@ -693,7 +708,7 @@ def _allocate_path(
     if isinstance(allocation, Reason):
         return allocation
     method, fractions, diagnostics = allocation
-    if clock.audit.paused_seconds:
+    if clock is not None:
         for (previous_fraction, next_fraction), active in zip(
             pairwise(fractions), clock.active_deltas, strict=True
         ):
@@ -767,6 +782,10 @@ def _allocate_path(
     endpoint_source = "course_assumption" if gap.kind is not MissingCourseRunKind.INTERNAL else None
     high = (
         not gap.original_missing_count
+        and not any(
+            item.endswith(("_path_mismatch", "_allocation_implausible", "_zero"))
+            for item in diagnostics
+        )
         and endpoint_source is None
         and gap.invalidation_confidence is IntegrityConfidence.HIGH
         and max(path.before.anchor_distance_m, path.after.anchor_distance_m)
@@ -819,6 +838,7 @@ def _allocate_path(
             speed_signal.cumulative[-1] if speed_signal.cumulative else None,
             _signal_error_budget(path.length, config),
             clock.audit,
+            path.signal_penalty_m,
         ),
     )
 
@@ -831,64 +851,19 @@ def _fractions(
     *,
     clock: AllocationClock | None = None,
 ) -> tuple[AllocationMethod, tuple[float, ...], tuple[str, ...]] | Reason:
-    diagnostics: list[str] = []
-    paused = clock is not None and clock.audit.paused_seconds > 0
-    active_deltas = clock.active_deltas if paused and clock else None
-    distance_signal = qualify_distance(records, integrity_config)
-    if paused and clock:
-        if clock.audit.open_pause:
-            return Reason.TIMER_STATE_UNRESOLVED
-        if clock.audit.active_seconds <= 0:
-            return Reason.NO_ACTIVE_TIME
-        diagnostics.append("timer_pauses_excluded")
-        if distance_signal.status == "plausible" and any(
-            active == 0 and b > a
-            for (a, b), active in zip(
-                pairwise(distance_signal.cumulative), clock.active_deltas, strict=True
-            )
-        ):
-            return Reason.PAUSE_DISTANCE_CONFLICT
-    conflict = False
-    for label, method, signal in (
-        (
-            "distance",
-            AllocationMethod.RECORDED_DISTANCE,
-            distance_signal,
+    clock = clock or allocation_clock(records, ())
+    if clock is None:
+        return Reason.TIMING_UNUSABLE
+    return allocate_signal_progress(
+        records,
+        length,
+        integrity_config,
+        clock,
+        error_budget_m=_signal_error_budget(length, config),
+        maximum_speed_mps=min(
+            config.missing_completion_max_course_speed_mps,
+            config.missing_completion_max_connector_speed_mps,
         ),
-        (
-            "speed",
-            AllocationMethod.RECORDED_SPEED,
-            qualify_speed(records, integrity_config, active_deltas=active_deltas),
-        ),
-    ):
-        if signal.status in {"plausible", "zero"}:
-            total = signal.cumulative[-1]
-            if total > 0 and abs(total - length) <= _signal_error_budget(length, config):
-                return (
-                    method,
-                    tuple(value / total for value in signal.cumulative),
-                    tuple(diagnostics),
-                )
-            conflict = True
-            diagnostics.append(f"{label}_path_mismatch" if total > 0 else f"{label}_zero")
-        else:
-            diagnostics.append(f"{label}_{signal.status}")
-    # A qualified alternative can resolve uncertain source disagreement, but time
-    # alone must not override plausible measurements supporting a different path.
-    if conflict:
-        return Reason.LOCAL_DISTANCE_INCONSISTENT
-    if paused and clock:
-        return (
-            AllocationMethod.TIMESTAMPS,
-            tuple(value / clock.audit.active_seconds for value in clock.active_cumulative),
-            (*diagnostics, "active_time_estimated"),
-        )
-    stamps = tuple(record.timestamp for record in records if record.timestamp is not None)
-    elapsed = (stamps[-1] - stamps[0]).total_seconds()
-    return (
-        AllocationMethod.TIMESTAMPS,
-        tuple((stamp - stamps[0]).total_seconds() / elapsed for stamp in stamps),
-        tuple(diagnostics),
     )
 
 
@@ -897,3 +872,19 @@ def _signal_error_budget(length: float, config: CourseReconstructionConfig) -> f
         config.signal_distance_absolute_tolerance_m,
         length * config.missing_alignment_max_distance_ratio_error,
     )
+
+
+def _score_path_signals(
+    path: _Path, totals: tuple[float, ...], config: CourseReconstructionConfig
+) -> _Path:
+    budget = _signal_error_budget(path.length, config)
+    disagreement = max(
+        (
+            max(0.0, abs(total - path.length) - budget) / max(path.length, budget)
+            for total in totals
+        ),
+        default=0.0,
+    )
+    # Speed/distance may share a GNSS source: use one capped penalty, not two votes.
+    penalty = min(1.0, disagreement) * config.signal_path_score_penalty_m
+    return replace(path, score=path.score + penalty, signal_penalty_m=penalty)

@@ -41,7 +41,11 @@ from warpbuster.reconstruction.gaps import (
 )
 from warpbuster.reconstruction.geometry import _interpolate_coordinate
 from warpbuster.reconstruction.osm import _anchors
-from warpbuster.reconstruction.signals import qualify_distance, qualify_speed
+from warpbuster.reconstruction.signals import (
+    allocate_signal_progress,
+    qualify_distance,
+    qualify_speed,
+)
 from warpbuster.reconstruction.timing import activity_clock
 
 
@@ -270,7 +274,7 @@ def _allocate(
     plan: RepairPlan,
     evaluation: OSMGapEvaluation,
     route: OSMRouteCandidate,
-    confirmation: OSMRouteConfirmation,
+    confirmation: OSMRouteConfirmation | None,
     graph_id: str,
     config: OSMApplicationConfig,
     integrity_config: IntegrityConfig,
@@ -314,24 +318,40 @@ def _allocate(
     tolerance = max(
         config.distance_absolute_tolerance_m, config.distance_relative_tolerance * length
     )
-    for signal in (distance, speed):
-        if signal.status in {"plausible", "zero"}:
-            if any(
-                active == 0 and b > a
-                for (a, b), active in zip(
-                    pairwise(signal.cumulative), clock.active_deltas, strict=True
-                )
-            ):
-                return Reason.PAUSE_DISTANCE_CONFLICT
-            if signal.cumulative[-1] <= 0 or abs(signal.cumulative[-1] - length) > tolerance:
-                return Reason.LOCAL_DISTANCE_INCONSISTENT
-    if distance.status == "plausible":
-        cumulative, method = distance.cumulative, AllocationMethod.RECORDED_DISTANCE
-    elif speed.status == "plausible":
-        cumulative, method = speed.cumulative, AllocationMethod.RECORDED_SPEED
+    diagnostics: tuple[str, ...] = ()
+    if confirmation is None:
+        allocation = allocate_signal_progress(
+            records,
+            length,
+            integrity_config,
+            clock,
+            error_budget_m=tolerance,
+            maximum_speed_mps=limit,
+        )
+        if isinstance(allocation, Reason):
+            return allocation
+        method, fractions, diagnostics = allocation
+        travelled = tuple(value * length for value in fractions)
     else:
-        cumulative, method = clock.active_cumulative, AllocationMethod.TIMESTAMPS
-    travelled = tuple(value / cumulative[-1] * length for value in cumulative)
+        # Historical explicit-confirmation API retains its strict signal contract.
+        for signal in (distance, speed):
+            if signal.status in {"plausible", "zero"}:
+                if any(
+                    active == 0 and b > a
+                    for (a, b), active in zip(
+                        pairwise(signal.cumulative), clock.active_deltas, strict=True
+                    )
+                ):
+                    return Reason.PAUSE_DISTANCE_CONFLICT
+                if signal.cumulative[-1] <= 0 or abs(signal.cumulative[-1] - length) > tolerance:
+                    return Reason.LOCAL_DISTANCE_INCONSISTENT
+        if distance.status == "plausible":
+            cumulative, method = distance.cumulative, AllocationMethod.RECORDED_DISTANCE
+        elif speed.status == "plausible":
+            cumulative, method = speed.cumulative, AllocationMethod.RECORDED_SPEED
+        else:
+            cumulative, method = clock.active_cumulative, AllocationMethod.TIMESTAMPS
+        travelled = tuple(value / cumulative[-1] * length for value in cumulative)
     for (a, b), active in zip(pairwise(travelled), clock.active_deltas, strict=True):
         if (active == 0 and b > a) or (active > 0 and (b - a) / active > limit):
             return Reason.ACTIVE_TIME_TRAVERSAL_IMPLAUSIBLE
@@ -357,8 +377,11 @@ def _allocate(
     return GapRepairPlan(
         interval=gap,
         coordinate_updates=updates,
-        confidence=IntegrityConfidence.HIGH,
-        reasons=(Reason.OSM_ROUTE_CONFIRMED, Reason.ANCHOR_CONNECTORS_PLAUSIBLE),
+        confidence=IntegrityConfidence.HIGH if confirmation else IntegrityConfidence.MEDIUM,
+        reasons=(
+            Reason.OSM_ROUTE_CONFIRMED if confirmation else Reason.OSM_ROUTE_AUTOMATIC,
+            Reason.ANCHOR_CONNECTORS_PLAUSIBLE,
+        ),
         reconstruction_path_distance_m=length,
         preserve_recorded_distance=True,
         osm_provenance=OSMPathProvenance(
@@ -378,5 +401,12 @@ def _allocate(
             clock.audit,
             discovery_evaluation_json=_json(asdict(evaluation)),
             snapshot_sha256=snapshot,
+            identity_basis="caller_confirmed_route" if confirmation else "automatic_osm_selection",
+            signal_diagnostics=diagnostics,
+            observed_distance_m=distance.cumulative[-1] if distance.cumulative else None,
+            integrated_speed_distance_m=speed.cumulative[-1] if speed.cumulative else None,
+            distance_quality="estimated"
+            if confirmation is None and method is AllocationMethod.TIMESTAMPS
+            else "source_unverified",
         ),
     )

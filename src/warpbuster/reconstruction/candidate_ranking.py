@@ -491,7 +491,16 @@ def _audit_failed(candidate: Any) -> bool:
 
 def _candidate_id(provider: CandidateProvider, source_id: str, points: tuple[Point, ...]) -> str:
     encoded = json.dumps(
-        (provider.value, source_id, points), separators=(",", ":"), allow_nan=False
+        (
+            provider.value,
+            source_id,
+            tuple(
+                tuple(value if math.isfinite(value) else str(value) for value in point)
+                for point in points
+            ),
+        ),
+        separators=(",", ":"),
+        allow_nan=False,
     )
     return "sha256:" + sha256(encoded.encode()).hexdigest()
 

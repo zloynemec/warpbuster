@@ -237,7 +237,7 @@ def test_active_speed_cannot_be_hidden_by_long_pause(tmp_path):
     assert plan.unresolved_gaps[0].reasons == (Reason.ACTIVE_TIME_TRAVERSAL_IMPLAUSIBLE,)
 
 
-def test_speed_ignores_paused_samples_and_time_cannot_override_distance_conflict():
+def test_speed_ignores_paused_samples_and_time_preserves_pause_despite_zero_distance():
     activity = make_activity(eastward_observations([0, 1, 2, 11, 12], [0, 2, 2, 2, 4]))
     activity = _events(activity, [(1, "stop_all", 0), (11, "start", 0)])
     records = tuple(
@@ -254,12 +254,12 @@ def test_speed_ignores_paused_samples_and_time_cannot_override_distance_conflict
         is Reason.PAUSE_DISTANCE_CONFLICT
     )
     mismatch = tuple(replace(r, distance=0.0, speed=None) for r in records)
-    assert (
-        _fractions(
-            mismatch, 4, CourseReconstructionConfig(), IntegrityConfig.running(), clock=clock
-        )
-        is Reason.LOCAL_DISTANCE_INCONSISTENT
+    method, fractions, diagnostics = _fractions(
+        mismatch, 4, CourseReconstructionConfig(), IntegrityConfig.running(), clock=clock
     )
+    assert method is AllocationMethod.TIMESTAMPS
+    assert fractions == (0, 0.5, 0.5, 0.5, 1)
+    assert "distance_zero" in diagnostics
 
 
 def test_no_pause_fractions_stay_identical():
@@ -303,8 +303,9 @@ def test_local_active_speed_is_checked_even_when_total_speed_is_plausible(tmp_pa
     plan = build_repair_plan(
         activity, analyze_integrity(activity), course, config, fill_missing_from_course=True
     )
-    assert not plan.interval_plans
-    assert plan.unresolved_gaps[0].reasons == (Reason.ACTIVE_TIME_TRAVERSAL_IMPLAUSIBLE,)
+    candidate = plan.interval_plans[0]
+    assert candidate.provenance.allocation_method is AllocationMethod.RECORDED_SPEED
+    assert "distance_allocation_implausible" in candidate.provenance.signal_diagnostics
 
 
 def test_html_and_json_include_timing_and_allocation(tmp_path, capsys):

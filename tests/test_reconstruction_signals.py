@@ -6,7 +6,7 @@ import pytest
 
 from tests.activity_factory import eastward_observations, make_activity
 from warpbuster.config import CourseReconstructionConfig, IntegrityConfig
-from warpbuster.models.reconstruction import AllocationMethod, ReconstructionReason
+from warpbuster.models.reconstruction import AllocationMethod
 from warpbuster.reconstruction.local import _fractions
 from warpbuster.reconstruction.signals import qualify_distance, qualify_speed
 
@@ -69,14 +69,16 @@ def test_absolute_and_relative_signal_error_boundaries(length, delta, accepted) 
     if accepted:
         assert result[0] is AllocationMethod.RECORDED_DISTANCE
     else:
-        assert result is ReconstructionReason.LOCAL_DISTANCE_INCONSISTENT
+        assert result[0] is AllocationMethod.TIMESTAMPS
+        assert "distance_path_mismatch" in result[2]
 
 
-def test_zero_measurements_do_not_allow_time_only_override() -> None:
+def test_unverified_zero_measurements_allow_estimated_active_time() -> None:
     result = _fractions(
         _records(0, speed=0), 2, CourseReconstructionConfig(), IntegrityConfig.running()
     )
-    assert result is ReconstructionReason.LOCAL_DISTANCE_INCONSISTENT
+    assert result[0] is AllocationMethod.TIMESTAMPS
+    assert result[2] == ("distance_zero", "speed_zero", "active_time_estimated")
 
 
 def test_unusable_signals_allow_explicit_estimated_time_allocation() -> None:
@@ -86,7 +88,7 @@ def test_unusable_signals_allow_explicit_estimated_time_allocation() -> None:
     assert result == (
         AllocationMethod.TIMESTAMPS,
         (0.0, 1.0),
-        ("distance_implausible", "speed_implausible"),
+        ("distance_implausible", "speed_implausible", "active_time_estimated"),
     )
 
 
