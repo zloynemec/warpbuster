@@ -36,7 +36,11 @@ def gap_candidate_report(
 ) -> dict[str, object]:
     provenance = candidate.provenance
     gap = candidate.interval
+    osm = candidate.osm_provenance
+    path_provenance = provenance or osm
     return {
+        "provider": "osm" if osm else "gpx",
+        "osm_provenance": json_value(asdict(osm)) if osm else None,
         "gap_id": gap.gap_id,
         "start_record_index": gap.start_record_index,
         "end_record_index": gap.end_record_index,
@@ -52,7 +56,7 @@ def gap_candidate_report(
         "course_span_distance_m": provenance.course_span_distance_m if provenance else None,
         "anchor_connector_distance_m": provenance.connector_distance_m if provenance else None,
         "reconstruction_path_distance_m": candidate.reconstruction_path_distance_m,
-        "allocation_method": provenance.allocation_method.value if provenance else None,
+        "allocation_method": path_provenance.allocation_method.value if path_provenance else None,
         "anchor_before_record_index": gap.anchor_before_record_index,
         "anchor_after_record_index": gap.anchor_after_record_index,
         "provenance": json_value(asdict(provenance)) if provenance else None,
@@ -83,6 +87,12 @@ def distance_policy(selection: RepairSelection) -> dict[str, object]:
             candidate.provenance.distance_signal_status != "plausible"
             or "distance_path_mismatch" in candidate.provenance.signal_diagnostics
         )
+        for candidate in selection.selected_interval_plans
+    )
+    unresolved_signal = unresolved_signal or any(
+        isinstance(candidate, GapRepairPlan)
+        and candidate.osm_provenance is not None
+        and candidate.osm_provenance.distance_signal_status != "plausible"
         for candidate in selection.selected_interval_plans
     )
     uncertain = (
@@ -165,10 +175,9 @@ def gap_audit(plan: RepairPlan, selection: RepairSelection) -> dict[str, object]
             or (failure and ReconstructionReason.MISSING_COMPLETION_DISABLED in failure.reasons)
             else "unresolved"
         )
+        path_provenance = (candidate.provenance or candidate.osm_provenance) if candidate else None
         timing = (
-            candidate.provenance.timing
-            if candidate and candidate.provenance
-            else (failure.timing if failure else None)
+            path_provenance.timing if path_provenance else (failure.timing if failure else None)
         )
         gaps.append(
             {
@@ -189,17 +198,20 @@ def gap_audit(plan: RepairPlan, selection: RepairSelection) -> dict[str, object]
                 "selection_reasons": decisions[gap.gap_id].selection_reasons
                 if gap.gap_id in decisions
                 else (),
-                "provenance": asdict(candidate.provenance)
-                if candidate and candidate.provenance
+                "provider": "osm"
+                if candidate and candidate.osm_provenance
+                else "gpx"
+                if candidate
                 else None,
+                "provenance": asdict(path_provenance) if path_provenance else None,
                 "endpoint_source": candidate.provenance.endpoint_source
                 if candidate and candidate.provenance
                 else None,
                 "distance_action": ("corrected" if plan.output_written else "correction_planned")
                 if is_selected and candidate and not candidate.preserve_recorded_distance
                 else "preserved",
-                "distance_signal_status": candidate.provenance.distance_signal_status
-                if candidate and candidate.provenance
+                "distance_signal_status": path_provenance.distance_signal_status
+                if path_provenance
                 else "unassessed",
                 "invalidation_action": ("applied" if plan.output_written else "planned")
                 if gap.invalidated_count
@@ -249,7 +261,7 @@ def gap_console(plan: RepairPlan, selection: RepairSelection) -> list[str]:
     return [
         f"Coordinate coverage: {audit['coordinate_coverage']}",
         *(
-            f"  G{g['number']} ({g['gap_id']}): {g['status']}; "
+            f"  G{g['number']} ({g['gap_id']}): {g['status']}; provider={g['provider']}; "
             f"missing={g['original_missing_count']}, invalidated={g['invalidated_count']}, "
             f"filled={g['filled_count']}, unresolved={g['unresolved_count']}; "
             f"reasons={g['reasons']}; timing={g['timing']}; "

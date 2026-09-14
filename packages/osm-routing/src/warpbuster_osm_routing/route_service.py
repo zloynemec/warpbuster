@@ -5,13 +5,14 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import replace
 from typing import Any
 
 import valhalla
 
 from warpbuster_osm_routing.alternatives import build_route_set, empty_route_set, geometry_weights
 from warpbuster_osm_routing.config import RoutingCacheConfig
+from warpbuster_osm_routing.context_snapping import validate_context
 from warpbuster_osm_routing.coverage import parse_coverage
 from warpbuster_osm_routing.errors import RoutingError
 from warpbuster_osm_routing.geometry import (
@@ -33,18 +34,13 @@ from warpbuster_osm_routing.models import (
 )
 from warpbuster_osm_routing.profiles import TRAIL_RUNNING_V1, apply_profile
 from warpbuster_osm_routing.snapping import SnapCandidate, SnapDecision, audit_snap
+from warpbuster_osm_routing.trace_audit import AuditBudget as _AuditBudget
+from warpbuster_osm_routing.trace_audit import audit_trace
 
 _NEGATIVE_PRECEDENCE = ("OUTSIDE_COVERAGE", "NO_SNAP", "AMBIGUOUS_SNAP")
 _FERRY_USES = frozenset({"ferry", "rail-ferry", "rail_ferry"})
 _IMPASSABLE_SURFACES = frozenset({"impassable", 7})
 _MAX_ALLOWED_SAC_SCALE = 3
-
-
-@dataclass
-class _AuditBudget:
-    remaining_points: int
-    remaining_edges: int
-    response_bytes: int
 
 
 def _require_matching_engine(document: dict[str, Any], graph_id: str) -> None:
@@ -115,7 +111,7 @@ class RouteService:
         self.cache = GraphCache(self.config)
 
     def _setup(
-        self, request: RouteRequest
+        self, request: RouteRequest, *, approximate: bool = False
     ) -> tuple[Any, SnapDecision, SnapDecision, dict[str, Any]]:
         self._validate_request(request)
         graph = self.cache.inspect(request.graph_id)
@@ -137,8 +133,28 @@ class RouteService:
                 "VALHALLA_REQUEST_FAILED", f"cannot initialize Valhalla: {error}"
             ) from error
 
-        start = audit_snap(actor, request.start, coverage, self.config)
-        end = audit_snap(actor, request.end, coverage, self.config)
+        budget = (
+            _AuditBudget(
+                self.config.maximum_total_route_shape_points,
+                self.config.maximum_total_route_edges,
+                self.config.maximum_alternatives_response_bytes,
+            )
+            if approximate
+            or (request.start_context is not None and self.config.context_snapping_enabled)
+            else None
+        )
+        start = audit_snap(
+            actor, request.start, coverage, self.config, request.start_context, budget, approximate
+        )
+        start = replace(start, budget=budget)
+        end = audit_snap(
+            actor,
+            request.end,
+            coverage,
+            self.config,
+            budget=budget if approximate else None,
+            approximate=approximate,
+        )
         common = self._base_document(request, graph.document, start, end)
         return actor, start, end, common
 
@@ -151,7 +167,18 @@ class RouteService:
                 return RouteResult(result_status, common)
 
         assert start.selected is not None and end.selected is not None
-        route = self._query_route(actor, request, start.selected, end.selected)
+        try:
+            route = self._query_route(
+                actor, request, start.selected, end.selected, budget=start.budget
+            )
+        except RoutingError as error:
+            if start.selected.context_resolved:
+                raise RoutingError(
+                    error.code,
+                    error.message,
+                    {**error.details, "start_context": start.document.get("context")},
+                ) from error
+            raise
         if route is None:
             common.update({"status": RouteStatus.NO_ROUTE.value, "route": None})
             return RouteResult(RouteStatus.NO_ROUTE, common)
@@ -167,7 +194,13 @@ class RouteService:
             raise RoutingError(
                 "INVALID_REQUEST", "alternates must be an integer in configured 1..2 range"
             )
-        single = RouteRequest(request.graph_id, request.start, request.end)
+        if type(request.approximate_candidates) is not bool:
+            raise RoutingError("INVALID_REQUEST", "approximate_candidates must be boolean")
+        if request.approximate_candidates:
+            from warpbuster_osm_routing.approximate import discover_approximate
+
+            return discover_approximate(self, request)
+        single = RouteRequest(request.graph_id, request.start, request.end, request.start_context)
         actor, start, end, common = self._setup(single)
         common.update(
             operation="route_alternatives",
@@ -180,7 +213,7 @@ class RouteService:
                 common["status"] = status
                 return self._alternatives_result(common)
         assert start.selected is not None and end.selected is not None
-        payload = self._route_payload(single, request.alternates)
+        payload = self._route_payload(single, request.alternates, start.selected)
         try:
             raw = actor.route(json.dumps(payload, separators=(",", ":")))
         except Exception as error:
@@ -191,7 +224,11 @@ class RouteService:
             raise RoutingError(
                 "VALHALLA_REQUEST_FAILED", "Valhalla alternatives request failed"
             ) from error
-        response = _bounded_response(raw, self.config.maximum_alternatives_response_bytes)
+        response = (
+            start.budget.response(raw)
+            if start.budget
+            else _bounded_response(raw, self.config.maximum_alternatives_response_bytes)
+        )
         alternates = response.get("alternates", [])
         if not isinstance(alternates, list):
             raise RoutingError("ROUTE_AUDIT_FAILED", "alternates must be an array")
@@ -208,10 +245,10 @@ class RouteService:
                     {"engine_slot": f"alternative_{index}"},
                 )
             trips.append(item.get("trip"))
-        budget = _AuditBudget(
+        budget = start.budget or _AuditBudget(
             self.config.maximum_total_route_shape_points,
             self.config.maximum_total_route_edges,
-            self.config.maximum_alternatives_response_bytes,
+            self.config.maximum_alternatives_response_bytes - len(raw.encode("utf-8")),
         )
         audited = []
         for index, trip in enumerate(trips):
@@ -221,7 +258,6 @@ class RouteService:
                     raise RoutingError("ROUTE_AUDIT_FAILED", "missing or malformed trip")
                 route = self._audit_trip(actor, trip, start.selected, end.selected, budget=budget)
                 geometry_weights(route)  # Audit even exact duplicates before deduplication.
-                route["audit"]["checks"].append({"name": "complete_edge_spans", "status": "PASS"})
                 audited.append(route)
             except RoutingError as error:
                 raise RoutingError(
@@ -231,6 +267,11 @@ class RouteService:
                         "check": "route_audit",
                         **error.details,
                         "engine_slot": slot,
+                        **(
+                            {"start_context": start.document["context"]}
+                            if start.selected.context_resolved
+                            else {}
+                        ),
                     },
                 ) from error
         common.update(
@@ -277,6 +318,7 @@ class RouteService:
             raise RoutingError("INVALID_GRAPH_ID", "graph_id must not be empty")
         if not valid_wgs84(request.start) or not valid_wgs84(request.end):
             raise RoutingError("INVALID_REQUEST", "route anchors must be finite WGS84 points")
+        validate_context(request.start_context, request.start, self.config)
         direct_distance = haversine_m(request.start, request.end)
         if direct_distance > self.config.maximum_route_distance_m:
             raise RoutingError(
@@ -327,10 +369,21 @@ class RouteService:
         request: RouteRequest,
         start: SnapCandidate,
         end: SnapCandidate,
+        *,
+        budget: _AuditBudget | None = None,
     ) -> dict[str, Any] | None:
-        route_request = self._route_payload(request, 0)
+        route_request = self._route_payload(request, 0, start)
+        budget = budget or _AuditBudget(
+            self.config.maximum_total_route_shape_points,
+            self.config.maximum_total_route_edges,
+            self.config.maximum_alternatives_response_bytes,
+        )
         try:
-            response = json.loads(actor.route(json.dumps(route_request, separators=(",", ":"))))
+            response = budget.response(
+                actor.route(json.dumps(route_request, separators=(",", ":")))
+            )
+        except RoutingError:
+            raise
         except Exception as error:
             if _is_no_route_error(error):
                 return None
@@ -340,9 +393,11 @@ class RouteService:
         trip = response.get("trip") if isinstance(response, dict) else None
         if not isinstance(trip, dict):
             return None
-        return self._audit_trip(actor, trip, start, end)
+        return self._audit_trip(actor, trip, start, end, budget=budget)
 
-    def _route_payload(self, request: RouteRequest, alternates: int) -> dict[str, Any]:
+    def _route_payload(
+        self, request: RouteRequest, alternates: int, start: SnapCandidate | None = None
+    ) -> dict[str, Any]:
         locations = [
             {
                 **point.as_valhalla(),
@@ -370,6 +425,11 @@ class RouteService:
         *,
         budget: _AuditBudget | None = None,
     ) -> dict[str, Any]:
+        budget = budget or _AuditBudget(
+            self.config.maximum_total_route_shape_points,
+            self.config.maximum_total_route_edges,
+            self.config.maximum_alternatives_response_bytes,
+        )
         legs = trip.get("legs")
         if not isinstance(legs, list) or len(legs) != 1 or not isinstance(legs[0], dict):
             raise RoutingError("ROUTE_AUDIT_FAILED", "route must contain exactly one leg")
@@ -416,6 +476,8 @@ class RouteService:
                 if value is not None and (not _finite(value) or value < 0):
                     raise RoutingError("ROUTE_AUDIT_FAILED", f"invalid summary {name}")
         geometry_length_m = path_length_m(points)
+        if not math.isfinite(geometry_length_m) or geometry_length_m <= 0:
+            raise RoutingError("ROUTE_AUDIT_FAILED", "route requires positive geometry length")
         if budget and geometry_length_m > self.config.maximum_route_distance_m:
             raise RoutingError(
                 "RESOURCE_LIMIT_EXCEEDED", "geometry distance exceeds configured limit"
@@ -440,8 +502,24 @@ class RouteService:
                     "tolerance_m": tolerance,
                 },
             )
-        edges = self._trace_edges(actor, encoded, len(points), budget=budget)
+        edges, trace_audit = self._trace_edges(actor, encoded, len(points), budget=budget)
+        if start.context_resolved and (
+            edges[0]["edge_id"] != start.edge_id or edges[0]["way_id"] != start.way_id
+        ):
+            raise RoutingError(
+                "ROUTE_AUDIT_FAILED",
+                "native route changed context-selected start edge",
+                {
+                    "check": "context_start_edge",
+                    "selected_edge_id": start.edge_id,
+                    "actual_edge_id": edges[0]["edge_id"],
+                },
+            )
         warnings: list[dict[str, Any]] = []
+        if start.context_resolved:
+            warnings.append({"code": "CONTEXT_RESOLVED_START_SNAP"})
+        if trace_audit["fallback_used"]:
+            warnings.append({"code": "TRACE_AUDIT_FALLBACK_USED"})
         if start.destination_only:
             warnings.append({"code": "DESTINATION_ONLY_SNAP", "anchor": "start"})
         if end.destination_only:
@@ -450,6 +528,7 @@ class RouteService:
             warnings.append({"code": "FERRY_USED"})
         checks = [
             {"name": "geometry", "status": "PASS"},
+            {"name": "complete_edge_spans", "status": "PASS"},
             {
                 "name": "endpoints",
                 "status": "PASS",
@@ -479,7 +558,11 @@ class RouteService:
                 "calculated_length_m": round(geometry_length_m, 3),
             },
             "edges": edges,
-            "audit": {"status": "WARN" if warnings else "PASS", "checks": checks},
+            "audit": {
+                "status": "WARN" if warnings else "PASS",
+                "checks": checks,
+                "trace": trace_audit,
+            },
             "warnings": warnings,
         }
 
@@ -490,13 +573,14 @@ class RouteService:
         point_count: int,
         *,
         budget: _AuditBudget | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         trace_request: dict[str, Any] = {
             "encoded_polyline": encoded,
             "shape_match": "edge_walk",
             "filters": {
                 "action": "include",
                 "attributes": [
+                    "shape",
                     "edge.id",
                     "edge.length",
                     "edge.begin_shape_index",
@@ -512,19 +596,25 @@ class RouteService:
             },
         }
         apply_profile(trace_request, TRAIL_RUNNING_V1)
-        try:
-            raw_response = actor.trace_attributes(json.dumps(trace_request, separators=(",", ":")))
-            response = (
-                _bounded_response(raw_response, budget.response_bytes)
-                if budget
-                else json.loads(raw_response)
-            )
-        except RoutingError:
-            raise
-        except Exception as error:
-            raise RoutingError(
-                "ROUTE_AUDIT_FAILED", f"Valhalla trace audit failed: {error}"
-            ) from error
+        budget = budget or _AuditBudget(
+            self.config.maximum_total_route_shape_points,
+            self.config.maximum_total_route_edges,
+            self.config.maximum_alternatives_response_bytes,
+        )
+        return audit_trace(
+            actor,
+            trace_request,
+            decode_polyline6(encoded),
+            self.config,
+            budget,
+            self._normalize_trace_edges,
+        )
+
+    def _normalize_trace_edges(
+        self,
+        response: dict[str, Any],
+        point_count: int,
+    ) -> list[dict[str, Any]]:
         raw_edges = response.get("edges") if isinstance(response, dict) else None
         if not isinstance(raw_edges, list) or not raw_edges:
             raise RoutingError("ROUTE_AUDIT_FAILED", "trace audit returned no edges")
@@ -534,12 +624,6 @@ class RouteService:
                 "route edge count exceeds configured limit",
                 {"count": len(raw_edges), "limit": self.config.maximum_route_edges},
             )
-        if budget:
-            if len(raw_edges) > budget.remaining_edges:
-                raise RoutingError(
-                    "RESOURCE_LIMIT_EXCEEDED", "total route edge count exceeds limit"
-                )
-            budget.remaining_edges -= len(raw_edges)
         edges: list[dict[str, Any]] = []
         previous_begin = -1
         previous_end = -1
@@ -561,9 +645,7 @@ class RouteService:
             )
             if edge_id is None or way_id is None:
                 raise RoutingError("ROUTE_AUDIT_FAILED", "route edge lacks provenance IDs")
-            if budget and (
-                type(edge_id) is not int or edge_id < 0 or type(way_id) is not int or way_id <= 0
-            ):
+            if type(edge_id) is not int or edge_id < 0 or type(way_id) is not int or way_id <= 0:
                 raise RoutingError("ROUTE_AUDIT_FAILED", "route edge has invalid provenance IDs")
             if not indexes_valid:
                 raise RoutingError("ROUTE_AUDIT_FAILED", "route edge shape indexes are invalid")
@@ -571,20 +653,17 @@ class RouteService:
             if raw.get("travel_mode") != "pedestrian" or raw.get("pedestrian_type") != "foot":
                 raise RoutingError("ROUTE_AUDIT_FAILED", "route edge is not pedestrian/foot")
             sac_scale = raw.get("sac_scale", 0)
-            if budget and (
-                type(sac_scale) is not int or not 0 <= sac_scale <= _MAX_ALLOWED_SAC_SCALE
-            ):
+            if type(sac_scale) is not int or not 0 <= sac_scale <= _MAX_ALLOWED_SAC_SCALE:
                 raise RoutingError("ROUTE_AUDIT_FAILED", "route edge has invalid sac_scale")
             if not isinstance(sac_scale, int | float) or sac_scale > _MAX_ALLOWED_SAC_SCALE:
                 raise RoutingError("ROUTE_AUDIT_FAILED", "route edge exceeds allowed sac_scale")
             surface = raw.get("surface")
-            if budget:
-                if surface is not None and type(surface) not in (str, int):
-                    raise RoutingError("ROUTE_AUDIT_FAILED", "route edge has invalid surface")
-                if raw.get("use") is not None and not isinstance(raw["use"], str):
-                    raise RoutingError("ROUTE_AUDIT_FAILED", "route edge has invalid use")
-                if raw.get("unpaved") is not None and type(raw["unpaved"]) is not bool:
-                    raise RoutingError("ROUTE_AUDIT_FAILED", "route edge has invalid unpaved flag")
+            if surface is not None and type(surface) not in (str, int):
+                raise RoutingError("ROUTE_AUDIT_FAILED", "route edge has invalid surface")
+            if raw.get("use") is not None and not isinstance(raw["use"], str):
+                raise RoutingError("ROUTE_AUDIT_FAILED", "route edge has invalid use")
+            if raw.get("unpaved") is not None and type(raw["unpaved"]) is not bool:
+                raise RoutingError("ROUTE_AUDIT_FAILED", "route edge has invalid unpaved flag")
             if surface in _IMPASSABLE_SURFACES:
                 raise RoutingError("ROUTE_AUDIT_FAILED", "route contains an impassable surface")
             length = raw.get("length")
@@ -593,7 +672,7 @@ class RouteService:
             length_value = float(length)
             if not math.isfinite(length_value) or length_value < 0:
                 raise RoutingError("ROUTE_AUDIT_FAILED", "route edge has invalid length")
-            if budget and not math.isfinite(length_value * 1000.0):
+            if not math.isfinite(length_value * 1000.0):
                 raise RoutingError("ROUTE_AUDIT_FAILED", "route edge length overflows metres")
             edges.append(
                 {

@@ -31,6 +31,33 @@ ALTERNATIVES_POLICY_FIELDS = frozenset(
 )
 QUERY_POLICY_FIELDS = frozenset(
     {
+        "maximum_trace_fallback_attempts_per_route",
+        "maximum_trace_metadata_queries_per_route",
+        "trace_edge_projection_tolerance_m",
+        "trace_percent_along_tolerance",
+        "context_snapping_enabled",
+        "context_maximum_points",
+        "context_maximum_age_s",
+        "context_maximum_length_m",
+        "context_maximum_step_s",
+        "context_minimum_points",
+        "context_minimum_duration_s",
+        "context_minimum_progress_m",
+        "context_maximum_median_error_m",
+        "context_maximum_p90_error_m",
+        "context_maximum_backtrack_m",
+        "context_minimum_margin_m",
+        "context_minimum_support_ratio",
+        "context_recent_points",
+        "context_maximum_groups",
+        "context_maximum_vertices",
+        "context_maximum_projection_work",
+        "context_projection_tie_m",
+        "approximate_snap_distance_m",
+        "approximate_projection_merge_m",
+        "approximate_maximum_groups",
+        "approximate_maximum_pairs",
+        "approximate_minimum_context_support",
         "snap_search_radius_m",
         "maximum_snap_distance_m",
         "equivalent_snap_separation_m",
@@ -82,6 +109,41 @@ class RoutingCacheConfig:
     lock_poll_seconds: float = 0.1
     io_chunk_bytes: int = 1 * 1024 * 1024
     prune_minimum_age_seconds: float = 7 * 24 * 60 * 60
+    # Requests per route: at most one narrow recovery and one batched metadata lookup.
+    maximum_trace_fallback_attempts_per_route: int = 1
+    maximum_trace_metadata_queries_per_route: int = 1
+    # Metres: graph-shape projection error from polyline6 quantization, NOT a
+    # route/trace identity tolerance (that comparison is always exact).
+    trace_edge_projection_tolerance_m: float = 0.25
+    # Fraction of edge: trace truncates to 3 decimals, locate to 5 decimals.
+    trace_percent_along_tolerance: float = 0.001
+    # 010H request policy: 0 disables; no context means legacy snapping.
+    context_snapping_enabled: int = 1
+    context_maximum_points: int = 60
+    context_maximum_age_s: float = 60.0
+    context_maximum_length_m: float = 150.0
+    context_maximum_step_s: float = 5.0
+    context_minimum_points: int = 8
+    context_minimum_duration_s: float = 7.0
+    context_minimum_progress_m: float = 10.0
+    context_maximum_median_error_m: float = 20.0
+    context_maximum_p90_error_m: float = 25.0
+    # Total backward chainage, not per-sample jitter allowance.
+    context_maximum_backtrack_m: float = 3.0
+    context_minimum_margin_m: float = 10.0
+    context_minimum_support_ratio: float = 0.8
+    context_recent_points: int = 5
+    context_maximum_groups: int = 8
+    context_maximum_vertices: int = 4096
+    context_maximum_projection_work: int = 245760
+    # Distinct projections within this error distance (m) are ambiguous.
+    context_projection_tie_m: float = 0.25
+    # Candidate discovery only: loose GPS attachment, not relaxed graph audit.
+    approximate_snap_distance_m: float = 100.0
+    approximate_projection_merge_m: float = 20.0
+    approximate_maximum_groups: int = 2
+    approximate_maximum_pairs: int = 4
+    approximate_minimum_context_support: float = 0.6
     snap_search_radius_m: float = 100.0
     maximum_snap_distance_m: float = 30.0
     equivalent_snap_separation_m: float = 3.0
@@ -171,12 +233,41 @@ class RoutingCacheConfig:
                 raise ValueError(
                     f"{item.name} must have a finite numeric value of the correct type"
                 )
+            if item.name in {
+                "context_snapping_enabled",
+                "maximum_trace_fallback_attempts_per_route",
+                "maximum_trace_metadata_queries_per_route",
+            }:
+                if value not in (0, 1):
+                    raise ValueError(f"{item.name} must be zero or one")
+                continue
             if item.name == "minimum_diversity_ratio":
                 if not 0 <= value <= 1:
                     raise ValueError("minimum_diversity_ratio must be in [0, 1]")
                 continue
             if value <= 0:
                 raise ValueError(f"{item.name} must be positive")
+        if not 0 < self.context_minimum_support_ratio <= 1:
+            raise ValueError("context_minimum_support_ratio must be in (0, 1]")
+        if (
+            not 2
+            <= self.context_recent_points
+            <= self.context_minimum_points
+            <= self.context_maximum_points
+        ):
+            raise ValueError("context point limits must satisfy 2 <= recent <= minimum <= maximum")
+        if self.context_minimum_duration_s >= self.context_maximum_age_s:
+            raise ValueError("context minimum duration must be below maximum age")
+        if self.context_minimum_progress_m >= self.context_maximum_length_m:
+            raise ValueError("context minimum progress must be below maximum length")
+        if self.context_maximum_median_error_m > self.context_maximum_p90_error_m:
+            raise ValueError("context median error limit must not exceed p90 limit")
+        if self.approximate_snap_distance_m > self.snap_search_radius_m:
+            raise ValueError("approximate snap distance must not exceed search radius")
+        if not 0 < self.approximate_minimum_context_support <= 1:
+            raise ValueError("approximate context support must be in (0, 1]")
+        if self.approximate_maximum_groups > self.maximum_snap_candidates:
+            raise ValueError("approximate groups exceed candidate budget")
         if self.maximum_requested_alternates > VALHALLA_MAX_ALTERNATES:
             raise ValueError("maximum_requested_alternates exceeds the pinned engine limit of 2")
         if self.detour_warning_ratio < 1:

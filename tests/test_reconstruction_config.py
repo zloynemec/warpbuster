@@ -126,6 +126,10 @@ def test_osm_reconstruction_limits_are_named_and_serializable() -> None:
         "requested_alternatives": 2,
         "maximum_gap_queries": 32,
         "maximum_total_candidate_points": 100_000,
+        "context_maximum_points": 60,
+        "context_maximum_age_s": 60.0,
+        "context_maximum_length_m": 150.0,
+        "context_maximum_step_s": 5.0,
     }
     assert OSMReconstructionConfig(requested_alternatives=1).requested_alternatives == 1
     assert OSMReconstructionConfig(requested_alternatives=2).requested_alternatives == 2

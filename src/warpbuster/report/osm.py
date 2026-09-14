@@ -42,6 +42,8 @@ def osm_reconstruction_report(result: OSMDryRunResult) -> dict[str, object]:
                 "candidate_count": len(evaluation.candidates),
                 "search": routing.get("search") if routing else None,
                 "snapping": routing.get("snapping") if routing else None,
+                "engine_diagnostics": routing.get("engine_diagnostics") if routing else None,
+                "discovery_policy": routing.get("discovery_policy") if routing else None,
                 "comparisons": routing.get("comparisons", []) if routing else [],
                 "candidates": [
                     {
@@ -73,6 +75,7 @@ def osm_reconstruction_report(result: OSMDryRunResult) -> dict[str, object]:
             "requested_alternatives": result.requested_alternatives,
             "maximum_gap_queries": result.maximum_gap_queries,
             "maximum_total_candidate_points": result.maximum_total_candidate_points,
+            **dict(result.context_collection_limits),
         },
         "gap_evaluations": evaluations,
     }

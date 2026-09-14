@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from warpbuster_osm_routing.config import RoutingCacheConfig
+from warpbuster_osm_routing.context_snapping import resolve_context, validate_context
 from warpbuster_osm_routing.coverage import contains
 from warpbuster_osm_routing.errors import RoutingError
 from warpbuster_osm_routing.geometry import decode_polyline6, haversine_m
-from warpbuster_osm_routing.models import GeoPoint, SnapshotCoverage
+from warpbuster_osm_routing.models import GeoPoint, SnapshotCoverage, StartContext
 from warpbuster_osm_routing.profiles import TRAIL_RUNNING_V1, apply_profile
+from warpbuster_osm_routing.trace_audit import AuditBudget
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +34,7 @@ class SnapCandidate:
     pedestrian_access: bool | None
     destination_only: bool
     endpoint: tuple[int | str, GeoPoint] | None
+    context_resolved: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -60,6 +63,9 @@ class SnapDecision:
     status: str
     selected: SnapCandidate | None
     document: dict[str, Any]
+    budget: AuditBudget | None = None
+    groups: tuple[tuple[SnapCandidate, ...], ...] = ()
+    raw_candidates: tuple[dict[str, Any], ...] = ()
 
 
 def audit_snap(
@@ -67,7 +73,11 @@ def audit_snap(
     point: GeoPoint,
     coverage: SnapshotCoverage,
     config: RoutingCacheConfig,
+    context: StartContext | None = None,
+    budget: AuditBudget | None = None,
+    approximate: bool = False,
 ) -> SnapDecision:
+    validate_context(context, point, config)
     if not contains(coverage, point):
         return _decision("OUTSIDE_COVERAGE", point, (), None, config)
     request: dict[str, Any] = {
@@ -83,10 +93,15 @@ def audit_snap(
     }
     apply_profile(request, TRAIL_RUNNING_V1)
     try:
-        response = json.loads(actor.locate(json.dumps(request, separators=(",", ":"))))
+        raw_response = actor.locate(json.dumps(request, separators=(",", ":")))
+        response = budget.response(raw_response) if budget else json.loads(raw_response)
+    except RoutingError:
+        raise
     except Exception as error:
         raise RoutingError("VALHALLA_REQUEST_FAILED", f"Valhalla locate failed: {error}") from error
-    raw_candidates = response[0].get("edges", []) if response else []
+    if not isinstance(response, list) or len(response) != 1 or not isinstance(response[0], dict):
+        raise RoutingError("VALHALLA_REQUEST_FAILED", "invalid locate response")
+    raw_candidates = response[0].get("edges", [])
     if not isinstance(raw_candidates, list):
         raise RoutingError("VALHALLA_REQUEST_FAILED", "Valhalla locate returned invalid edges")
     if len(raw_candidates) > config.maximum_snap_candidates:
@@ -95,25 +110,46 @@ def audit_snap(
             "Valhalla locate candidate count exceeds configured limit",
             {"count": len(raw_candidates), "limit": config.maximum_snap_candidates},
         )
+    if budget:
+        budget.edges(len(raw_candidates))
     normalized: list[SnapCandidate] = []
     for item in raw_candidates:
-        candidate = _normalize_candidate(item, point, config)
+        candidate = _normalize_candidate(item, point, config, budget)
         if candidate is not None:
             normalized.append(candidate)
     candidates = tuple(sorted(normalized, key=_candidate_key))
     groups = _group_candidates(candidates, config.equivalent_snap_separation_m)
+    if approximate:
+        eligible = tuple(g for g in groups if g[0].distance_m <= config.approximate_snap_distance_m)
+        decision = _decision("ACCEPTED" if eligible else "NO_SNAP", point, groups, None, config)
+        decision.document["policy"] = "approximate-candidates-v1"
+        return replace(
+            decision, groups=eligible, raw_candidates=tuple(raw_candidates), budget=budget
+        )
     if not groups or groups[0][0].distance_m > config.maximum_snap_distance_m:
         return _decision("NO_SNAP", point, groups, None, config)
     selected = groups[0][0]
     if len(groups) > 1:
         second = groups[1][0]
         if second.distance_m <= selected.distance_m + config.snap_ambiguity_distance_delta_m:
-            return _decision("AMBIGUOUS_SNAP", point, groups, None, config)
+            decision = _decision("AMBIGUOUS_SNAP", point, groups, None, config)
+            if config.context_snapping_enabled and context is not None:
+                assert budget is not None
+                chosen, audit = resolve_context(context, groups, raw_candidates, config, budget)
+                if chosen:
+                    decision = _decision(
+                        "ACCEPTED", point, groups, replace(chosen, context_resolved=True), config
+                    )
+                decision.document["context"] = audit
+            return decision
     return _decision("ACCEPTED", point, groups, selected, config)
 
 
 def _normalize_candidate(
-    item: object, input_point: GeoPoint, config: RoutingCacheConfig
+    item: object,
+    input_point: GeoPoint,
+    config: RoutingCacheConfig,
+    budget: AuditBudget | None = None,
 ) -> SnapCandidate | None:
     if not isinstance(item, dict):
         return None
@@ -149,7 +185,14 @@ def _normalize_candidate(
     percent_along = item.get("percent_along")
     percent_along = float(percent_along) if isinstance(percent_along, int | float) else None
     forward = edge.get("forward") if isinstance(edge.get("forward"), bool) else None
-    endpoint = _endpoint(item, point, tuple(node_ids), config.equivalent_snap_separation_m)
+    endpoint = _endpoint(
+        item,
+        point,
+        tuple(node_ids),
+        config.equivalent_snap_separation_m,
+        config.maximum_route_shape_points,
+        budget,
+    )
     return SnapCandidate(
         point=point,
         distance_m=haversine_m(input_point, point),
@@ -176,14 +219,22 @@ def _endpoint(
     point: GeoPoint,
     node_ids: tuple[int | str, ...],
     separation_m: float,
+    maximum_points: int,
+    budget: AuditBudget | None = None,
 ) -> tuple[int | str, GeoPoint] | None:
     edge_info = item.get("edge_info")
     shape = edge_info.get("shape") if isinstance(edge_info, dict) else None
     if not isinstance(shape, str) or len(node_ids) < 2:
         return None
     try:
-        points = decode_polyline6(shape)
+        points = (
+            budget.shape(shape, maximum_points)
+            if budget
+            else decode_polyline6(shape, maximum_points=maximum_points)
+        )
     except RoutingError:
+        if budget:
+            raise
         return None
     if len(points) < 2:
         return None

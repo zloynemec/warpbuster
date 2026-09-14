@@ -162,12 +162,26 @@ class RouteResult:
 
 
 @dataclass(frozen=True, slots=True)
+class StartContextPoint:
+    record_index: int
+    timestamp_seconds: float
+    point: GeoPoint
+
+
+@dataclass(frozen=True, slots=True)
+class StartContext:
+    points: tuple[StartContextPoint, ...]
+    stop_reason: str
+
+
+@dataclass(frozen=True, slots=True)
 class RouteRequest:
     """A single immutable request against one exact local graph."""
 
     graph_id: str
     start: GeoPoint
     end: GeoPoint
+    start_context: StartContext | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,6 +192,8 @@ class RouteAlternativesRequest:
     start: GeoPoint
     end: GeoPoint
     alternates: int
+    start_context: StartContext | None = None
+    approximate_candidates: bool = False
 
 
 @dataclass(frozen=True, slots=True)

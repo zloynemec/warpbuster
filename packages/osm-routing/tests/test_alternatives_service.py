@@ -35,8 +35,11 @@ class Backend:
             }
             trips.append(trip)
             self.traces[shape] = {
+                "shape": shape,
                 "edges": [
                     {
+                        "source_percent_along": 0.0,
+                        "target_percent_along": 1.0,
                         "id": index * 10 + i,
                         "way_id": 101 + index,
                         "length": 0.1,
@@ -50,7 +53,7 @@ class Backend:
                         "pedestrian_type": "foot",
                     }
                     for i in range(3)
-                ]
+                ],
             }
         self.response: Any = {"trip": trips[0], "alternates": [{"trip": t} for t in trips[1:]]}
         self.route_calls: list[dict[str, Any]] = []
@@ -247,7 +250,7 @@ def test_aggregate_bounds_include_duplicates(backend: Backend) -> None:
     result = run(
         replace(
             RoutingCacheConfig.defaults(),
-            maximum_total_route_shape_points=12,
+            maximum_total_route_shape_points=24,  # route plus returned trace shape, including duplicates
             maximum_total_route_edges=9,
         )
     )

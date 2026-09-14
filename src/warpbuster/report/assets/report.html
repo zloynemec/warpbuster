@@ -443,7 +443,7 @@
         const details = document.createElement("details"), summary = document.createElement("summary"), pre = document.createElement("pre");
         summary.textContent = "Proof / path";
         const proof = [...new Set((repair.coordinate_dispositions || []).filter((item) => item.record_index >= gap.start_record_index && item.record_index <= gap.end_record_index && item.proof_ranges.length).map((item) => JSON.stringify({ ranges: item.proof_ranges, confidence: item.confidence, reasons: item.proof_reasons })))].map((item) => JSON.parse(item));
-        pre.textContent = JSON.stringify({ invalidation_proof: proof, course_policy: repair.summary.missing_completion_enabled ? "--fill-missing-from-course" : "proven corrupted scope only", timing: gap.timing, path: gap.provenance }, null, 2);
+        pre.textContent = JSON.stringify({ invalidation_proof: proof, provider: gap.provider, reconstruction_policy: gap.provider === "osm" ? "explicitly confirmed OSM route; independent coordinate mask" : repair.summary.missing_completion_enabled ? "--fill-missing-from-course" : "proven corrupted scope only", timing: gap.timing, path: gap.provenance }, null, 2);
         details.append(summary, pre); return details;
       };
       const coverage = repair.coordinate_coverage;
@@ -488,25 +488,44 @@
     if (osmReconstruction) {
       osmSection.hidden = false;
       document.getElementById("osm-reconstruction-policy").textContent = `Graph ${osmReconstruction.graph_id}; snapshot ${text(osmReconstruction.graph?.snapshot_id)}; Valhalla ${text(osmReconstruction.graph?.valhalla_version)}; profile ${text(osmReconstruction.profile?.profile_id)}; ${osmReconstruction.query_count}/${osmReconstruction.gap_count} gap queries; application disabled. OSM is excluded from integrity detection and existing GPX candidates are not replaced.`;
+      const contextEvidence = (evaluation) => {
+        const audit = evaluation.snapping?.start?.context;
+        if (!audit) {
+          const options = evaluation.snapping?.start?.candidate_options;
+          if (!options) return "not used";
+          const details = document.createElement("details");
+          const summary = document.createElement("summary"); summary.textContent = "Approximate road hypotheses";
+          const pre = document.createElement("pre"); pre.textContent = JSON.stringify({start: options, end: evaluation.snapping?.end?.candidate_options, search: evaluation.search, attempts: evaluation.engine_diagnostics?.snap_attempts}, null, 2);
+          details.append(summary, pre); return details;
+        }
+        const details = document.createElement("details");
+        const summary = document.createElement("summary");
+        summary.textContent = `${audit.status}; records ${(audit.record_range || []).join("..")}; ${audit.point_count} points`;
+        const pre = document.createElement("pre");
+        pre.textContent = JSON.stringify(audit, null, 2);
+        details.append(summary, pre);
+        return details;
+      };
       const osmRows = osmReconstruction.gap_evaluations.flatMap((evaluation) => {
         const snapDistance = (side) => evaluation.snapping?.[side]?.selected?.distance_m;
         if (!evaluation.candidates.length) return [[
-          `G${evaluation.number}`, evaluation.records.join(".."), badge(evaluation.outcome), evaluation.queried ? "yes" : "no", "n/a", "n/a", "n/a", `${number(snapDistance("start"))} / ${number(snapDistance("end"))} m`, "n/a", "n/a", "not allocated / not applicable", evaluation.reasons.join(", "),
+          `G${evaluation.number}`, evaluation.records.join(".."), badge(evaluation.outcome), evaluation.queried ? "yes" : "no", "n/a", "n/a", "n/a", `${number(snapDistance("start"))} / ${number(snapDistance("end"))} m`, "n/a", "n/a", "not allocated / not applicable", evaluation.reasons.join(", "), contextEvidence(evaluation),
         ]];
         return evaluation.candidates.map((candidate) => {
           const endpoint = (candidate.audit?.checks || []).find((check) => check.name === "endpoints");
           const comparison = candidate.vs_primary;
+          const attachment = candidate.attachment_options?.[0];
           return [
             `G${evaluation.number}`, evaluation.records.join(".."), badge(evaluation.outcome), "yes", candidate.role, candidate.route_id,
-            `${number(candidate.summary?.length_m)} m`, `${number(snapDistance("start"))} / ${number(snapDistance("end"))} m`,
+            `${number(candidate.summary?.length_m)} m`, `${number(attachment?.start?.distance_m ?? snapDistance("start"))} / ${number(attachment?.end?.distance_m ?? snapDistance("end"))} m`,
             endpoint ? `${number(endpoint.start_delta_m)} / ${number(endpoint.end_delta_m)} m` : "n/a",
             comparison ? `overlap ${number(comparison.overlap_a)}; distance ratio ${number(comparison.distance_ratio)}` : "primary",
-            "not allocated / not applicable", [...(candidate.warnings || []).map((item) => item.code), ...evaluation.reasons].join(", "),
+            `${candidate.discovery_confidence || "unrated"} hypothesis; not applied`, [...(candidate.warnings || []).map((item) => item.code), ...evaluation.reasons].join(", "), contextEvidence(evaluation),
           ];
         });
       });
       document.getElementById("osm-reconstruction-results").appendChild(table(
-        ["Gap", "Records", "Outcome", "Queried", "Role", "Route ID", "Length", "Snap start / end", "Endpoint Δ start / end", "Vs primary", "Allocated / applicable", "Reasons / warnings"],
+        ["Gap", "Records", "Outcome", "Queried", "Role", "Route ID", "Length", "Snap start / end", "Endpoint Δ start / end", "Vs primary", "Allocated / applicable", "Reasons / warnings", "Start context evidence"],
         osmRows,
       ));
     }
@@ -792,12 +811,16 @@
       if (anchorBefore && snapBeforePoint) osmConnectorSegments.push([anchorBefore, snapBeforePoint]);
       if (anchorAfter && snapAfterPoint) osmConnectorSegments.push([snapAfterPoint, anchorAfter]);
       evaluation.candidates.forEach((candidate) => {
+        (candidate.attachment_options || []).forEach((attachment) => {
+          osmConnectorSegments.push(attachment.start_connector, attachment.end_connector);
+          osmSnapPoints.push(attachment.start_connector[1], attachment.end_connector[0]);
+        });
         const points = candidate.coordinates.filter((point) => Number.isFinite(point[0]) && Number.isFinite(point[1]));
         if (points.length) (candidate.role === "primary" ? osmPrimarySegments : osmAlternativeSegments).push(points);
       });
     });
-    addOverlay("OSM primary candidates (not applied)", osmPrimarySegments, { color: colors.osm, weight: 4, opacity: 0.95 }, false);
-    addOverlay("OSM alternative candidates (not applied)", osmAlternativeSegments, { color: colors.osmAlternative, weight: 3, opacity: 0.85, dashArray: "8 5" }, false);
+    addOverlay("OSM primary candidates (not applied)", osmPrimarySegments, { color: colors.osm, weight: 4, opacity: 0.95 }, !hasRepaired);
+    addOverlay("OSM alternative candidates (not applied)", osmAlternativeSegments, { color: colors.osmAlternative, weight: 3, opacity: 0.85, dashArray: "8 5" }, !hasRepaired);
     addOverlay("OSM anchor connectors (diagnostic)", osmConnectorSegments, { color: colors.missing, weight: 2, opacity: 0.9, dashArray: "3 6" }, false);
     const addPointOverlay = (label, points, options) => {
       if (!points.length) return;

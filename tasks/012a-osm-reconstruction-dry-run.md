@@ -7,7 +7,7 @@ Milestone: **M11 / Task 012 — OSM Reconstruction Bridge (2D first)**.
 [011A](011a-unreachable-terminal-gnss.md),
 [011B](011b-pause-aware-reconstruction.md),
 [011C](011c-absent-fit-coordinate-fields.md) и [Task 010](010-osm-graph-routing.md).
-Следующая итерация: **Task 012B — OSM Candidate Evidence and Selection**.
+Следующая итерация: [**Task 012B — Confirmed OSM Core Application**](012b-confirmed-osm-core-application.md).
 
 ## 1. Цель
 
@@ -102,8 +102,8 @@ OSM-вызова эти значения должны быть равны. Об�
 
 В 012A route query разрешён только если одновременно выполнено:
 
-1. У gap нет уже построенного GPX `GapRepairPlan`. Низкий application threshold не делает
-   существующий GPX candidate «отсутствующим»: OSM его не заменяет и не сравнивает.
+1. Наличие GPX `GapRepairPlan` любой уверенности не блокирует сбор OSM-кандидатов.
+   Выбор источника восстановления выполняется отдельно от discovery (изменено 2026-09-14).
 2. Gap имеет kind `INTERNAL` и две непосредственные preserved опоры
    `anchor_before_record_index` / `anchor_after_record_index`.
 3. Обе опоры по исходному mask имеют `anchor_eligible=true`, полную конечную WGS84-пару
@@ -154,7 +154,7 @@ Typed domain outcomes `OUTSIDE_COVERAGE`, `NO_SNAP`, `AMBIGUOUS_SNAP`, `NO_ROUTE
 
 Минимальные reasons:
 
-- `GPX_CANDIDATE_ALREADY_AVAILABLE`;
+- `GPX_CANDIDATE_ALREADY_AVAILABLE` — legacy reason, новый discovery его не выдаёт;
 - `TWO_ANCHORS_REQUIRED`, `ANCHOR_NOT_ELIGIBLE`, `CONTINUITY_MISMATCH`;
 - `QUERY_LIMIT_REACHED`;
 - `OUTSIDE_COVERAGE`, `NO_SNAP`, `AMBIGUOUS_SNAP`, `NO_ROUTE`;
@@ -189,7 +189,7 @@ warpbuster repair activity.fit \
 В 012A `--osm-graph-id` без `--dry-run` — argument error, exit 2 **до чтения/записи
 output**. Routing config/cache flags без graph ID также ошибочны. `--course` может
 присутствовать: сначала строится обычный локальный GPX plan, затем OSM рассматривает
-только оставшиеся gaps без GPX candidate. `--fill-missing-from-course` сохраняет прежнее
+все допустимые gaps, включая gaps с GPX candidate. `--fill-missing-from-course` сохраняет прежнее
 значение и не включает/выключает OSM.
 
 OSM Manager и routing graph пользователь готовит существующими командами отдельно:
@@ -295,7 +295,7 @@ set этого gap становится `UNRESOLVED/RESULT_LIMIT_REACHED`.
    graph ID и исходными WGS84 endpoints.
 2. Primary/alternatives сохраняют stable order, IDs, detached geometry, audit и
    provenance; один путь остаётся non-exhaustive.
-3. Existing GPX candidate не вызывает OSM; application threshold этого не меняет.
+3. Existing GPX candidate любой уверенности не блокирует OSM; discovery не меняет GPX selection.
 4. Prefix/suffix, missing/invalid/partial/untrusted anchor, continuity mismatch и
    exceeded query limit дают явный `NOT_QUERIED` без вызова client-а.
 5. Routing domain outcomes изолированы по gap; operation errors останавливают run.
@@ -353,10 +353,42 @@ set этого gap становится `UNRESOLVED/RESULT_LIMIT_REACHED`.
 ## 13. Предлагаемые решения для согласования
 
 1. Первый срез поддерживает только internal gaps с двумя anchors; endpoints не угадываются.
-2. OSM проверяется только после GPX planner и не конкурирует с уже найденным GPX candidate.
+2. OSM проверяется после GPX planner, включая gaps с GPX candidate; discovery не выбирает между источниками.
 3. Запрашиваем alternatives сразу, но не ранжируем их в Core и не заявляем uniqueness.
 4. OSM result — отдельный advisory contract; существующий `RepairPlan` не получает
    фиктивный confidence и не становится применимым.
 5. Прямой typed Python adapter предпочтительнее subprocess и обмена JSON-файлами.
 6. Graph acquisition/build остаётся отдельным пользовательским действием.
 7. Task 012A заканчивается на отчёте. Evidence/selection — 012B, allocation/write — 012C.
+
+
+## 14. Изменение discovery — 2026-09-14
+
+По запросу пользователя удалён запрет OSM query при наличии GPX-кандидата.
+Для любого допустимого internal gap OSM discovery выполняется независимо от
+LOW/MEDIUM/HIGH GPX confidence и результата GPX selection. Сохраняются проверки
+anchors, continuity, лимиты запросов/точек и candidate-only контракт. Enum старого
+reason сохранён для совместимости, но provider его больше не выдаёт.
+
+Регрессионные тесты проверяют сочетания трёх GPX confidence с READY/NO_SNAP,
+сохранение GPX selection, а также совместный discovery и последующее явно подтверждённое
+применение OSM к другому gap в одном FIT. Автоматическое сравнение, ранжирование
+и замена GPX на OSM этой правкой не реализованы.
+
+Локальный dry-run Andromeda: 5 OSM queries вместо 3, один OSM-кандидат для
+`gap-1768-1773`; для `gap-1794-3254` запрос теперь выполнен, результат AMBIGUOUS_SNAP.
+GPX plans, selection, gap inventory и coordinate mask совпали с предыдущим прогоном;
+SHA-256 исходных FIT/GPX неизменны, FIT не записывался. Артефакты в ignored
+`tests/private/osm-dry-run-20260914/collect-both/`.
+
+Команды проверки: полный Core `pytest -q` с routing/manager в PYTHONPATH,
+`python -m ruff check src tests`, `python -m mypy src/warpbuster`, `git diff --check`.
+
+Результат: **541 passed, 17 skipped** (отсутствующие private fixtures); Ruff, mypy
+и diff check прошли. Обновлённые acceptance criteria discovery выполнены.
+
+
+010H добавляет ограниченный исходный контекст перед anchor_before для разрешения
+начального AMBIGUOUS_SNAP. Правила eligibility и resource bounds, additive API и
+отчётность описаны в [010H](010h-context-aware-start-snapping.md). Это не меняет
+отдельность discovery/selection/application и не повышает reconstruction confidence.

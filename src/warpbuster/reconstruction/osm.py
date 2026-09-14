@@ -12,7 +12,6 @@ from warpbuster.config import OSMReconstructionConfig
 from warpbuster.models.activity import ActivityData
 from warpbuster.models.reconstruction import (
     CoordinateState,
-    GapRepairPlan,
     MissingCourseRunKind,
     OSMAnchor,
     OSMDryRunResult,
@@ -25,6 +24,7 @@ from warpbuster.models.reconstruction import (
     ReconstructionGap,
     RepairPlan,
 )
+from warpbuster.reconstruction.osm_context import OSMStartContext, collect_start_context
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +55,8 @@ class RoutingClient(Protocol):
         start: tuple[float, float],
         end: tuple[float, float],
         alternates: int,
+        *,
+        start_context: OSMStartContext | None = None,
     ) -> RoutingAlternativesData: ...
 
 
@@ -79,7 +81,12 @@ class ValhallaRoutingClient:
         try:
             from warpbuster_osm_routing import RouteService, RoutingCacheConfig
             from warpbuster_osm_routing.errors import RoutingError
-            from warpbuster_osm_routing.models import GeoPoint, RouteAlternativesRequest
+            from warpbuster_osm_routing.models import (
+                GeoPoint,
+                RouteAlternativesRequest,
+                StartContext,
+                StartContextPoint,
+            )
         except ImportError as error:
             raise OSMReconstructionError(
                 "OSM_ROUTING_UNAVAILABLE",
@@ -93,6 +100,8 @@ class ValhallaRoutingClient:
         self._service = RouteService(config)
         self._geo_point = GeoPoint
         self._request = RouteAlternativesRequest
+        self._context = StartContext
+        self._context_point = StartContextPoint
         self._routing_error = RoutingError
 
     def alternatives(
@@ -101,6 +110,8 @@ class ValhallaRoutingClient:
         start: tuple[float, float],
         end: tuple[float, float],
         alternates: int,
+        *,
+        start_context: OSMStartContext | None = None,
     ) -> RoutingAlternativesData:
         try:
             result = self._service.alternatives(
@@ -109,6 +120,16 @@ class ValhallaRoutingClient:
                     self._geo_point(*start),
                     self._geo_point(*end),
                     alternates,
+                    self._context(
+                        tuple(
+                            self._context_point(i, t, self._geo_point(lat, lon))
+                            for i, t, lat, lon in start_context.points
+                        ),
+                        start_context.stop_reason,
+                    )
+                    if start_context
+                    else None,
+                    approximate_candidates=True,
                 )
             )
         except self._routing_error as error:
@@ -140,23 +161,10 @@ class OSMReconstructionProvider:
     def discover(self, activity: ActivityData, plan: RepairPlan, graph_id: str) -> OSMDryRunResult:
         if not isinstance(graph_id, str) or not graph_id:
             raise OSMReconstructionError("INVALID_GRAPH_ID", "OSM graph ID must not be empty")
-        gpx_candidates = {
-            item.interval.gap_id for item in plan.interval_plans if isinstance(item, GapRepairPlan)
-        }
         evaluations: list[OSMGapEvaluation] = []
         query_count = 0
         retained_points = 0
         for gap in plan.gaps:
-            if gap.gap_id in gpx_candidates:
-                evaluations.append(
-                    OSMGapEvaluation(
-                        gap,
-                        OSMGapOutcome.NOT_QUERIED,
-                        False,
-                        reasons=(OSMReconstructionReason.GPX_CANDIDATE_ALREADY_AVAILABLE,),
-                    )
-                )
-                continue
             anchors, reason = _anchors(activity, plan, gap)
             if reason is not None:
                 evaluations.append(
@@ -188,6 +196,9 @@ class OSMReconstructionProvider:
                 (before.latitude, before.longitude),
                 (after.latitude, after.longitude),
                 self.config.requested_alternatives,
+                start_context=collect_start_context(
+                    activity, plan, before.record_index, self.config
+                ),
             )
             if result.status != "READY":
                 evaluations.append(
@@ -241,6 +252,15 @@ class OSMReconstructionProvider:
             self.config.requested_alternatives,
             self.config.maximum_gap_queries,
             self.config.maximum_total_candidate_points,
+            tuple(
+                (name, getattr(self.config, name))
+                for name in (
+                    "context_maximum_points",
+                    "context_maximum_age_s",
+                    "context_maximum_length_m",
+                    "context_maximum_step_s",
+                )
+            ),
         )
 
 
@@ -327,6 +347,8 @@ def _diagnostics(document: dict[str, object]) -> dict[str, object]:
         "route_choice",
         "comparisons",
         "alternatives_policy",
+        "engine_diagnostics",
+        "discovery_policy",
     )
     return {key: document[key] for key in keys if key in document}
 

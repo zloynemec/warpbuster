@@ -213,9 +213,19 @@ warpbuster repair activity.fit \
 ```
 
 OSM-кандидаты пока **не записываются в FIT** и рассматриваются только для внутренних
-разрывов с двумя достоверными опорными точками. Найденный маршрут не доказывает,
+разрывов с двумя достоверными опорными точками, в том числе при наличии GPX-кандидата
+любой уверенности. Сбор кандидатов не выбирает источник восстановления. Найденный маршрут не доказывает,
 что спортсмен двигался именно по нему. Автоматического выбора пути и высот через
 DEM пока нет.
+
+В Core включён приближённый сбор OSM-кандидатов ([010I](tasks/010i-approximate-osm-candidates.md)):
+привязка допускает расстояние до 100 м, близкие проекции на одну дорогу объединяются
+в пределах 20 м вдоль дороги. Контекст перед разрывом помогает ранжировать варианты,
+но его неоднозначность не блокирует поиск. Проверяются до двух групп дорог на каждой
+опоре и до четырёх пар, с native alternatives для каждой пары. Контекст не пересекает
+пропуски и события остановки. В HTML видны маршруты, уверенность гипотезы и причины
+отказа отдельных попыток; OSM-слои включены по умолчанию в preview. Это не разрешение
+применять маршрут. Строгий typed routing API 010H остаётся доступен.
 
 Загрузка OSM требует сети; построение маршрутов по подготовленному графу выполняется
 локально. Настройки кэша и полный набор команд:
@@ -255,3 +265,44 @@ Garmin, COROS и Strava нет — работа ведётся с экспорт
 - [CLI](docs/CLI_SPEC.md) — подробный контракт команд.
 - [Архитектура](docs/ARCHITECTURE.md) — устройство Core.
 - [Модель детекции](docs/DETECTION_MODEL.md) — основания для классификации ошибок.
+
+### Task 012B: подтверждённый OSM fallback в Core
+
+Python API теперь может распределять подтверждённый OSM route по исходным FIT records
+и применять его обычным atomic writer после GPX. CLI `--osm-graph-id` по-прежнему
+работает только в dry-run. Неподтверждённый маршрут остаётся unresolved даже при
+одном Valhalla candidate: alternatives не являются исчерпывающим поиском, а
+recorded speed/distance не считаются независимым доказательством выбора пути.
+
+```python
+from warpbuster.config import OSMApplicationConfig
+from warpbuster.models.reconstruction import OSMRouteConfirmation
+from warpbuster.reconstruction import apply_confirmed_osm_routes, osm_route_fingerprint
+from warpbuster.fit.writer import write_repaired_fit
+
+# activity, integrity, base_plan: original FIT → detector → GPX-first build_repair_plan.
+# discovery: OSMReconstructionProvider(...).discover(activity, base_plan, exact_graph_id).
+# gap_id/route_id: exact travelled route explicitly confirmed outside Core.
+config = OSMApplicationConfig()
+fingerprint = osm_route_fingerprint(
+    activity, base_plan, discovery, gap_id, route_id,
+    config=config, integrity_config=integrity.config,
+)
+# Computing a fingerprint is NOT confirmation. Present this exact snapshot for
+# review, then retain the reviewed fingerprint and the actual evidence statement.
+confirmation = OSMRouteConfirmation(gap_id, route_id, reviewed_fingerprint, evidence)
+plan = apply_confirmed_osm_routes(
+    activity, integrity, base_plan, discovery, (confirmation,), config=config,
+)
+result = write_repaired_fit(activity, plan)  # Standard HIGH selection; includes FIT diff.
+```
+
+`evidence` — непустое утверждение caller о фактически пройденном пути, не автоматическая
+строка «найден один маршрут». Core не проверяет истинность этого утверждения.
+Подтверждение не обходит отказ по timestamps, pauses, connectors, скорости или
+конфликтующим plausible signals. Сохраняются timestamps, altitude и recorded distance;
+неизвестная/неправдоподобная distance остаётся явно uncertain. Полный provenance
+и FIT diff доступны через существующие `write_result_report` / `write_repair_html`.
+Автоматическая route identity и production web integration остаются отдельной работой:
+[012B](tasks/012b-confirmed-osm-core-application.md),
+[012C](tasks/012c-web-hybrid-production.md).

@@ -15,6 +15,8 @@ from warpbuster_osm_routing.models import (
     Snapshot,
     SnapshotDataFile,
     SpikeResult,
+    StartContext,
+    StartContextPoint,
 )
 from warpbuster_osm_routing.profiles import TRAIL_RUNNING_V1, TrailRunningProfile
 from warpbuster_osm_routing.route_service import RouteService
@@ -35,6 +37,8 @@ __all__ = [
     "Snapshot",
     "SnapshotDataFile",
     "SpikeResult",
+    "StartContext",
+    "StartContextPoint",
     "TrailRunningProfile",
     "__version__",
     "run_spike",

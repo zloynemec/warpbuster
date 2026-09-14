@@ -122,6 +122,13 @@ class ReconstructionReason(StrEnum):
     POSITION_FIELDS_UNPATCHABLE = "position_fields_unpatchable"
     INDEPENDENT_CORRUPTION_PROOF = "independent_corruption_proof"
     COURSE_ASSUMPTION = "course_assumption"
+    OSM_ROUTE_UNCONFIRMED = "osm_route_unconfirmed"
+    OSM_CONFIRMATION_CONFLICT = "osm_confirmation_conflict"
+    OSM_CONFIRMATION_STALE = "osm_confirmation_stale"
+    OSM_ROUTE_CONFIRMED = "osm_route_confirmed"
+    OSM_GEOMETRY_INVALID = "osm_geometry_invalid"
+    OSM_CONNECTOR_TOO_LONG = "osm_connector_too_long"
+    OSM_DISCOVERY_UNRESOLVED = "osm_discovery_unresolved"
 
 
 class GnssComponentKind(StrEnum):
@@ -664,6 +671,7 @@ class OSMDryRunResult:
     requested_alternatives: int
     maximum_gap_queries: int
     maximum_total_candidate_points: int
+    context_collection_limits: tuple[tuple[str, float], ...] = ()
 
     @property
     def query_count(self) -> int:
@@ -727,8 +735,43 @@ class CoursePathProvenance:
 
 
 @dataclass(frozen=True, slots=True)
+class OSMRouteConfirmation:
+    """Caller's explicit assertion of route identity; never inferred from routing."""
+
+    gap_id: str
+    route_id: str
+    fingerprint: str
+    evidence: str
+
+
+@dataclass(frozen=True, slots=True)
+class OSMPathProvenance:
+    """Reproducible OSM application audit without pretending the source is GPX."""
+
+    graph_id: str
+    route_id: str
+    confirmation: OSMRouteConfirmation
+    source_sha256: str
+    route_document_json: str
+    routing_document_json: str
+    application_config_json: str
+    integrity_config_json: str
+    allocation_method: AllocationMethod
+    distance_signal_status: str
+    speed_signal_status: str
+    signal_distance_error_budget_m: float
+    connector_distance_m: float
+    timing: ReconstructionTiming
+    search_exhaustive: bool = False
+    discovery_evaluation_json: str = "{}"
+    snapshot_sha256: str = ""
+    identity_basis: str = "caller_confirmed_route"
+    distance_quality: str = "source_unverified"
+
+
+@dataclass(frozen=True, slots=True)
 class GapRepairPlan:
-    """Minimal path candidate contract; only optional provenance refers to GPX."""
+    """Minimal path candidate with separate optional GPX and OSM provenance."""
 
     interval: ReconstructionGap
     coordinate_updates: tuple[CandidateCoordinate, ...]
@@ -737,6 +780,7 @@ class GapRepairPlan:
     reconstruction_path_distance_m: float
     preserve_recorded_distance: bool
     provenance: CoursePathProvenance | None = None
+    osm_provenance: OSMPathProvenance | None = None
     fields_to_change: tuple[str, ...] = ("position_lat", "position_long")
     dependent_fields_to_recalculate: tuple[str, ...] = ()
 

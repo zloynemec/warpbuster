@@ -403,6 +403,12 @@ class OSMReconstructionConfig:
     maximum_gap_queries: int = 32
     maximum_total_candidate_points: int = 100_000
 
+    # Original-record context collection bounds: records, seconds, metres.
+    context_maximum_points: int = 60
+    context_maximum_age_s: float = 60.0
+    context_maximum_length_m: float = 150.0
+    context_maximum_step_s: float = 5.0
+
     def __post_init__(self) -> None:
         if isinstance(self.requested_alternatives, bool) or not isinstance(
             self.requested_alternatives, int
@@ -410,9 +416,56 @@ class OSMReconstructionConfig:
             raise ValueError("requested_alternatives must be an integer")
         if not 1 <= self.requested_alternatives <= 2:
             raise ValueError("requested_alternatives must be between one and two")
-        for name in ("maximum_gap_queries", "maximum_total_candidate_points"):
+        for name in (
+            "maximum_gap_queries",
+            "maximum_total_candidate_points",
+            "context_maximum_points",
+        ):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int):
                 raise ValueError(f"{name} must be an integer")
             if value < 1:
                 raise ValueError(f"{name} must be at least one")
+        for name in ("context_maximum_age_s", "context_maximum_length_m", "context_maximum_step_s"):
+            value = getattr(self, name)
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int | float)
+                or not math.isfinite(value)
+                or value <= 0
+            ):
+                raise ValueError(f"{name} must be finite and positive")
+
+
+@dataclass(frozen=True, slots=True)
+class OSMApplicationConfig:
+    """Conservative 2D application gates; never used by Integrity Detector."""
+
+    # Metres: maximum unsurveyed connector at either preserved anchor.
+    maximum_connector_m: float = 5.0
+    # m/s: maximum progression along the full route per active record interval.
+    maximum_speed_mps: float = 12.0
+    # Metres and ratio: allowed route/qualified signal discrepancy, max of both.
+    distance_absolute_tolerance_m: float = 5.0
+    distance_relative_tolerance: float = 0.05
+    # Records: per-gap allocation work bound (excluding two anchors).
+    maximum_gap_records: int = 10_000
+
+    def __post_init__(self) -> None:
+        for name in (
+            "maximum_connector_m",
+            "maximum_speed_mps",
+            "distance_absolute_tolerance_m",
+            "distance_relative_tolerance",
+        ):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not math.isfinite(value) or value <= 0:
+                raise ValueError(f"{name} must be finite and positive")
+        if self.distance_relative_tolerance > 1:
+            raise ValueError("distance_relative_tolerance must not exceed one")
+        if (
+            isinstance(self.maximum_gap_records, bool)
+            or not isinstance(self.maximum_gap_records, int)
+            or self.maximum_gap_records < 1
+        ):
+            raise ValueError("maximum_gap_records must be a positive integer")

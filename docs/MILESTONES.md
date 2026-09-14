@@ -350,6 +350,20 @@ Task: `tasks/009-osm-manager.md`
    routing. Packaging smoke, workers и capabilities API не входят;
    подробности: [Task 010F](../tasks/010f-minimal-integration-readiness.md).
 
+Дополнительное исправление после локального прогона 012B:
+[**M9G / Task 010G — Direction-safe Trace Audit**](../tasks/010g-direction-safe-trace-audit.md).
+Реализовано и проверено локально 2026-09-14. Узкий fallback для вырожденного
+partial single-edge `edge_walk`, только при доказанных geometry identity и direction;
+полный audit одинаков для single-route и alternatives. Выполнить до web production 012C.
+
+Реализовано: [Task 010H — Привязка начала маршрута по контексту](../tasks/010h-context-aware-start-snapping.md).
+Проверено локально 2026-09-14; консервативное разрешение начальной неоднозначности по исходным точкам.
+
+Реализовано: [Task 010I — Приближённый сбор OSM-кандидатов](../tasks/010i-approximate-osm-candidates.md).
+Core использует несколько гипотез привязки до 100 м, объединение локальных проекций
+до 20 м и рекомендательный контекст. Строгий режим 010H сохранён в typed API.
+Проверено на пяти приватных треках; у Andromeda G2 появились 12 кандидатов.
+
 Каждая итерация оформляется отдельным ТЗ непосредственно перед реализацией. Следующая
 итерация не должна реализовываться внутри текущей. Общая декомпозиция зафиксирована в
 `tasks/010-osm-graph-routing.md`; подробное первое ТЗ — в
@@ -432,9 +446,16 @@ HTML/JSON audit проверен автоматически; ручной browse
    двумя anchors, без selection, allocation и FIT writer. Завершена 2026-09-04:
    typed direct adapter, bounded candidate discovery, console/JSON/HTML audit и native
    Valhalla end-to-end; 449 Core tests passed, 6 skipped, OSM Manager 56 и routing 292.
-2. **M12 / Task 013 — DEM-backed Elevation:** отдельные dataset/cache/provenance,
+   Завершён 2026-09-14 ограниченный Core-этап: [012B — Confirmed OSM Core Application](../tasks/012b-confirmed-osm-core-application.md).
+   GPX-first merge, явное подтверждение route identity, allocation по исходным records,
+   проверка pauses/distance/скорости и atomic FIT write с provenance/diff. Неполный
+   поиск Valhalla никогда сам по себе не даёт разрешения применения.
+   После него отдельно: [012C — Hybrid Web Production](../tasks/012c-web-hybrid-production.md):
+   Manager acquisition/cache, Routing/Valhalla, persistent mount, process/resource limits,
+   Docker, logging и graceful failure. Deployment только по отдельному запросу.
+2. **M12 — DEM-backed Elevation (номер task ещё не назначен):** отдельные dataset/cache/provenance,
    sampling route polyline, GPX `<ele>`, elevation profile и ascent/descent policy.
-3. **M13 / Task 014 — Elevation-aware OSM Reconstruction:** после M11 и M12; optional
+3. **M13 — Elevation-aware OSM Reconstruction (номер task ещё не назначен):** после M11 и M12; optional
    DEM evidence для alternatives и отдельное восстановление только missing/corrupted
    altitude.
 
@@ -448,3 +469,6 @@ HTML/JSON audit проверен автоматически; ручной browse
 
 DEM и reconstruction нельзя начинать внутри Task 010; отсутствие DEM не должно
 блокировать первоначальную 2D-интеграцию.
+
+Нумерация: `tasks/013-web-processing-and-result-privacy.md` уже занята web privacy;
+не переиспользовать Task 013 для DEM. M12/M13 остаются будущими epics.

@@ -565,14 +565,15 @@ def _interval_console(
     verbosity: int,
 ) -> str:
     if isinstance(plan, GapRepairPlan):
-        provenance = plan.provenance
+        provenance = plan.provenance or plan.osm_provenance
         return (
             f"  - {plan.interval.gap_id} {plan.interval.kind.value} records "
             f"{plan.interval.start_record_index}..{plan.interval.end_record_index}: "
             f"{decision.action.value.upper()}, confidence={plan.confidence.value.upper()}, "
             f"origin={plan.interval.origin.value}, path={plan.reconstruction_path_distance_m:.2f} m, "
             f"allocation={provenance.allocation_method.value if provenance else 'unknown'}, "
-            f"endpoint_source={provenance.endpoint_source if provenance else None}"
+            f"provider={'osm' if plan.osm_provenance else 'gpx'}, "
+            f"endpoint_source={plan.provenance.endpoint_source if plan.provenance else None}"
         )
     if isinstance(plan, MissingCourseCompletionPlan):
         return _missing_interval_console(plan, decision, verbosity)

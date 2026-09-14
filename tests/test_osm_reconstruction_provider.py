@@ -10,6 +10,7 @@ import pytest
 from tests.local_reconstruction_factory import local_fixture
 from warpbuster.config import CourseReconstructionConfig, OSMReconstructionConfig
 from warpbuster.integrity import analyze_integrity
+from warpbuster.models.integrity import IntegrityConfidence
 from warpbuster.models.reconstruction import (
     OSMDryRunStatus,
     OSMGapOutcome,
@@ -22,6 +23,7 @@ from warpbuster.reconstruction.osm import (
     RoutingAlternativesData,
     RoutingCandidateData,
 )
+from warpbuster.reconstruction.selection import select_repair_intervals
 from warpbuster.report.repair import repair_console, repair_report
 
 GRAPH_ID = "sha256:" + "a" * 64
@@ -33,7 +35,7 @@ class FakeClient:
         self.point_count = point_count
         self.calls: list[tuple[object, ...]] = []
 
-    def alternatives(self, graph_id, start, end, alternates):
+    def alternatives(self, graph_id, start, end, alternates, *, start_context=None):
         self.calls.append((graph_id, start, end, alternates))
         candidates = (
             (
@@ -96,19 +98,30 @@ def test_only_internal_unresolved_gap_is_queried(tmp_path: Path) -> None:
     assert plan == original_plan and activity == original_activity
 
 
-def test_existing_gpx_candidate_is_not_queried(tmp_path: Path) -> None:
+@pytest.mark.parametrize("confidence", list(IntegrityConfidence))
+@pytest.mark.parametrize("route_status", ["READY", "NO_SNAP"])
+def test_existing_gpx_candidate_does_not_block_osm(
+    tmp_path: Path, confidence: IntegrityConfidence, route_status: str
+) -> None:
     activity, course = local_fixture(tmp_path, missing=((150, 179),))
     plan = build_repair_plan(
         activity, analyze_integrity(activity), course, fill_missing_from_course=True
     )
-    client = FakeClient()
+    assert len(plan.interval_plans) == 1
+    plan = replace(
+        plan,
+        interval_plans=tuple(replace(item, confidence=confidence) for item in plan.interval_plans),
+    )
+    selection_before = select_repair_intervals(plan)
+    client = FakeClient(status=route_status)
 
     result = OSMReconstructionProvider(client).discover(activity, plan, GRAPH_ID)
 
-    assert not client.calls
-    assert result.evaluations[0].reasons == (
-        OSMReconstructionReason.GPX_CANDIDATE_ALREADY_AVAILABLE,
-    )
+    assert len(client.calls) == result.query_count == 1
+    assert result.evaluations[0].queried
+    assert result.candidate_count == (1 if route_status == "READY" else 0)
+    assert select_repair_intervals(plan) == selection_before
+    assert plan.interval_plans[0].confidence is confidence
 
 
 @pytest.mark.parametrize(
