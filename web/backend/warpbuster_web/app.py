@@ -17,7 +17,7 @@ from starlette.formparsers import MultiPartException, MultiPartParser
 from starlette.middleware import Middleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.requests import Request
-from starlette.responses import FileResponse, HTMLResponse, JSONResponse
+from starlette.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
@@ -25,6 +25,65 @@ from .config import WebConfig
 from .metadata import HOME_DESCRIPTION, HOME_TITLE, render_page, result_metadata
 from .store import CapacityError, Store, valid_token
 from .worker import Worker
+
+# Yandex's documented collector hosts; no broad wildcard script permissions.
+METRIKA_HOSTS = [
+    "mc.yandex." + suffix
+    for suffix in (
+        "ru",
+        "az",
+        "by",
+        "co.il",
+        "com",
+        "com.am",
+        "com.ge",
+        "com.tr",
+        "ee",
+        "fr",
+        "kg",
+        "kz",
+        "lt",
+        "lv",
+        "md",
+        "tj",
+        "tm",
+        "uz",
+    )
+] + ["mc.webvisor.com", "mc.webvisor.org"]
+METRIKA_HTTPS = " ".join("https://" + host for host in METRIKA_HOSTS)
+METRIKA_CONNECT = METRIKA_HTTPS + " " + " ".join("wss://" + host for host in METRIKA_HOSTS)
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; script-src 'self' https://mc.yandex.ru https://yastatic.net; "
+    "style-src 'self'; img-src 'self' data: https://tile.openstreetmap.org "
+    + METRIKA_HTTPS
+    + "; connect-src 'self' "
+    + METRIKA_CONNECT
+    + "; frame-src blob: "
+    + METRIKA_HTTPS
+    + "; child-src blob: "
+    + METRIKA_HTTPS
+    + "; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+)
+
+
+class CanonicalHostMiddleware:
+    """Redirect only the configured www alias, preserving escaped path and query."""
+
+    def __init__(self, app, config: WebConfig):
+        self.app = app
+        self.origin = config.public_origin
+        self.alias = "www." + urlsplit(self.origin).hostname
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and Request(scope).url.hostname == self.alias:
+            path = scope.get("raw_path", scope["path"].encode()).decode("ascii")
+            query = scope.get("query_string", b"").decode("ascii")
+            response = RedirectResponse(
+                self.origin + path + ("?" + query if query else ""), status_code=301
+            )
+            return await response(scope, receive, send)
+        return await self.app(scope, receive, send)
+
 
 ERROR_MESSAGES = {
     "invalid_fit": "Не удалось прочитать FIT. Экспортируйте оригинальную запись ещё раз.",
@@ -100,7 +159,7 @@ class PrivacyMiddleware:
                         (b"x-content-type-options", b"nosniff"),
                         (
                             b"content-security-policy",
-                            b"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://tile.openstreetmap.org; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+                            CONTENT_SECURITY_POLICY.encode("ascii"),
                         ),
                     ]
                 )
@@ -330,6 +389,9 @@ def create_app(config: WebConfig | None = None, *, start_worker: bool = True):
             filename="warpbuster-corrected.fit",
         )
 
+    async def robots(request):
+        return FileResponse(config.static_dir / "robots.txt", media_type="text/plain")
+
     async def home(request):
         return HTMLResponse(
             render_page(
@@ -398,6 +460,12 @@ def create_app(config: WebConfig | None = None, *, start_worker: bool = True):
         )
 
     async def http_error(request, error):
+        if error.status_code == 404 and not request.url.path.startswith("/api/"):
+            return FileResponse(
+                config.static_dir / "404" / "index.html",
+                status_code=404,
+                headers={"X-Robots-Tag": "noindex, nofollow"},
+            )
         return JSONResponse({"detail": error.detail}, status_code=error.status_code)
 
     async def capacity_error(request, error):
@@ -419,6 +487,7 @@ def create_app(config: WebConfig | None = None, *, start_worker: bool = True):
         lifespan=lifespan,
         routes=[
             Route("/", home),
+            Route("/robots.txt", robots),
             Route("/health", health),
             Route("/fix", fix),
             Route("/faq", faq),
@@ -432,6 +501,7 @@ def create_app(config: WebConfig | None = None, *, start_worker: bool = True):
         ],
         middleware=[
             Middleware(PrivacyMiddleware, config=config),
+            Middleware(CanonicalHostMiddleware, config=config),
             Middleware(
                 TrustedHostMiddleware, allowed_hosts=[urlsplit(config.public_origin).hostname]
             ),

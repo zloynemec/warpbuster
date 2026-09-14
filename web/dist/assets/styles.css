@@ -68,3 +68,9 @@ h3{font-size:20px;letter-spacing:-.4px;margin:20px 0 12px}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.button{transition:none}.button:hover{transform:none}}
 
 @media(max-width:360px){.brand{font-size:18px}.brand .brand-logo{width:34px;height:24px}.header nav{font-size:12px}.nav-cta{gap:6px}}
+
+.footer-telegram{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;flex-shrink:0}
+.metrika-pixel{position:absolute;left:-9999px}
+.error-page{min-height:100vh;display:flex;flex-direction:column}
+.error-main{flex:1;padding-block:60px 90px}
+.error-main h1{max-width:850px}

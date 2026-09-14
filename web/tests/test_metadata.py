@@ -2,7 +2,6 @@
 
 import json
 import secrets
-import struct
 import time
 import uuid
 from html.parser import HTMLParser
@@ -88,9 +87,14 @@ def test_home_has_unique_complete_metadata_and_public_image(app):
         assert "evil.example" not in response.text
         image = client.get(head.meta("og:image"))
         assert image.status_code == 200
-        assert image.headers["content-type"] == "image/png"
-        assert image.content[:8] == b"\x89PNG\r\n\x1a\n"
-        assert struct.unpack(">II", image.content[16:24]) == (
+        assert image.headers["content-type"] == "image/jpeg"
+        assert image.content[:3] == b"\xff\xd8\xff"
+        assert len(image.content) < 400_000
+        # Baseline JPEG SOF0 holds precision, height and width.
+        frame = image.content.index(b"\xff\xc0")
+        height = int.from_bytes(image.content[frame + 5 : frame + 7])
+        width = int.from_bytes(image.content[frame + 7 : frame + 9])
+        assert (width, height) == (
             int(head.meta("og:image:width")),
             int(head.meta("og:image:height")),
         )
@@ -199,3 +203,56 @@ def test_metadata_escapes_html_and_does_not_add_tags(app):
     assert head.meta("og:title") == hostile
     assert head.meta("description") == hostile
     assert not any(tag == "script" for tag, _ in head.nodes)
+
+
+def test_robots_allows_pages_and_previews_but_blocks_api(app):
+    with TestClient(app, base_url=ORIGIN) as client:
+        response = client.get("/robots.txt")
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/plain")
+        assert "Allow: /" in response.text
+        assert "Disallow: /api/" in response.text
+        assert "Disallow: /res" not in response.text
+        assert "x-robots-tag" not in client.get("/").headers
+        assert "noindex" in client.get("/api/results/missing/download").headers["x-robots-tag"]
+        assert client.head("/robots.txt").status_code == 200
+
+
+@pytest.mark.parametrize("route", ["/", "/fix", "/faq", "/missing-page", "/res/invalid"])
+def test_pages_include_counter_and_accessible_telegram_link(app, route):
+    with TestClient(app, base_url=ORIGIN) as client:
+        response = client.get(route)
+        html = response.text
+        assert html.count('src="/assets/metrika.js"') == 1
+        assert "https://mc.yandex.ru/watch/112575529" in html
+        assert 'href="https://t.me/taraskozlov"' in html
+        assert 'aria-label="Тарас Козлов в Telegram"' in html
+        csp = response.headers["content-security-policy"]
+        assert "script-src 'self' https://mc.yandex.ru https://yastatic.net;" in csp
+        assert "https://mc.webvisor.org" in csp
+        assert "frame-src blob:" in csp
+        assert "'unsafe-inline'" not in csp
+
+
+def test_unknown_page_has_real_404_and_api_keeps_json(app):
+    with TestClient(app, base_url=ORIGIN) as client:
+        for route in ("/missing", "/res/invalid", "/assets/missing.css"):
+            response = client.get(route)
+            assert response.status_code == 404
+            assert "Здесь тропа заканчивается" in response.text
+            assert "noindex" in response.headers["x-robots-tag"]
+            assert client.head(route).status_code == 404
+        response = client.get("/api/missing")
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Not Found"}
+
+
+@pytest.mark.parametrize("method", ["get", "head", "post"])
+def test_www_redirect_returns_301_and_preserves_path_query(app, method):
+    with TestClient(app, base_url="https://www.trail.example") as client:
+        response = getattr(client, method)("/res/a%20b?source=tg&x=1", follow_redirects=False)
+        assert response.status_code == 301
+        assert response.headers["location"] == ORIGIN + "/res/a%20b?source=tg&x=1"
+        assert "set-cookie" not in response.headers
+        assert client.get(ORIGIN + "/").status_code == 200
+        assert client.get("https://evil.example/").status_code == 400

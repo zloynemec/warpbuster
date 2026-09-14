@@ -24,7 +24,7 @@ class Page(HTMLParser):
 
 
 @pytest.mark.parametrize(
-    "route", ["index.html", "fix/index.html", "res/index.html", "faq/index.html"]
+    "route", ["index.html", "fix/index.html", "res/index.html", "faq/index.html", "404/index.html"]
 )
 def test_local_links_assets_and_fragments_resolve(route: str) -> None:
     """All page shells resolve their navigation and assets from the same static root."""
@@ -65,7 +65,9 @@ def test_result_script_references_existing_elements_after_copy_changes() -> None
     assert references <= ids, f"Missing result elements: {references - ids}"
 
 
-@pytest.mark.parametrize("route", ["index.html", "fix/index.html", "faq/index.html"])
+@pytest.mark.parametrize(
+    "route", ["index.html", "fix/index.html", "faq/index.html", "404/index.html"]
+)
 def test_accessible_page_basics(route: str) -> None:
     page = Page(SITE / route)
     assert any(tag == "html" and attrs.get("lang") == "ru" for tag, attrs in page.nodes)
@@ -73,7 +75,10 @@ def test_accessible_page_basics(route: str) -> None:
     assert any(tag == "main" and attrs.get("id") == "main" for tag, attrs in page.nodes)
     for tag, attrs in page.nodes:
         if tag == "img":
-            assert attrs.get("alt")
+            if attrs.get("role") == "presentation":
+                assert attrs.get("alt") == ""
+            else:
+                assert attrs.get("alt")
 
 
 def test_fix_has_two_accessible_file_pickers_and_no_enabled_analysis() -> None:

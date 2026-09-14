@@ -14,7 +14,7 @@ HOME_DESCRIPTION = (
 )
 RESULT_TITLE = "Результат обработки трека — WarpBuster"
 RESULT_DESCRIPTION = "Карта трека, показатели забега и сравнение исходной и исправленной записи."
-IMAGE_PATH = "/assets/trail.png"
+IMAGE_PATH = "/assets/social-preview.jpg"
 IMAGE_ALT = "Трейлраннер на горной тропе среди туманных хребтов"
 
 
@@ -38,9 +38,9 @@ def render_page(path: Path, *, origin: str, route: str, title: str, description:
         ("property", "og:description", description),
         ("property", "og:url", url),
         ("property", "og:image", image),
-        ("property", "og:image:type", "image/png"),
-        ("property", "og:image:width", "1536"),
-        ("property", "og:image:height", "1024"),
+        ("property", "og:image:type", "image/jpeg"),
+        ("property", "og:image:width", "1200"),
+        ("property", "og:image:height", "800"),
         ("property", "og:image:alt", IMAGE_ALT),
         ("name", "twitter:card", "summary_large_image"),
         ("name", "twitter:title", title),
