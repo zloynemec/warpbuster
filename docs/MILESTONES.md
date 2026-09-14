@@ -466,6 +466,9 @@ HTML/JSON audit проверен автоматически; ручной browse
    После этого: [012C — Hybrid Web Production](../tasks/012c-web-hybrid-production.md):
    Manager acquisition/cache, Routing/Valhalla, persistent mount, process/resource limits,
    Docker, logging и graceful failure. Deployment только по отдельному запросу.
+   ТЗ 012C актуализировано 2026-09-15: автоматическая подготовка карты, отдельный
+   OSM deadline с резервом публикации GPX, действующая MEDIUM web-политика,
+   allowlisted public schema 3 и локальная container/шеститрековая приёмка.
 2. **M12 — DEM-backed Elevation (номер task ещё не назначен):** отдельные dataset/cache/provenance,
    sampling route polyline, GPX `<ele>`, elevation profile и ascent/descent policy.
 3. **M13 — Elevation-aware OSM Reconstruction (номер task ещё не назначен):** после M11 и M12; optional

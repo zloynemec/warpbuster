@@ -212,24 +212,22 @@ Roadmap следует порядку milestone из [`docs/MILESTONES.md`](docs
   missing-data chords. Running cadence учитывает fractional FIT cadence и показывается
   в steps/min. Проверки: 465 passed, 6 skipped; Ruff/mypy пройдены.
 
-- [ ] **M11 / Task 012 — OSM Reconstruction Bridge (2D first)** — после Task 011, 011A, 011B, 011C и 011D;
-  разбит на итерации; 012A завершена, 012B/012C пока остаются предварительным планом
-  - [x] **012A / OSM Reconstruction Provider: Candidate Dry-run**
-    ([task](tasks/012a-osm-reconstruction-dry-run.md)) — завершена 2026-09-04;
-    отдельный `OSMReconstructionProvider` поверх gap contract Task 011 и typed
-    alternatives API, только internal gaps с двумя anchors и candidate-only dry-run;
-    console/JSON/HTML сохраняют route/snapping/graph provenance без allocation и writer.
-    Проверки: 449 Core passed, 6 skipped; OSM Manager 56 passed; routing 292 passed;
-  - **012B:** сопоставление trusted anchors, timestamps и recorded distance с одним или
-    несколькими OSM route candidates без изменения FIT;
-  - **012C:** консервативное применение только однозначных 2D-маршрутов с высокой
-    уверенностью; меняются координаты и необходимые агрегаты, но не правдоподобная
-    исходная altitude;
-  - GPX-course и OSM остаются разными reconstruction strategies; OSM рассматривается
-    локально для unresolved gaps без course или без допустимого GPX candidate;
-  - ambiguous/low-confidence варианты остаются unresolved;
-  - полный audit candidate geometry, confidence, applied/skipped участков и OSM
-    provenance в console/JSON/HTML reports.
+- [ ] **M11 / Task 012 — OSM Reconstruction Bridge (2D first)**
+  - [x] **012A:** bounded OSM discovery и typed bridge.
+  - [x] **012B:** исторический confirmed-route Core API.
+  - [x] **012D:** provider-neutral ranking кандидатов.
+  - [x] **012E:** GPX-first и автоматическое применение OSM, включая advisory
+    distance/speed и fallback по активному времени. Core 612 passed, 17 skipped;
+    шесть реальных пар проверены, G6 Andromeda восстановлен по GPX.
+  - [ ] **012C — Автоматическое восстановление в вебе**
+    ([ТЗ](tasks/012c-web-hybrid-production.md), актуализировано 2026-09-15):
+    два файла → очистка → GPX-first → автоматический OSM → FIT и отчёт.
+    Автоматическая bounded acquisition/graph preparation, persistent cache/leases,
+    process/resource limits и отдельный OSM deadline, сохраняющий GPX fallback.
+    Используется текущая web MEDIUM-политика; алгоритмы Core не дублируются.
+    Public schema 3 с источниками/причинами и privacy allowlist, совместимость schema 2,
+    Docker/runtime, failure tests, runbook и локальная приёмка шести пар.
+    Ручной выбор, DEM и production deployment не входят в задачу.
 
 - [ ] **M12 / Task 013 — DEM-backed Elevation** — отдельная optional подсистема
   - **013A:** выбрать DEM dataset, лицензию, resolution и зафиксировать vertical datum;
