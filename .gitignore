@@ -16,6 +16,11 @@ htmlcov/
 build/
 dist/
 
+# The small website is authored directly as static files.
+!web/dist/
+!web/dist/**
+web/.sites-runtime/
+
 # Private user activities must never be committed by default.
 tests/private/
 *.reports/
