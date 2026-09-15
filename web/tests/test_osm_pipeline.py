@@ -30,7 +30,11 @@ def test_disabled_osm_publishes_schema_three_without_private_graph_data(tmp_path
     assert process_job(tmp_path, 100_000, config=config)
     report = json.loads((tmp_path / "result.json").read_text())
     assert report["schema_version"] == 3
-    assert report["osm"] == {"status": "disabled", "stage": None, "error_code": None}
+    assert report["osm"]["status"] == "disabled"
+    assert report["osm"]["stage"] is report["osm"]["error_code"] is None
+    assert report["osm"]["duration_seconds"] >= 0
+    assert report["osm"]["eligible_gaps"] == 1
+    assert report["osm"]["snapshot_cache_hit"] is None
     assert report["summary"]["applied_gpx_gaps"] == 1
     assert report["summary"]["applied_osm_gaps"] == 0
     assert "graph_id" not in json.dumps(report)
@@ -49,11 +53,11 @@ def test_osm_failure_keeps_gpx_plan_and_exposes_only_safe_code(tmp_path):
     report = json.loads((tmp_path / "result.json").read_text())
     assert len(calls) == 1
     assert report["outcome"] == "repaired"
-    assert report["osm"] == {
-        "status": "unavailable",
-        "stage": "acquisition",
-        "error_code": "offline_cache_miss",
-    }
+    assert report["osm"]["status"] == "unavailable"
+    assert report["osm"]["stage"] == "acquisition"
+    assert report["osm"]["error_code"] == "offline_cache_miss"
+    assert report["osm"]["duration_seconds"] >= 0
+    assert report["osm"]["eligible_gaps"] == 1
     assert (tmp_path / "corrected.fit").is_file()
     assert not (tmp_path / "private-osm-audit.json").exists()
 
@@ -212,6 +216,14 @@ def test_real_offline_manager_graph_and_core_application(tmp_path):
     assert result.plan.interval_plans
     assert result.plan.interval_plans[0].osm_provenance is not None
     assert result.private_audit["graph"]["graph_id"].startswith("sha256:")
+    assert result.metrics is not None
+    assert result.metrics.coverage_cells == len(coverage.cells)
+    assert result.metrics.snapshot_cache_hit is True
+    assert result.metrics.snapshot_stale is False
+    assert result.metrics.graph_cache_hit is False
+    assert result.metrics.routing_queries == 1
+    assert result.metrics.candidate_gaps == 1
+    assert result.metrics.candidates >= 1
     (tmp_path / "course.gpx").write_text(
         '<gpx version="1.1" creator="test" xmlns="http://www.topografix.com/GPX/1/1">'
         '<trk><trkseg><trkpt lat="45" lon="34"/><trkpt lat="45.001" lon="34.001"/>'
@@ -222,6 +234,9 @@ def test_real_offline_manager_graph_and_core_application(tmp_path):
     assert public["summary"]["applied_osm_gaps"] == 1
     assert public["summary"]["applied_gpx_gaps"] == 0
     assert public["osm"]["status"] == "complete"
+    assert public["osm"]["snapshot_cache_hit"] is True
+    assert public["osm"]["graph_cache_hit"] is True
+    assert public["osm"]["routing_queries"] == 1
     assert (tmp_path / "corrected.fit").is_file()
     private = json.loads((tmp_path / "private-osm-audit.json").read_text())
     assert private["snapshot"]["downloaded"] is False

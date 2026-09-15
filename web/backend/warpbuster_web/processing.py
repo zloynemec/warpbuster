@@ -20,7 +20,7 @@ from warpbuster.reconstruction.selection import select_repair_intervals
 from warpbuster.report.gaps import distance_policy, gap_audit
 
 from .config import REPAIR_POLICY, OSMMode, WebConfig
-from .osm_pipeline import OSMWebResult, run_osm_pipeline_isolated
+from .osm_pipeline import OSMWebResult, eligible_gap_count, run_osm_pipeline_isolated
 from .performance import public_performance
 
 PUBLIC_FIELDS = {
@@ -105,7 +105,9 @@ def process_job(
     if time.monotonic() - started > web_config.base_plan_timeout_seconds:
         raise ProcessingError("timeout")
     minimum_confidence = IntegrityConfidence(REPAIR_POLICY["minimum_confidence"])
+    osm_eligible_gaps = eligible_gap_count(activity, plan)
     remaining = web_config.process_timeout_seconds - (time.monotonic() - started)
+    osm_started = time.monotonic()
     if remaining <= web_config.publish_reserve_seconds:
         osm = OSMWebResult(plan, "unavailable", "setup", "osm_timeout")
     else:
@@ -115,6 +117,7 @@ def process_job(
             # OSM is an optional reconstruction stage. Keep the immutable base plan
             # and never expose exception text from companion/native code.
             osm = OSMWebResult(plan, "unavailable", "routing", "routing_failed")
+    osm_duration_seconds = time.monotonic() - osm_started
     plan = osm.plan
     selection = select_repair_intervals(plan, minimum_confidence)
     result = None
@@ -209,7 +212,27 @@ def process_job(
             for decision in selection.decisions
         ],
         "gaps": public_gaps,
-        "osm": {"status": osm.status, "stage": osm.stage, "error_code": osm.error_code},
+        "osm": {
+            "status": osm.status,
+            "stage": osm.stage,
+            "error_code": osm.error_code,
+            "duration_seconds": round(osm_duration_seconds, 3),
+            "eligible_gaps": osm_eligible_gaps,
+            "coverage_cells": osm.metrics.coverage_cells if osm.metrics else None,
+            "coverage_area_km2": round(osm.metrics.coverage_area_km2, 3) if osm.metrics else None,
+            "coverage_seconds": round(osm.metrics.coverage_seconds, 3) if osm.metrics else None,
+            "acquisition_seconds": round(osm.metrics.acquisition_seconds, 3)
+            if osm.metrics
+            else None,
+            "prepare_seconds": round(osm.metrics.prepare_seconds, 3) if osm.metrics else None,
+            "routing_seconds": round(osm.metrics.routing_seconds, 3) if osm.metrics else None,
+            "snapshot_cache_hit": osm.metrics.snapshot_cache_hit if osm.metrics else None,
+            "snapshot_stale": osm.metrics.snapshot_stale if osm.metrics else None,
+            "graph_cache_hit": osm.metrics.graph_cache_hit if osm.metrics else None,
+            "routing_queries": osm.metrics.routing_queries if osm.metrics else None,
+            "candidate_gaps": osm.metrics.candidate_gaps if osm.metrics else None,
+            "candidates": osm.metrics.candidates if osm.metrics else None,
+        },
         "distance": {
             "quality": audit["distance"]["quality"],
             "uncertain": audit["distance"]["quality"] == "uncertain",

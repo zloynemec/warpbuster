@@ -46,12 +46,31 @@ SAFE_ERROR_CODES = frozenset(
 
 
 @dataclass(frozen=True, slots=True)
+class OSMWebMetrics:
+    """Coordinate-free operational counters safe to copy into the event journal."""
+
+    coverage_cells: int
+    coverage_area_km2: float
+    coverage_seconds: float
+    acquisition_seconds: float
+    prepare_seconds: float
+    routing_seconds: float
+    snapshot_cache_hit: bool
+    snapshot_stale: bool
+    graph_cache_hit: bool
+    routing_queries: int
+    candidate_gaps: int
+    candidates: int
+
+
+@dataclass(frozen=True, slots=True)
 class OSMWebResult:
     plan: RepairPlan
     status: str
     stage: str | None = None
     error_code: str | None = None
     private_audit: dict[str, Any] | None = None
+    metrics: OSMWebMetrics | None = None
 
     def __post_init__(self) -> None:
         if self.status not in {"not_needed", "disabled", "complete", "partial", "unavailable"}:
@@ -86,6 +105,7 @@ def execute_osm_pipeline(
             lines.append(((before.longitude, before.latitude), (after.longitude, after.latitude)))
     if not lines:
         return OSMWebResult(base_plan, "not_needed")
+    coverage_started = time.monotonic()
     try:
         from warpbuster_osm_manager import OsmManager, OsmManagerConfig
         from warpbuster_osm_manager.coverage import ParsedGeometry, plan_from_geometry
@@ -141,6 +161,7 @@ def execute_osm_pipeline(
             base_plan, "unavailable", "coverage", _safe_code(error, "coverage_limit")
         )
 
+    coverage_seconds = time.monotonic() - coverage_started
     started = time.monotonic()
     if stage_callback:
         stage_callback("acquisition")
@@ -156,7 +177,9 @@ def execute_osm_pipeline(
         return OSMWebResult(base_plan, "unavailable", "acquisition", "osm_timeout")
     if _tree_size(cache_root, config.osm_cache_quota_bytes) > config.osm_cache_quota_bytes:
         return OSMWebResult(base_plan, "unavailable", "acquisition", "cache_quota")
+    acquisition_seconds = time.monotonic() - started
 
+    started = time.monotonic()
     try:
         if stage_callback:
             stage_callback("prepare")
@@ -171,7 +194,9 @@ def execute_osm_pipeline(
         return OSMWebResult(
             base_plan, "unavailable", "prepare", _safe_code(error, "prepare_failed")
         )
+    prepare_seconds = time.monotonic() - started
 
+    started = time.monotonic()
     try:
         if stage_callback:
             stage_callback("routing")
@@ -197,8 +222,23 @@ def execute_osm_pipeline(
         return OSMWebResult(
             base_plan, "unavailable", "routing", _safe_code(error, "routing_failed")
         )
+    routing_seconds = time.monotonic() - started
     decisions = _automatic_decisions(final_plan)
     unresolved = any(item.get("status") == "unresolved" for item in decisions)
+    metrics = OSMWebMetrics(
+        coverage_cells=len(coverage.cells),
+        coverage_area_km2=coverage.area_km2,
+        coverage_seconds=coverage_seconds,
+        acquisition_seconds=acquisition_seconds,
+        prepare_seconds=prepare_seconds,
+        routing_seconds=routing_seconds,
+        snapshot_cache_hit=not snapshot.downloaded,
+        snapshot_stale=snapshot.stale,
+        graph_cache_hit=graph.status == "CACHED",
+        routing_queries=discovery.query_count,
+        candidate_gaps=discovery.candidate_gap_count,
+        candidates=discovery.candidate_count,
+    )
     return OSMWebResult(
         final_plan,
         "partial" if unresolved else "complete",
@@ -210,6 +250,7 @@ def execute_osm_pipeline(
             "discovery": osm_reconstruction_report(discovery),
             "application": {"decisions": decisions},
         },
+        metrics=metrics,
     )
 
 

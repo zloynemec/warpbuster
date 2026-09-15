@@ -578,6 +578,11 @@ def test_log_correlates_upload_pair_and_actual_processor_invocation(app, client,
     assert call["minimum_confidence"] == call["minimum_invalidation_confidence"] == "medium"
     assert call["fill_missing_from_course"] is True
     assert osm["status"] in {"not_needed", "unavailable", "complete", "partial"}
+    assert osm["duration_seconds"] >= 0
+    assert isinstance(osm["eligible_gaps"], int)
+    assert osm["applied_gpx_gaps"] >= 0
+    assert osm["applied_osm_gaps"] >= 0
+    assert osm["unresolved_gaps"] >= 0
     assert result["return_code"] == 0 and result["has_fit"] is True
     assert result["duration_seconds"] >= 0
     text = app.state.store.events.path.read_text()

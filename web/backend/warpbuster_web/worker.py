@@ -114,12 +114,31 @@ class Worker:
                 public = json.loads((directory / "result.json").read_text(encoding="utf-8"))
                 osm = public.get("osm", {})
                 if isinstance(osm, dict):
+                    summary = public.get("summary", {})
+                    summary = summary if isinstance(summary, dict) else {}
                     self.store.events.write(
                         "osm_pipeline_completed",
                         uid,
                         status=osm.get("status"),
                         stage=osm.get("stage"),
                         error=osm.get("error_code"),
+                        duration_seconds=osm.get("duration_seconds"),
+                        eligible_gaps=osm.get("eligible_gaps"),
+                        coverage_cells=osm.get("coverage_cells"),
+                        coverage_area_km2=osm.get("coverage_area_km2"),
+                        coverage_seconds=osm.get("coverage_seconds"),
+                        acquisition_seconds=osm.get("acquisition_seconds"),
+                        prepare_seconds=osm.get("prepare_seconds"),
+                        routing_seconds=osm.get("routing_seconds"),
+                        snapshot_cache_hit=osm.get("snapshot_cache_hit"),
+                        snapshot_stale=osm.get("snapshot_stale"),
+                        graph_cache_hit=osm.get("graph_cache_hit"),
+                        routing_queries=osm.get("routing_queries"),
+                        candidate_gaps=osm.get("candidate_gaps"),
+                        candidates=osm.get("candidates"),
+                        applied_gpx_gaps=summary.get("applied_gpx_gaps"),
+                        applied_osm_gaps=summary.get("applied_osm_gaps"),
+                        unresolved_gaps=summary.get("unresolved_gaps"),
                     )
             except OSError, ValueError:
                 pass

@@ -173,7 +173,10 @@ Core/CLI по умолчанию не меняются. Политика дей�
   перенос ещё не обработанных исходников из прежней структуры;
 - `processing_started`: полная команда, каталог пары, лимит точек/времени и три
   параметра обработки из общей с процессором конфигурации;
-- `osm_pipeline_completed`: итог OSM stage без координат, geometry и native stderr;
+- `osm_pipeline_completed`: итог и длительность OSM stage, bounded coverage
+  cells/area, времена coverage/acquisition/prepare/routing, cache hit/stale,
+  routing/candidate counters и итоговые GPX/OSM/unresolved gaps — без координат,
+  идентификаторов snapshot/graph, geometry и native stderr;
 - `processing_completed`, `processing_failed`: время выполнения, код возврата,
   безопасный код ошибки, наличие выходного FIT;
 - `processing_interrupted`, `pair_expired`: прерывание при перезапуске и истечение хранения.
