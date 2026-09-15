@@ -30,6 +30,7 @@ class Store:
         self.uploads_dir = config.data_dir / "uploads"
         self.uploads_dir.mkdir(mode=0o700, exist_ok=True)
         self.uploads_dir.chmod(0o700)
+        self.osm_dir = config.data_dir / "osm"
         self.events = EventLog(config)
         self.path = config.data_dir / "jobs.sqlite3"
         with self.connect() as db:

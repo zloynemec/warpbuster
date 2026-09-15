@@ -59,7 +59,7 @@ def test_processed_report_includes_gpx_geometry_and_actual_corrected_metrics(tmp
     _repairable_fixture(tmp_path, with_elevation=True)
     assert process_job(tmp_path, 100_000)
     report = json.loads((tmp_path / "result.json").read_text())
-    assert report["schema_version"] == 2
+    assert report["schema_version"] == 3
     assert len(report["tracks"]["course"][0]) == 33
     assert all(len(point) == 2 for point in report["tracks"]["course"][0])
     assert report["performance"]["source"] == "corrected"

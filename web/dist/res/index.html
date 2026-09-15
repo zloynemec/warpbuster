@@ -38,6 +38,16 @@
           <div><span>Дистанция в исходном FIT</span><strong id="metric-before">—</strong></div>
           <div><span>Дистанция в исправленном FIT</span><strong id="metric-after">—</strong></div>
         </div>
+        <section class="run-card" id="repair-summary" aria-labelledby="repair-summary-title">
+          <div class="run-heading"><h2 id="repair-summary-title">Восстановление участков</h2><p id="osm-status" class="subtle"></p></div>
+          <div class="result-metrics">
+            <div><span>Восстановлено по GPX</span><strong id="metric-gpx-gaps">0</strong></div>
+            <div><span>Восстановлено по OSM</span><strong id="metric-osm-gaps">0</strong></div>
+            <div><span>Осталось без восстановления</span><strong id="metric-unresolved-gaps">0</strong></div>
+          </div>
+          <p id="allocation-note" class="distance-warning" hidden>Для части участка распределение по времени приблизительное; исходные временные метки сохранены.</p>
+          <p id="osm-warning" class="distance-warning" hidden></p>
+        </section>
         <section class="track-card" aria-labelledby="track-title">
           <div class="track-heading"><h2 id="track-title">Карта трека</h2><div class="track-toggles"><label class="original-toggle"><input id="show-original" type="checkbox"> Исходный</label><label><input id="show-corrected" type="checkbox"> Исправленный</label><label class="course-toggle" title="Загруженный маршрут GPX"><input id="show-course" type="checkbox"> Трек</label></div></div>
           <div id="track-view" role="region" aria-label="Интерактивная карта трека"></div>

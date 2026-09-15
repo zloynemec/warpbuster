@@ -4,6 +4,9 @@ import argparse
 import json
 import math
 import os
+import time
+from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 from warpbuster.config import CourseReconstructionConfig
@@ -14,9 +17,10 @@ from warpbuster.integrity import analyze_integrity
 from warpbuster.models.integrity import IntegrityConfidence
 from warpbuster.reconstruction.local import build_repair_plan
 from warpbuster.reconstruction.selection import select_repair_intervals
-from warpbuster.report.gaps import distance_policy
+from warpbuster.report.gaps import distance_policy, gap_audit
 
-from .config import REPAIR_POLICY
+from .config import REPAIR_POLICY, OSMMode, WebConfig
+from .osm_pipeline import OSMWebResult, run_osm_pipeline_isolated
 from .performance import public_performance
 
 PUBLIC_FIELDS = {
@@ -59,7 +63,18 @@ def track(activity):
     return segments
 
 
-def process_job(directory: Path, record_limit: int, *, input_directory: Path | None = None):
+def process_job(
+    directory: Path,
+    record_limit: int,
+    *,
+    input_directory: Path | None = None,
+    config: WebConfig | None = None,
+    osm_runner: Callable[..., OSMWebResult] = run_osm_pipeline_isolated,
+):
+    started = time.monotonic()
+    # The public worker passes an explicit environment-derived config. Direct library
+    # calls stay deterministic/offline unless the caller explicitly opts into OSM.
+    web_config = config or replace(WebConfig.from_environment(), osm_mode=OSMMode.DISABLED)
     input_directory = input_directory if input_directory is not None else directory
     try:
         activity = read_fit(input_directory / "original.fit")
@@ -87,7 +102,20 @@ def process_job(directory: Path, record_limit: int, *, input_directory: Path | N
             REPAIR_POLICY["minimum_invalidation_confidence"]
         ),
     )
+    if time.monotonic() - started > web_config.base_plan_timeout_seconds:
+        raise ProcessingError("timeout")
     minimum_confidence = IntegrityConfidence(REPAIR_POLICY["minimum_confidence"])
+    remaining = web_config.process_timeout_seconds - (time.monotonic() - started)
+    if remaining <= web_config.publish_reserve_seconds:
+        osm = OSMWebResult(plan, "unavailable", "setup", "osm_timeout")
+    else:
+        try:
+            osm = osm_runner(activity, integrity, plan, web_config)
+        except Exception:
+            # OSM is an optional reconstruction stage. Keep the immutable base plan
+            # and never expose exception text from companion/native code.
+            osm = OSMWebResult(plan, "unavailable", "routing", "routing_failed")
+    plan = osm.plan
     selection = select_repair_intervals(plan, minimum_confidence)
     result = None
     fixed = None
@@ -101,6 +129,7 @@ def process_job(directory: Path, record_limit: int, *, input_directory: Path | N
             )
             fixed = read_fit(result.output_path)
         except (FitWriteError, FitReadError, OSError, ValueError) as error:
+            (directory / "corrected.fit").unlink(missing_ok=True)
             raise ProcessingError("repair_refused") from error
         if (
             not result.validation.valid
@@ -113,18 +142,47 @@ def process_job(directory: Path, record_limit: int, *, input_directory: Path | N
 
     # Construct every public field explicitly. Never serialize dataclasses, inspect_report,
     # repair_report, local HTML, exception text, source filenames or preservation objects.
+    written_plan = result.plan if result is not None and result.plan is not None else plan
+    audit = gap_audit(written_plan, selection)
+    public_gaps = [
+        {
+            "number": item["number"],
+            "start": item["start_record_index"],
+            "end": item["end_record_index"],
+            "provider": item["provider"],
+            "action": item["status"],
+            "confidence": item["path_confidence"],
+            "allocation_method": (item.get("provenance") or {}).get("allocation_method"),
+            "estimated": (item.get("provenance") or {}).get("allocation_method") == "timestamps",
+            "reasons": [str(reason) for reason in item["reasons"]],
+        }
+        for item in audit["gap_inventory"]
+    ]
+    applied_gpx = sum(
+        item["action"] == "applied" and item["provider"] == "gpx" for item in public_gaps
+    )
+    applied_osm = sum(
+        item["action"] == "applied" and item["provider"] == "osm" for item in public_gaps
+    )
     report = {
-        "schema_version": 2,
+        "schema_version": 3,
         "outcome": "repaired"
         if result
         else ("unchanged" if plan.status.value == "not_needed" else "unresolved"),
-        "partial": selection.is_partial or bool(selection.unresolved_invalidated_indices),
+        "partial": selection.is_partial
+        or bool(selection.unresolved_invalidated_indices)
+        or any(item["action"] == "unresolved" for item in public_gaps),
         "summary": {
             "record_count": len(activity.records),
             "detected_intervals": len(integrity.corrupted_intervals),
             "applied_intervals": selection.applied_interval_count,
             "skipped_intervals": selection.skipped_interval_count,
-            "unresolved_points": len(selection.unresolved_invalidated_indices),
+            "unresolved_points": audit["coordinate_coverage"]["unresolved"],
+            "filled_points": audit["coordinate_coverage"]["filled"],
+            "all_unresolved_points": audit["coordinate_coverage"]["unresolved"],
+            "applied_gpx_gaps": applied_gpx,
+            "applied_osm_gaps": applied_osm,
+            "unresolved_gaps": sum(item["action"] == "unresolved" for item in public_gaps),
             "original_distance_m": finite(activity.recorded_distance_m),
             "corrected_distance_m": finite(fixed.recorded_distance_m) if fixed else None,
         },
@@ -150,6 +208,13 @@ def process_job(directory: Path, record_limit: int, *, input_directory: Path | N
             }
             for decision in selection.decisions
         ],
+        "gaps": public_gaps,
+        "osm": {"status": osm.status, "stage": osm.stage, "error_code": osm.error_code},
+        "distance": {
+            "quality": audit["distance"]["quality"],
+            "uncertain": audit["distance"]["quality"] == "uncertain",
+            "reason": audit["distance"]["reason"],
+        },
         "fit_diff": None,
     }
     if result:
@@ -182,7 +247,15 @@ def process_job(directory: Path, record_limit: int, *, input_directory: Path | N
         }
     temporary = directory / "result.json.tmp"
     temporary.write_text(json.dumps(report, ensure_ascii=False, allow_nan=False), encoding="utf-8")
+    temporary.chmod(0o600)
     temporary.replace(directory / "result.json")
+    if osm.private_audit is not None:
+        audit_temporary = directory / "private-osm-audit.json.tmp"
+        audit_temporary.write_text(
+            json.dumps(osm.private_audit, ensure_ascii=False, allow_nan=False), encoding="utf-8"
+        )
+        audit_temporary.chmod(0o600)
+        audit_temporary.replace(directory / "private-osm-audit.json")
     return bool(result)
 
 
@@ -197,7 +270,12 @@ def main():
     args = parser.parse_args()
     directory = args.directory
     try:
-        process_job(directory, args.record_limit, input_directory=args.inputs)
+        process_job(
+            directory,
+            args.record_limit,
+            input_directory=args.inputs,
+            config=WebConfig.from_environment(),
+        )
     except ProcessingError as error:
         (directory / "failure.json").write_text(json.dumps({"code": str(error)}), encoding="utf-8")
         return 1

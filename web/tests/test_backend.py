@@ -4,7 +4,7 @@ import asyncio
 import hashlib
 import json
 import sqlite3
-import subprocess
+import sys
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -310,15 +310,34 @@ def test_processing_timeout_retains_input_pair(app, client, files, monkeypatch):
     uid = submit(client, files).json()["uid"]
 
     def timeout(*args, **kwargs):
-        raise subprocess.TimeoutExpired("private command", 1)
+        return None, "timeout"
 
-    monkeypatch.setattr("warpbuster_web.worker.subprocess.run", timeout)
+    monkeypatch.setattr(app.state.worker, "_run_processor", timeout)
     assert app.state.store.claim() == uid
     app.state.worker.process(uid)
     assert app.state.store.get(uid)["error"] == "timeout"
     assert not list((app.state.config.data_dir / uid).iterdir())
     assert (app.state.store.uploads_dir / uid / "original.fit").read_bytes() == files["activity"][1]
     assert (app.state.store.uploads_dir / uid / "course.gpx").read_bytes() == files["course"][1]
+
+
+def test_worker_graceful_stop_interrupts_active_process_group(app):
+    worker = app.state.worker
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(
+            worker._run_processor,
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            30,
+            {},
+        )
+        deadline = time.monotonic() + 2
+        while worker.active_process is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert worker.active_process is not None
+        worker.stop_event.set()
+        return_code, error = future.result(timeout=5)
+    assert return_code is not None and error == "interrupted"
+    assert worker.active_process is None
 
 
 def test_restart_marks_interrupted_jobs_and_preserves_queued_inputs(app, client, files):
@@ -547,16 +566,18 @@ def test_log_correlates_upload_pair_and_actual_processor_invocation(app, client,
         "upload_completed",
         "upload_reused",
         "processing_started",
+        "osm_pipeline_completed",
         "processing_completed",
     ]
     for event, role in zip(journal[1:3], ("activity", "course"), strict=True):
         assert event["role"] == role
         assert event["size_bytes"] == len(files[role][1])
         assert event["sha256"] == hashlib.sha256(files[role][1]).hexdigest()
-    call, result = journal[-2:]
+    call, osm, result = journal[-3:]
     assert call["command"][-2:] == ["--inputs", str(app.state.store.uploads_dir / uid)]
     assert call["minimum_confidence"] == call["minimum_invalidation_confidence"] == "medium"
     assert call["fill_missing_from_course"] is True
+    assert osm["status"] in {"not_needed", "unavailable", "complete", "partial"}
     assert result["return_code"] == 0 and result["has_fit"] is True
     assert result["duration_seconds"] >= 0
     text = app.state.store.events.path.read_text()

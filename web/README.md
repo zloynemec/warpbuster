@@ -85,8 +85,11 @@ origin в Referer, без пути результата и UID. Отрисовк
 неопределённым. Пересчёт старого плана для оценки качества использует текущую веб-политику.
 Обновление отчёта записывается в журнал с `pair_id`.
 
-Обработка выполняет detection без GPX, затем reconstruction по GPX и проверку
-записанного FIT. Веб-политика соответствует параметрам CLI:
+Обработка выполняет detection без GPX/OSM, затем строит базовый GPX-план. Для
+eligible внутренних gaps сервис получает bounded OSM coverage, готовит или повторно
+использует точный Valhalla graph и передаёт audited candidates в Core 012E. Core
+применяет GPX-first, а OSM использует только как автоматический fallback. Writer
+вызывается один раз для итогового плана. Веб-политика соответствует параметрам CLI:
 
 ```text
 --fill-missing-from-course
@@ -97,7 +100,8 @@ origin в Referer, без пути результата и UID. Отрисовк
 Заполнение пропусков координат по GPX включено; оба порога — MEDIUM. Настройки
 Core/CLI по умолчанию не меняются. Политика действует на новые загрузки;
 существующие результаты не пересчитываются автоматически.
-Если изменений нет или уверенности недостаточно,
+При любой ошибке acquisition/cache/prepare/routing базовый GPX-план сохраняется, а
+публичный отчёт получает безопасный stage/error code. Если изменений нет или уверенности недостаточно,
 исправленный файл не создаётся. Если применена только часть плана, это показано
 в результате. Время и датчики сохраняются по действующему контракту Core.
 
@@ -155,6 +159,10 @@ Core/CLI по умолчанию не меняются. Политика дей�
   <pair_id>/result.json
   logs/events.jsonl
   jobs.sqlite3
+  osm/datasets/       # immutable OSM snapshots and blobs
+  osm/routing/        # exact versioned Valhalla graphs
+  osm/tmp/            # incomplete bounded work only
+  osm/leases/         # active shared cache leases
 ```
 
 В журнале фиксируются:
@@ -165,6 +173,7 @@ Core/CLI по умолчанию не меняются. Политика дей�
   перенос ещё не обработанных исходников из прежней структуры;
 - `processing_started`: полная команда, каталог пары, лимит точек/времени и три
   параметра обработки из общей с процессором конфигурации;
+- `osm_pipeline_completed`: итог OSM stage без координат, geometry и native stderr;
 - `processing_completed`, `processing_failed`: время выполнения, код возврата,
   безопасный код ошибки, наличие выходного FIT;
 - `processing_interrupted`, `pair_expired`: прерывание при перезапуске и истечение хранения.
@@ -195,7 +204,7 @@ tail -f .warpbuster-web/logs/events.jsonl
 ## Лимиты и конфигурация
 
 Лимиты задаются в `WebConfig`: 20 МиБ на файл, 41 МиБ на запрос (в том числе без
-Content-Length), 60 секунд на загрузку, 180 секунд на обработку, 100 000 точек,
+Content-Length), 60 секунд на загрузку, 600 секунд на обработку, 100 000 точек,
 50 незавершённых заданий, 1000 хранимых результатов и 100 результатов на сессию.
 Это лимиты локального сервиса; распределённой очереди и защиты публичного сервера
 от массового создания сессий в этой задаче нет.
@@ -210,10 +219,44 @@ Content-Length), 60 секунд на загрузку, 180 секунд на о
 | `WARPBUSTER_WEB_MAX_JOBS` | `1000` | Максимум неистёкших заданий суммарно |
 | `WARPBUSTER_WEB_MAX_OWNER_JOBS` | `100` | Максимум неистёкших заданий одной cookie-сессии |
 | `WARPBUSTER_WEB_MAX_PENDING_JOBS` | `50` | Максимум загрузок, заданий в очереди и обработке |
+| `WARPBUSTER_WEB_OSM_MODE` | `auto` | `auto`, `offline` или аварийное `disabled` |
+| `WARPBUSTER_WEB_PROCESS_TIMEOUT_SECONDS` | `600` | Hard deadline всего job |
+| `WARPBUSTER_WEB_BASE_PLAN_TIMEOUT_SECONDS` | `180` | Бюджет чтения/detection/GPX |
+| `WARPBUSTER_WEB_OSM_TOTAL_TIMEOUT_SECONDS` | `360` | Общий OSM deadline |
+| `WARPBUSTER_WEB_OSM_ACQUISITION_TIMEOUT_SECONDS` | `90` | Бюджет snapshot acquisition |
+| `WARPBUSTER_WEB_OSM_PREPARE_TIMEOUT_SECONDS` | `180` | Бюджет graph prepare |
+| `WARPBUSTER_WEB_OSM_ROUTING_TIMEOUT_SECONDS` | `90` | Бюджет routing |
+| `WARPBUSTER_WEB_PUBLISH_RESERVE_SECONDS` | `60` | Резерв writer/validation/publication |
+| `WARPBUSTER_WEB_OSM_COVERAGE_BUFFER_M` | `1000` | Буфер каждого anchor window |
+| `WARPBUSTER_WEB_OSM_MAXIMUM_AREA_KM2` | `250` | Максимальная площадь union coverage |
+| `WARPBUSTER_WEB_OSM_MAXIMUM_CELLS` | `64` | Максимум coverage cells |
+| `WARPBUSTER_WEB_OSM_MAXIMUM_REQUESTS` | `8` | Все bounded Overpass attempts |
+| `WARPBUSTER_WEB_OSM_MAXIMUM_DOWNLOAD_BYTES` | `134217728` | Download budget одного job |
+| `WARPBUSTER_WEB_OSM_CACHE_QUOTA_BYTES` | `10737418240` | Dataset + graph cache quota |
+| `WARPBUSTER_WEB_OSM_JOB_TEMP_QUOTA_BYTES` | `2147483648` | Незавершённые acquisition/build |
+| `WARPBUSTER_WEB_OSM_MINIMUM_FREE_BYTES` | `1073741824` | Резерв диска до OSM |
+| `WARPBUSTER_WEB_OSM_CHILD_MEMORY_LIMIT_BYTES` | `2147483648` | RLIMIT_AS OSM process tree |
+| `WARPBUSTER_WEB_OSM_CHILD_CPU_SECONDS` | `300` | CPU limit OSM child |
+| `WARPBUSTER_WEB_OSM_OVERPASS_URL` | Manager default | Operator-only HTTPS endpoint |
 | `WARPBUSTER_WEB_PORT` | `8080` | Порт только для встроенной контейнерной healthcheck |
 
-Три переменные лимитов принимают только целые положительные числа. Некорректное
+Числовые переменные лимитов принимают только положительные значения. Некорректное
 значение останавливает запуск сервиса с указанием имени переменной.
+
+### Cache и отказоустойчивость
+
+`auto` допускает bounded acquisition; `offline` использует только полное verified
+покрытие, включая явно помеченный stale snapshot; `disabled` немедленно оставляет
+GPX-only pipeline. Cache и graph entries публикуются атомарно companion packages,
+параллельные ensure/prepare дедуплицируются их locks, а активные snapshot/graph
+удерживаются shared lease. Неполные staging entries не считаются READY.
+
+Для rollback установите `WARPBUSTER_WEB_OSM_MODE=disabled` и перезапустите сервис:
+Core/GPX path продолжит работать без Valhalla и сети. При `cache_quota`, corrupt
+manifest, engine mismatch или timeout не удаляйте cache вручную во время обработки;
+остановите worker, сохраните приватный audit и используйте companion `doctor/list/prune`.
+Readiness не проверяет доступность Overpass, потому что сетевой сбой не должен отключать
+GPX-восстановление.
 
 Пример другого локального порта:
 
@@ -223,8 +266,9 @@ WARPBUSTER_WEB_ORIGIN=http://127.0.0.1:8001 .venv/bin/python -m warpbuster_web -
 
 ## Контейнер
 
-Публичный корневой `Dockerfile` собирает Core и web-пакет в отдельной build-стадии,
-а в runtime оставляет только wheels, Python 3.14 и статические файлы. Процесс работает
+Публичный корневой `Dockerfile` собирает Core, Web, Manager и Routing в отдельной
+build-стадии и закрепляет `pyvalhalla==3.8.3`. Runtime содержит тот же engine,
+который включается в graph identity. Процесс работает
 от UID/GID `10001`, слушает `8080` и записывает постоянные данные только в `/data`.
 Корневая файловая система совместима с read-only режимом; для multipart-файлов нужен
 записываемый `/tmp`. `.dockerignore` исключает Git, окружения, тесты, кэши и любые
@@ -232,13 +276,19 @@ FIT/GPX из build context.
 
 ```bash
 docker build --pull -t warpbuster:local .
+docker volume create warpbuster-data
 docker run --rm --read-only \
+  --memory=3g --cpus=2 --pids-limit=256 \
   --tmpfs /tmp:rw,noexec,nosuid,size=64m \
-  --tmpfs /data:rw,noexec,nosuid,size=128m,uid=10001,gid=10001,mode=0700 \
+  --mount type=volume,source=warpbuster-data,target=/data \
   -e WARPBUSTER_WEB_ORIGIN=http://127.0.0.1:8080 \
   -p 127.0.0.1:8080:8080 \
   warpbuster:local
 ```
+
+Volume должен иметь не менее 12 GiB свободного места при defaults: cache quota 10 GiB,
+1 GiB publication reserve и место для uploads/results. Маленький временный `/data`
+подходит только для GPX smoke с `WARPBUSTER_WEB_OSM_MODE=disabled`.
 
 `GET /health` проверяет доступность SQLite и фонового worker. Ответ содержит только
 `{"status":"ok"}` либо `{"status":"unavailable"}`, не создаёт cookie и не раскрывает

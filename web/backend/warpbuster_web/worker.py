@@ -2,10 +2,13 @@
 
 import fcntl
 import json
+import os
+import signal
 import subprocess
 import sys
 import threading
 import time
+from contextlib import suppress
 
 from .config import REPAIR_POLICY
 from .store import Store
@@ -28,6 +31,8 @@ class Worker:
         self.stop_event = threading.Event()
         self.thread = None
         self.lock = None
+        self.active_process = None
+        self.process_lock = threading.Lock()
 
     def start(self):
         self.lock = (self.store.config.data_dir / "worker.lock").open("a")
@@ -70,19 +75,21 @@ class Worker:
             uid,
             command=command,
             timeout_seconds=config.process_timeout_seconds,
+            osm_mode=config.osm_mode.value,
+            osm_timeout_seconds=config.osm_total_timeout_seconds,
+            publish_reserve_seconds=config.publish_reserve_seconds,
             **REPAIR_POLICY,
         )
         error = None
         try:
-            completed = subprocess.run(
+            return_code, execution_error = self._run_processor(
                 command,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=config.process_timeout_seconds,
-                check=False,
+                config.process_timeout_seconds,
+                config.processor_environment(),
             )
-            return_code = completed.returncode
-            if completed.returncode:
+            if execution_error:
+                error = execution_error
+            elif return_code:
                 error = "processing_failed"
                 marker = directory / "failure.json"
                 if marker.is_file():
@@ -91,13 +98,11 @@ class Worker:
                         error = candidate
             elif not (directory / "result.json").is_file():
                 error = "processing_failed"
-        except subprocess.TimeoutExpired:
-            error = "timeout"
         except OSError, ValueError, KeyError:
             error = "processing_failed"
         finally:
             # The private input pair is retained separately until the job expires.
-            for filename in ("failure.json", "result.json.tmp"):
+            for filename in ("failure.json", "result.json.tmp", "private-osm-audit.json.tmp"):
                 (directory / filename).unlink(missing_ok=True)
         if error:
             (directory / "corrected.fit").unlink(missing_ok=True)
@@ -105,6 +110,19 @@ class Worker:
             self.store.state(uid, "failed", error=error)
         else:
             self.store.state(uid, "ready", has_fit=(directory / "corrected.fit").is_file())
+            try:
+                public = json.loads((directory / "result.json").read_text(encoding="utf-8"))
+                osm = public.get("osm", {})
+                if isinstance(osm, dict):
+                    self.store.events.write(
+                        "osm_pipeline_completed",
+                        uid,
+                        status=osm.get("status"),
+                        stage=osm.get("stage"),
+                        error=osm.get("error_code"),
+                    )
+            except OSError, ValueError:
+                pass
         self.store.events.write(
             "processing_failed" if error else "processing_completed",
             uid,
@@ -114,9 +132,60 @@ class Worker:
             has_fit=not error and (directory / "corrected.fit").is_file(),
         )
 
+    def _run_processor(self, command, timeout_seconds, environment):
+        child_environment = os.environ.copy()
+        child_environment.update(environment)
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+            env=child_environment,
+        )
+        with self.process_lock:
+            self.active_process = process
+        deadline = time.monotonic() + timeout_seconds
+        try:
+            while True:
+                remaining = deadline - time.monotonic()
+                if self.stop_event.is_set():
+                    self._terminate(process)
+                    return process.returncode, "interrupted"
+                if remaining <= 0:
+                    self._terminate(process)
+                    return process.returncode, "timeout"
+                try:
+                    return_code = process.wait(timeout=min(0.25, remaining))
+                    return return_code, "interrupted" if self.stop_event.is_set() else None
+                except subprocess.TimeoutExpired:
+                    continue
+        finally:
+            with self.process_lock:
+                if self.active_process is process:
+                    self.active_process = None
+
+    @staticmethod
+    def _terminate(process):
+        if process.poll() is not None:
+            return
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            with suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGKILL)
+            process.wait(timeout=2)
+
     def stop(self):
         self.stop_event.set()
+        with self.process_lock:
+            process = self.active_process
+        if process is not None:
+            self._terminate(process)
         if self.thread:
-            self.thread.join(timeout=self.store.config.process_timeout_seconds + 5)
+            self.thread.join(timeout=5)
         if self.lock:
             self.lock.close()

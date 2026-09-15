@@ -1,6 +1,7 @@
 # Task 012C — Автоматическое GPX + OSM восстановление в вебе
 
-Статус: ТЗ актуализировано 2026-09-15; реализация не начата.
+Статус: реализация выполнена 2026-09-15; финальные acceptance-проверки container
+offline cache hit и OSM-прогона всех шести приватных пар ожидают локальных snapshots.
 Milestone: M11. Зависимости: Core 012E с уточнением G6 (`f5a738a`), OSM Manager,
 Routing и существующий web service Task 013. Deployment — отдельная задача.
 
@@ -236,6 +237,24 @@ PYTHONPATH=src:packages/osm-routing/src:packages/osm-manager/src python -m mypy 
 
 Companion suites — отдельно из packages по их README. При реализации добавить
 документированные команды container smoke и проверки новых typed adapters.
+
+### Отчёт реализации 2026-09-15
+
+Реализованы GPX-first orchestration, bounded OSM acquisition/prepare/discovery через
+Manager и Routing, применение решения через Core 012E, единичная запись итогового FIT,
+процессная изоляция с deadline/resource watchdog, cache leases/eviction, schema 3,
+публичная allowlist-проекция, UI/FAQ, Docker runtime и GPX fallback.
+
+Автоматические проверки покрывают synthetic/native offline pipeline, ошибки coverage,
+cache quota, temp quota, stage timeout и process-group cleanup, lease-safe eviction,
+сохранение GPX при OSM failure, публичную схему и шесть приватных FIT/GPX пар в
+OSM-disabled fallback. Все исходные private hashes сохраняются.
+
+Не выполнялись production deployment и новые repair heuristics, DEM/altitude или
+интеграции с внешними сервисами. Полная повторная проверка шести приватных пар именно
+с OSM и container offline cache-hit не заявляются: требуемых локальных snapshots рядом
+с private fixtures нет. Native offline cache hit и container runtime/health проверены
+раздельно.
 
 ## 10. Файлы и порядок реализации
 

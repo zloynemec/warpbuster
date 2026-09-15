@@ -24,7 +24,7 @@ function showError(message, { retry = false, title = "Не удалось пол
 
 function renderReport(data, status) {
   const messages = {
-    repaired: ["Трек обработан.", "Трек обработан по маршруту GPX. Временные метки и показания датчиков сохранены."],
+    repaired: ["Трек обработан.", "Повреждённые участки восстановлены по доступным GPX и OSM данным. Временные метки и показания датчиков сохранены."],
     unchanged: ["Без изменений.", "Ядро не выбрало изменений для записи. Исправленный FIT не создавался."],
     unresolved: ["Нужно больше уверенности.", "Безопасного варианта исправления не найдено. Исходная запись не изменялась. Исправленный FIT не создавался."],
   };
@@ -34,6 +34,22 @@ function renderReport(data, status) {
   byId("metric-changes").textContent = numeric.format(data.fit_diff?.changed_records || 0);
   byId("metric-before").textContent = distance(data.summary.original_distance_m);
   byId("metric-after").textContent = distance(data.summary.corrected_distance_m);
+  byId("metric-gpx-gaps").textContent = numeric.format(data.summary.applied_gpx_gaps || 0);
+  byId("metric-osm-gaps").textContent = numeric.format(data.summary.applied_osm_gaps || 0);
+  byId("metric-unresolved-gaps").textContent = numeric.format(data.summary.unresolved_gaps || 0);
+  const osmLabels = {
+    not_needed: "OSM не потребовался",
+    disabled: "OSM отключён оператором",
+    complete: "OSM-проверка завершена",
+    partial: "OSM-проверка завершена частично",
+    unavailable: "OSM временно недоступен",
+  };
+  byId("osm-status").textContent = osmLabels[data.osm?.status] || "";
+  byId("allocation-note").hidden = !(data.gaps || []).some(gap => gap.estimated);
+  byId("osm-warning").hidden = data.osm?.status !== "unavailable";
+  byId("osm-warning").textContent = data.osm?.status === "unavailable"
+    ? "Карта для дополнительного восстановления была недоступна. Проверенные изменения по GPX сохранены."
+    : "";
   byId("owner-download").hidden = !status.can_download;
   byId("no-file-note").hidden = data.outcome === "repaired";
   byId("share-url").value = `${window.location.origin}/res/${uid}`;

@@ -1,0 +1,228 @@
+"""Web 012C orchestration preserves the base GPX result on every OSM refusal."""
+
+import json
+import pickle
+import time
+from dataclasses import replace
+from math import cos, radians
+
+from tests.fit_factory import write_trajectory_activity
+from tests.test_osm_application import fixture as osm_fixture
+from tests.test_osm_reconstruction_native import _forked_osm
+from tests.test_repair_cli import _repairable_fixture
+from warpbuster.fit.reader import read_fit
+from warpbuster.integrity import analyze_integrity
+from warpbuster.reconstruction import build_repair_plan
+from warpbuster_web.config import OSMMode, WebConfig
+from warpbuster_web.osm_pipeline import (
+    OSMWebResult,
+    _ensure_cache_quota,
+    _lease,
+    execute_osm_pipeline,
+    run_osm_pipeline_isolated,
+)
+from warpbuster_web.processing import process_job
+
+
+def test_disabled_osm_publishes_schema_three_without_private_graph_data(tmp_path):
+    _repairable_fixture(tmp_path)
+    config = WebConfig(data_dir=tmp_path / "data", osm_mode=OSMMode.DISABLED)
+    assert process_job(tmp_path, 100_000, config=config)
+    report = json.loads((tmp_path / "result.json").read_text())
+    assert report["schema_version"] == 3
+    assert report["osm"] == {"status": "disabled", "stage": None, "error_code": None}
+    assert report["summary"]["applied_gpx_gaps"] == 1
+    assert report["summary"]["applied_osm_gaps"] == 0
+    assert "graph_id" not in json.dumps(report)
+
+
+def test_osm_failure_keeps_gpx_plan_and_exposes_only_safe_code(tmp_path):
+    _repairable_fixture(tmp_path)
+    calls = []
+
+    def unavailable(activity, integrity, plan, config):
+        calls.append((activity, integrity, plan, config))
+        return OSMWebResult(plan, "unavailable", "acquisition", "offline_cache_miss")
+
+    config = replace(WebConfig(), osm_mode=OSMMode.OFFLINE)
+    assert process_job(tmp_path, 100_000, config=config, osm_runner=unavailable)
+    report = json.loads((tmp_path / "result.json").read_text())
+    assert len(calls) == 1
+    assert report["outcome"] == "repaired"
+    assert report["osm"] == {
+        "status": "unavailable",
+        "stage": "acquisition",
+        "error_code": "offline_cache_miss",
+    }
+    assert (tmp_path / "corrected.fit").is_file()
+    assert not (tmp_path / "private-osm-audit.json").exists()
+
+
+def test_unexpected_osm_exception_cannot_fail_job_or_leak_text(tmp_path):
+    _repairable_fixture(tmp_path)
+
+    def explode(*args):
+        raise RuntimeError("SECRET native stderr /private/path")
+
+    assert process_job(tmp_path, 100_000, osm_runner=explode)
+    report_text = (tmp_path / "result.json").read_text()
+    report = json.loads(report_text)
+    assert report["osm"]["error_code"] == "routing_failed"
+    assert "SECRET" not in report_text and "/private/path" not in report_text
+
+
+def test_coverage_and_existing_cache_quota_fail_before_network(tmp_path):
+    activity, _, integrity, plan, _ = osm_fixture(tmp_path)
+    config = replace(
+        WebConfig(),
+        data_dir=tmp_path / "web",
+        osm_mode=OSMMode.OFFLINE,
+        osm_maximum_area_km2=0.0001,
+        osm_minimum_free_bytes=1,
+    )
+    result = execute_osm_pipeline(activity, integrity, plan, config)
+    assert (result.stage, result.error_code) == ("coverage", "coverage_limit")
+
+    cache = config.data_dir / "osm"
+    cache.mkdir(parents=True, exist_ok=True)
+    (cache / "oversize").write_bytes(b"xx")
+    result = execute_osm_pipeline(
+        activity,
+        integrity,
+        plan,
+        replace(config, osm_maximum_area_km2=250, osm_cache_quota_bytes=1),
+    )
+    assert (result.stage, result.error_code) == ("coverage", "cache_quota")
+
+
+def test_cache_eviction_never_removes_entries_while_a_lease_is_active(tmp_path):
+    cache = tmp_path / "osm"
+    graph = cache / "routing" / "graphs" / ("a" * 64)
+    graph.mkdir(parents=True)
+    (graph / "tile").write_bytes(b"oversize")
+    with _lease(cache, "active"):
+        assert not _ensure_cache_quota(cache, 1)
+        assert graph.is_dir()
+    assert _ensure_cache_quota(cache, 1)
+    assert not graph.exists()
+
+
+def test_isolated_osm_timeout_kills_its_process_group(monkeypatch):
+    def hang(connection, *args):
+        import os
+
+        os.setsid()
+        connection.send_bytes(pickle.dumps(("stage", "routing")))
+        time.sleep(30)
+
+    monkeypatch.setattr("warpbuster_web.osm_pipeline.sys.platform", "linux")
+    monkeypatch.setattr("warpbuster_web.osm_pipeline.eligible_gap_count", lambda *args: 1)
+    monkeypatch.setattr("warpbuster_web.osm_pipeline.child_main", hang)
+    config = replace(WebConfig(), osm_total_timeout_seconds=0.2)
+    started = time.monotonic()
+    result = run_osm_pipeline_isolated(None, None, None, config)
+    assert time.monotonic() - started < 2
+    assert result.status == "unavailable"
+    assert result.stage == "routing"
+    assert result.error_code == "osm_timeout"
+
+
+def test_isolated_osm_enforces_temp_quota_and_cleans_partial_build(monkeypatch, tmp_path):
+    def fill_temporary(connection, activity, integrity, plan, config):
+        import os
+
+        os.setsid()
+        connection.send_bytes(pickle.dumps(("stage", "prepare")))
+        temporary = config.data_dir / "osm" / "routing" / "staging" / "partial"
+        temporary.mkdir(parents=True)
+        (temporary / "tile").write_bytes(b"too-large")
+        time.sleep(30)
+
+    monkeypatch.setattr("warpbuster_web.osm_pipeline.sys.platform", "linux")
+    monkeypatch.setattr("warpbuster_web.osm_pipeline.eligible_gap_count", lambda *args: 1)
+    monkeypatch.setattr("warpbuster_web.osm_pipeline.child_main", fill_temporary)
+    config = replace(
+        WebConfig(),
+        data_dir=tmp_path,
+        osm_total_timeout_seconds=5,
+        osm_job_temp_quota_bytes=1,
+        osm_minimum_free_bytes=1,
+    )
+    result = run_osm_pipeline_isolated(None, None, None, config)
+    assert result.stage == "prepare" and result.error_code == "cache_quota"
+    staging = tmp_path / "osm" / "routing" / "staging"
+    assert not staging.exists() or not list(staging.iterdir())
+
+
+def test_real_offline_manager_graph_and_core_application(tmp_path):
+    manager = __import__("warpbuster_osm_manager")
+    coverage_module = __import__("warpbuster_osm_manager.coverage", fromlist=["ParsedGeometry"])
+    scale = 111_195.0 * cos(radians(44.0))
+    path = tmp_path / "original.fit"
+    write_trajectory_activity(
+        path,
+        [
+            (i, None, None) if 21 <= i <= 379 else (i, 44.0, 33.0 + i * 2 / scale)
+            for i in range(401)
+        ],
+        distances_m=[float(i * 2) for i in range(401)],
+        speeds_mps=[2.0] * 401,
+        altitudes_m=[100.0] * 401,
+    )
+    activity = read_fit(path)
+    integrity = analyze_integrity(activity)
+    plan = build_repair_plan(activity, integrity)
+    config = replace(
+        WebConfig(),
+        data_dir=tmp_path / "web",
+        osm_mode=OSMMode.OFFLINE,
+        osm_minimum_free_bytes=1,
+    )
+    manager_config = replace(
+        manager.OsmManagerConfig.defaults(),
+        cache_directory=config.data_dir / "osm" / "datasets",
+        gpx_corridor_buffer_m=config.osm_coverage_buffer_m,
+        maximum_requested_area_km2=config.osm_maximum_area_km2,
+        maximum_ensure_cells=config.osm_maximum_cells,
+    )
+    geometry = coverage_module.ParsedGeometry(
+        ((coverage_module.GeoPoint(33.0, 44.0), coverage_module.GeoPoint(33.01, 44.0)),)
+    )
+    coverage = coverage_module.plan_from_geometry(
+        geometry,
+        manager_config,
+        source_kind="web_gap_anchors",
+        buffer_m=config.osm_coverage_buffer_m,
+    )
+    bounds = [coverage_module.bounds_for_cell(cell) for cell in coverage.cells]
+    bounds_tag = (
+        f'<bounds minlat="{min(item.south for item in bounds)}" '
+        f'minlon="{min(item.west for item in bounds)}" '
+        f'maxlat="{max(item.north for item in bounds)}" '
+        f'maxlon="{max(item.east for item in bounds)}"/>'
+    ).encode()
+    source = tmp_path / "source.osm"
+    source.write_bytes(
+        _forked_osm().replace(b'<osm version="0.6">', b'<osm version="0.6">' + bounds_tag)
+    )
+    manager.OsmManager(manager_config).import_file(source)
+    result = execute_osm_pipeline(activity, integrity, plan, config)
+    assert result.status in {"complete", "partial"}
+    assert result.plan.automatic_osm_json is not None
+    assert result.plan.interval_plans
+    assert result.plan.interval_plans[0].osm_provenance is not None
+    assert result.private_audit["graph"]["graph_id"].startswith("sha256:")
+    (tmp_path / "course.gpx").write_text(
+        '<gpx version="1.1" creator="test" xmlns="http://www.topografix.com/GPX/1/1">'
+        '<trk><trkseg><trkpt lat="45" lon="34"/><trkpt lat="45.001" lon="34.001"/>'
+        "</trkseg></trk></gpx>"
+    )
+    assert process_job(tmp_path, 100_000, config=config, osm_runner=execute_osm_pipeline)
+    public = json.loads((tmp_path / "result.json").read_text())
+    assert public["summary"]["applied_osm_gaps"] == 1
+    assert public["summary"]["applied_gpx_gaps"] == 0
+    assert public["osm"]["status"] == "complete"
+    assert (tmp_path / "corrected.fit").is_file()
+    private = json.loads((tmp_path / "private-osm-audit.json").read_text())
+    assert private["snapshot"]["downloaded"] is False
+    assert private["graph"]["status"] == "CACHED"

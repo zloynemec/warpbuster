@@ -27,7 +27,7 @@ from warpbuster.reconstruction.gaps import (
     inventory_gaps,
     position_fields_patchable,
 )
-from warpbuster.reconstruction.osm import _anchors
+from warpbuster.reconstruction.osm import osm_gap_anchors
 from warpbuster.reconstruction.osm_application import _allocate, _json, _snapshot
 from warpbuster.reconstruction.selection import select_repair_intervals
 
@@ -102,7 +102,7 @@ def apply_automatic_osm_routes(
                 continue
             decision["gpx_rejection"] = "candidate_transition_implausible"
             candidates.pop(gap.gap_id)
-        anchors, anchor_reason = _anchors(activity, plan, gap)
+        anchors, anchor_reason = osm_gap_anchors(activity, plan, gap)
         reason = Reason.OSM_NO_ACCEPTABLE_ROUTE
         blocked: str | None = None
         if anchors is None or anchor_reason is not None or gap.reasons:

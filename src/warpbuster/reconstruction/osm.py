@@ -165,7 +165,7 @@ class OSMReconstructionProvider:
         query_count = 0
         retained_points = 0
         for gap in plan.gaps:
-            anchors, reason = _anchors(activity, plan, gap)
+            anchors, reason = osm_gap_anchors(activity, plan, gap)
             if reason is not None:
                 evaluations.append(
                     OSMGapEvaluation(
@@ -264,9 +264,10 @@ class OSMReconstructionProvider:
         )
 
 
-def _anchors(
+def osm_gap_anchors(
     activity: ActivityData, plan: RepairPlan, gap: ReconstructionGap
 ) -> tuple[tuple[OSMAnchor, OSMAnchor] | None, OSMReconstructionReason | None]:
+    """Return the provider-neutral trusted endpoints used by every OSM orchestrator."""
     if (
         gap.kind is not MissingCourseRunKind.INTERNAL
         or gap.anchor_before_record_index is None
@@ -322,6 +323,10 @@ def _anchors(
         OSMAnchor(before_index, before_latitude, before_longitude),
         OSMAnchor(after_index, after_latitude, after_longitude),
     ), None
+
+
+# Backward-compatible internal name for pre-012C callers.
+_anchors = osm_gap_anchors
 
 
 def _candidate(value: RoutingCandidateData) -> OSMRouteCandidate:

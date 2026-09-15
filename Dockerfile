@@ -7,10 +7,14 @@ WORKDIR /build
 
 COPY pyproject.toml README.md ./
 COPY src ./src
+COPY packages/osm-manager ./packages/osm-manager
+COPY packages/osm-routing ./packages/osm-routing
 COPY web/pyproject.toml ./web/pyproject.toml
 COPY web/backend ./web/backend
 
-RUN python -m pip wheel --wheel-dir /wheels . ./web
+RUN python -m pip wheel --wheel-dir /wheels \
+      pyvalhalla==3.8.3 osmium==4.3.0 \
+      . ./packages/osm-manager ./packages/osm-routing ./web
 
 
 FROM python:3.14.7-slim-trixie AS runtime
@@ -23,12 +27,16 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     WARPBUSTER_WEB_DATA=/data \
     WARPBUSTER_WEB_STATIC=/app/web/dist \
+    WARPBUSTER_WEB_OSM_MODE=auto \
     WARPBUSTER_WEB_PORT=8080
 
 LABEL org.opencontainers.image.title="WarpBuster Web" \
       org.opencontainers.image.source="https://github.com/zloynemec/warpbuster"
 
-RUN groupadd --gid "${APP_GID}" warpbuster \
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends libexpat1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid "${APP_GID}" warpbuster \
     && useradd --uid "${APP_UID}" --gid "${APP_GID}" --no-create-home --shell /usr/sbin/nologin warpbuster \
     && install -d -o "${APP_UID}" -g "${APP_GID}" -m 0700 /data /app/web
 

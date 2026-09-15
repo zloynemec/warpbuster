@@ -7,7 +7,14 @@ name = "warpbuster-web"
 version = "0.1.0"
 description = "Separate local web service for WarpBuster"
 requires-python = ">=3.14"
-dependencies = ["warpbuster==0.1.0", "starlette>=0.52.1,<0.53", "uvicorn>=0.34,<1", "python-multipart>=0.0.20,<1"]
+dependencies = [
+    "warpbuster==0.1.0",
+    "warpbuster-osm-manager==0.1.0.dev0",
+    "warpbuster-osm-routing==0.1.0.dev0",
+    "starlette>=0.52.1,<0.53",
+    "uvicorn>=0.34,<1",
+    "python-multipart>=0.0.20,<1",
+]
 
 [project.optional-dependencies]
 dev = ["httpx>=0.28,<1", "pytest>=8.3,<9"]
