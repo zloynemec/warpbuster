@@ -261,6 +261,15 @@ manifest, engine mismatch или timeout не удаляйте cache вручн�
 Readiness не проверяет доступность Overpass, потому что сетевой сбой не должен отключать
 GPX-восстановление.
 
+### Admin CLI
+
+Пакет устанавливает отдельную команду `warpbuster-admin` (также доступную как
+`python -m warpbuster_web.admin`) для очистки пар по UTC-дате и полного OSM cache.
+Без `--confirm DELETE` команды выполняют только dry-run. Подтверждённая очистка
+требует свободного `worker.lock`, поэтому основной web worker должен быть остановлен.
+Production-вызовы через одноразовый Compose container описаны в локальном
+`PRODUCTION.md`; HTTP admin endpoint намеренно отсутствует.
+
 Пример другого локального порта:
 
 ```bash
