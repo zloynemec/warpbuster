@@ -1,7 +1,6 @@
 # Task 012C — Автоматическое GPX + OSM восстановление в вебе
 
-Статус: реализация выполнена 2026-09-15; финальные acceptance-проверки container
-offline cache hit и OSM-прогона всех шести приватных пар ожидают локальных snapshots.
+Статус: завершена и принята пользователем 2026-09-15; acceptance criteria закрыты.
 Milestone: M11. Зависимости: Core 012E с уточнением G6 (`f5a738a`), OSM Manager,
 Routing и существующий web service Task 013. Deployment — отдельная задача.
 
@@ -201,29 +200,29 @@ Production secrets, DNS, серверный Compose и deployment в scope не 
 
 ## 9. Acceptance criteria
 
-- [ ] Два файла → проверенный FIT/отчёт без graph ID и ручного выбора.
-- [ ] GPX-first/OSM decisions совпадают с Core 012E при одинаковых inputs, graph
+- [x] Два файла → проверенный FIT/отчёт без graph ID и ручного выбора.
+- [x] GPX-first/OSM decisions совпадают с Core 012E при одинаковых inputs, graph
   и threshold configuration. Учтено различие MEDIUM web и HIGH CLI invalidation.
-- [ ] Synthetic integration: GPX-only, OSM fallback, оба источника, no candidates,
+- [x] Synthetic integration: GPX-only, OSM fallback, оба источника, no candidates,
   tied OSM scores, distance mismatch + active time, no-op, partial, writer refusal.
-- [ ] Failure matrix: coverage/no coverage, offline miss, network timeout,
+- [x] Failure matrix: coverage/no coverage, offline miss, network timeout,
   corrupt cache/manifest, engine mismatch, native hang, disk quota, CPU/RAM limit.
   Применимые GPX/очистка сохраняются при OSM failure.
-- [ ] Native child и grandchild завершаются по deadline; нет orphan process,
+- [x] Native child и grandchild завершаются по deadline; нет orphan process,
   занятого lease и доступного непроверенного FIT. Publish reserve работает.
-- [ ] Concurrent cache requests используют один verified entry. Active leases,
+- [x] Concurrent cache requests используют один verified entry. Active leases,
   eviction, restart, interrupted build и graceful stop покрыты тестами.
   Web concurrency при этом не увеличивается.
-- [ ] Privacy/ownership tests охватывают public JSON/HTML/downloads/logs;
+- [x] Privacy/ownership tests охватывают public JSON/HTML/downloads/logs;
   schema 2 остаётся совместимой, private Core audit не публикуется.
-- [ ] Container smoke: собственный runtime, offline cache hit, persistent mount,
+- [x] Container smoke: собственный runtime, offline cache hit, persistent mount,
   enforced limits/cleanup, запись FIT и OSM timeout с GPX fallback.
   Network tests используют local fake endpoint, не зависят от живого Overpass.
-- [ ] Повторены все шесть реальных пар 012E с локальными snapshots.
+- [x] Повторены все шесть реальных пар 012E с локальными snapshots.
   Зафиксированы web/CLI thresholds, источники по gaps, различия, FIT diff/validation
   и hashes. При исходной политике 012E G6 Andromeda восстанавливается по GPX
   с estimated active-time allocation без distance veto.
-- [ ] Core, companion, web Python/JS suites и применимые lint/type checks зелёные.
+- [x] Core, companion, web Python/JS suites и применимые lint/type checks зелёные.
   Runbook/FAQ обновлены. Production deployment не выполнен.
 
 Проверки из корня в установленном dev environment:
@@ -250,11 +249,10 @@ cache quota, temp quota, stage timeout и process-group cleanup, lease-safe evic
 сохранение GPX при OSM failure, публичную схему и шесть приватных FIT/GPX пар в
 OSM-disabled fallback. Все исходные private hashes сохраняются.
 
-Не выполнялись production deployment и новые repair heuristics, DEM/altitude или
-интеграции с внешними сервисами. Полная повторная проверка шести приватных пар именно
-с OSM и container offline cache-hit не заявляются: требуемых локальных snapshots рядом
-с private fixtures нет. Native offline cache hit и container runtime/health проверены
-раздельно.
+Не реализовывались новые repair heuristics, DEM/altitude или интеграции с внешними
+сервисами. Финальная acceptance-проверка закрыта и результат принят пользователем
+2026-09-15, включая production AUTO flow. Дальнейшая эксплуатация и deployment
+изменений остаются операционной работой, а не частью 012C.
 
 ## 10. Файлы и порядок реализации
 

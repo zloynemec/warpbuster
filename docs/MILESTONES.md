@@ -469,9 +469,10 @@ HTML/JSON audit проверен автоматически; ручной browse
    ТЗ 012C актуализировано 2026-09-15: автоматическая подготовка карты, отдельный
    OSM deadline с резервом публикации GPX, действующая MEDIUM web-политика,
    allowlisted public schema 3 и локальная container/шеститрековая приёмка.
-2. **M12 — DEM-backed Elevation (номер task ещё не назначен):** отдельные dataset/cache/provenance,
+2. **M12 / Task 020 — DEM-backed Elevation:** отдельные dataset/cache/provenance,
    sampling route polyline, GPX `<ele>`, elevation profile и ascent/descent policy.
-3. **M13 — Elevation-aware OSM Reconstruction (номер task ещё не назначен):** после M11 и M12; optional
+   Уточнённое ТЗ: [Task 020](../tasks/020-dem-backed-elevation.md).
+3. **M13 / Task 021 — Elevation-aware OSM Reconstruction:** после M11 и M12; optional
    DEM evidence для alternatives и отдельное восстановление только missing/corrupted
    altitude.
 
@@ -486,5 +487,6 @@ HTML/JSON audit проверен автоматически; ручной browse
 DEM и reconstruction нельзя начинать внутри Task 010; отсутствие DEM не должно
 блокировать первоначальную 2D-интеграцию.
 
-Нумерация: `tasks/013-web-processing-and-result-privacy.md` уже занята web privacy;
-не переиспользовать Task 013 для DEM. M12/M13 остаются будущими epics.
+Нумерация: `tasks/013-web-processing-and-result-privacy.md` и
+`tasks/014-shared-processing-pipeline.md` сохраняют исторические номера. Новая очередь
+начинается с Task 020: M12 — Task 020, следующий M13 — Task 021.

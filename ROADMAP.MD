@@ -212,34 +212,36 @@ Roadmap следует порядку milestone из [`docs/MILESTONES.md`](docs
   missing-data chords. Running cadence учитывает fractional FIT cadence и показывается
   в steps/min. Проверки: 465 passed, 6 skipped; Ruff/mypy пройдены.
 
-- [ ] **M11 / Task 012 — OSM Reconstruction Bridge (2D first)**
+- [x] **M11 / Task 012 — OSM Reconstruction Bridge (2D first)**
   - [x] **012A:** bounded OSM discovery и typed bridge.
   - [x] **012B:** исторический confirmed-route Core API.
   - [x] **012D:** provider-neutral ranking кандидатов.
   - [x] **012E:** GPX-first и автоматическое применение OSM, включая advisory
     distance/speed и fallback по активному времени. Core 612 passed, 17 skipped;
     шесть реальных пар проверены, G6 Andromeda восстановлен по GPX.
-  - [ ] **012C — Автоматическое восстановление в вебе**
-    ([ТЗ](tasks/012c-web-hybrid-production.md), актуализировано 2026-09-15):
+  - [x] **012C — Автоматическое восстановление в вебе**
+    ([ТЗ](tasks/012c-web-hybrid-production.md), завершено и принято 2026-09-15):
     два файла → очистка → GPX-first → автоматический OSM → FIT и отчёт.
     Автоматическая bounded acquisition/graph preparation, persistent cache/leases,
     process/resource limits и отдельный OSM deadline, сохраняющий GPX fallback.
     Используется текущая web MEDIUM-политика; алгоритмы Core не дублируются.
     Public schema 3 с источниками/причинами и privacy allowlist, совместимость schema 2,
-    Docker/runtime, failure tests, runbook и локальная приёмка шести пар.
-    Ручной выбор, DEM и production deployment не входят в задачу.
+    Docker/runtime, failure tests, runbook и приёмка шести пар. Production AUTO
+    проверен; ручной выбор и DEM не входят в задачу.
 
-- [ ] **M12 / Task 013 — DEM-backed Elevation** — отдельная optional подсистема
-  - **013A:** выбрать DEM dataset, лицензию, resolution и зафиксировать vertical datum;
-  - **013B:** immutable tile cache с coverage, hashes, offline reuse и bounded download;
-  - **013C:** детерминированный sampler для route polyline, bounded interpolation и
+- [ ] **M12 / Task 020 — DEM-backed Elevation**
+  ([уточнённое ТЗ](tasks/020-dem-backed-elevation.md)) — отдельная optional подсистема
+  - **020A:** зафиксировать проверенный Mapzen/Tilezen Skadi profile, составной
+    attribution contract, реальный resolution и vertical datum WGS84/EGM96;
+  - **020B:** immutable tile cache с coverage, hashes, offline reuse и bounded download;
+  - **020C:** детерминированный sampler для route polyline, bounded interpolation и
     явные missing-coverage diagnostics;
-  - **013D:** GPX route export с `<ele>`, raw/smoothed elevation profiles и расчётом
+  - **020D:** GPX route export с `<ele>`, raw/smoothed elevation profiles и расчётом
     ascent/descent по именованной filtering policy;
   - сравнивать DEM-профиль с сохранённой FIT/course altitude как независимое evidence;
   - DEM не используется Integrity Detector и не заменяет правдоподобные FIT-высоты.
 
-- [ ] **M13 / Task 014 — Elevation-aware OSM Reconstruction** — после M11 и M12
+- [ ] **M13 / Task 021 — Elevation-aware OSM Reconstruction** — после M11 и M12
   - использовать DEM-профиль как optional признак для ранжирования alternatives;
   - объединять geometry, time, recorded distance/pace и elevation evidence в
     консервативный confidence без привязки к конкретной тренировке;

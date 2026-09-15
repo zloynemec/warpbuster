@@ -348,7 +348,7 @@ set этого gap становится `UNRESOLVED/RESULT_LIMIT_REACHED`.
 - [x] Default Core не требует установленного Valhalla companion package.
 - [x] Все operational limits именованы, валидируются и покрыты boundary tests.
 - [x] Synthetic native Valhalla end-to-end и все regression/quality suites проходят.
-- [x] Не реализованы selection/allocation/application из 012B/012C и DEM из Task 013.
+- [x] Не реализованы selection/allocation/application из 012B/012C и DEM из Task 020.
 
 ## 13. Предлагаемые решения для согласования
 
