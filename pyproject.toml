@@ -26,6 +26,10 @@ dependencies = [
 Repository = "https://github.com/zloynemec/warpbuster"
 
 [project.optional-dependencies]
+osm = [
+    "warpbuster-osm-manager==0.1.0.dev0",
+    "warpbuster-osm-routing==0.1.0.dev0",
+]
 dev = [
     "garmin-fit-sdk>=21.214,<22",
     "mypy>=1.13,<2",

@@ -11,24 +11,24 @@ from pathlib import Path
 
 from warpbuster import __version__
 from warpbuster.activity_reader import ActivityReadError, read_activity
-from warpbuster.config import CourseReconstructionConfig, OSMReconstructionConfig
 from warpbuster.fit.diff import diff_fit
-from warpbuster.fit.reader import FitReadError, read_fit
+from warpbuster.fit.reader import FitReadError
 from warpbuster.fit.validate import validate_fit
 from warpbuster.fit.writer import (
-    FitWriteError,
     default_output_path,
-    write_repaired_fit,
 )
 from warpbuster.gpx.course import GpxCourseReadError, read_gpx_course
 from warpbuster.integrity import analyze_integrity
 from warpbuster.models.integrity import IntegrityConfidence, IntegrityStatus
 from warpbuster.models.reconstruction import RepairPlanStatus
-from warpbuster.reconstruction import (
-    apply_automatic_osm_routes,
-    build_repair_plan,
-    rank_gap_candidates,
-    select_repair_intervals,
+from warpbuster.pipeline import (
+    DEFAULT_REPAIR_POLICY,
+    LEGACY_REPAIR_POLICY,
+    OSMMode,
+    PipelineConfig,
+    PipelineError,
+    RepairRun,
+    run_repair,
 )
 from warpbuster.report.analyze import analyze_console, analyze_json
 from warpbuster.report.fit import (
@@ -141,71 +141,64 @@ def build_parser() -> argparse.ArgumentParser:
         default=0,
         help="show pipeline details; repeat for detector diagnostics",
     )
-    repair_parser = subparsers.add_parser(
-        "repair",
-        help="repair a FIT from a safe course-based plan",
-    )
-    repair_parser.add_argument("activity_file", type=Path, help="path to the original FIT file")
-    repair_parser.add_argument(
-        "--course",
-        type=Path,
-        help="optional reference GPX course; without it only coordinate cleaning is available",
-    )
-    repair_parser.add_argument(
+    repair_options = argparse.ArgumentParser(add_help=False)
+    repair_options.add_argument("activity_file", type=Path, help="path to the original FIT file")
+    repair_options.add_argument(
         "--dry-run",
         action="store_true",
         help="build and report RepairPlan without writing FIT",
     )
-    repair_parser.add_argument(
+    repair_options.add_argument(
         "--output",
         type=Path,
         help="output FIT path (default: <stem>.fixed.fit)",
     )
-    repair_parser.add_argument(
+    repair_options.add_argument(
         "--overwrite",
         action="store_true",
         help="atomically replace existing FIT and HTML outputs",
     )
-    repair_parser.add_argument(
+    repair_options.add_argument(
         "--min-confidence",
         type=_confidence_argument,
         choices=tuple(IntegrityConfidence),
         default=None,
         metavar="{low,medium,high}",
-        help="repair confidence threshold (default: medium with OSM, high otherwise)",
+        help="repair confidence threshold (process/OSM: medium; legacy repair: high)",
     )
-    repair_parser.add_argument(
+    repair_options.add_argument(
         "--min-invalidation-confidence",
         type=_confidence_argument,
         choices=(IntegrityConfidence.HIGH, IntegrityConfidence.MEDIUM),
-        default=IntegrityConfidence.HIGH,
-        help="independent coordinate invalidation threshold (default: high)",
+        default=None,
+        help="coordinate invalidation threshold (process: medium; repair: high)",
     )
-    repair_parser.add_argument(
+    repair_options.add_argument(
         "--fill-missing-from-course",
         action="store_true",
+        default=None,
         help="fill original/invalidated gaps from GPX, including assumed course start/finish",
     )
-    repair_parser.add_argument(
+    repair_options.add_argument(
         "--osm-graph-id",
         help="automatically apply OSM fallback from this exact prepared graph after GPX",
     )
-    repair_parser.add_argument(
+    repair_options.add_argument(
         "--osm-routing-config",
         type=Path,
         help="optional osm-routing.toml used with --osm-graph-id",
     )
-    repair_parser.add_argument(
+    repair_options.add_argument(
         "--osm-cache-dir",
         type=Path,
         help="optional prepared graph cache override used with --osm-graph-id",
     )
-    repair_parser.add_argument(
+    repair_options.add_argument(
         "--json",
         action="store_true",
         help="emit a machine-readable RepairPlan",
     )
-    repair_parser.add_argument(
+    repair_options.add_argument(
         "--html",
         nargs="?",
         const=_AUTO_HTML_PATH,
@@ -216,12 +209,42 @@ def build_parser() -> argparse.ArgumentParser:
             "(default: <activity-stem>.repair.html)"
         ),
     )
-    repair_parser.add_argument(
+    repair_options.add_argument(
         "-v",
         "--verbose",
         action="count",
         default=0,
         help="show anchor matching thresholds and safety details",
+    )
+    repair_parser = subparsers.add_parser(
+        "repair",
+        parents=[repair_options],
+        help="repair a FIT from a safe course-based plan",
+    )
+    repair_parser.add_argument(
+        "--course",
+        type=Path,
+        help="optional reference GPX course; without it only coordinate cleaning is available",
+    )
+    process_parser = subparsers.add_parser(
+        "process",
+        parents=[repair_options],
+        help="process FIT + GPX with automatic OSM preparation and the shared repair policy",
+        description="Complete FIT/GPX processing, including OSM snapshots and routing graphs.",
+    )
+    process_parser.add_argument("course_file", type=Path, help="reference GPX course")
+    process_parser.add_argument(
+        "--osm-mode",
+        type=OSMMode,
+        choices=tuple(OSMMode),
+        default=OSMMode.AUTO,
+        help="auto downloads missing coverage; offline uses cache; disabled uses GPX only",
+    )
+    process_parser.add_argument(
+        "--work-dir",
+        type=Path,
+        default=PipelineConfig().data_dir,
+        help="service files and reusable OSM caches (default: .warpbuster)",
     )
     validate_parser = subparsers.add_parser(
         "validate",
@@ -311,18 +334,42 @@ def main(argv: Sequence[str] | None = None) -> int:
         if integrity.status in {IntegrityStatus.CORRUPTED, IntegrityStatus.SUSPICIOUS}:
             return 1
         return 0
-    if args.command == "repair":
+    if args.command in {"repair", "process"}:
+        complete = args.command == "process"
+        if complete:
+            args.course = args.course_file
         args.html = _resolve_html_argument(args.html, args.activity_file, repair=True)
         if args.activity_file.suffix.casefold() != ".fit":
             print("error: repair input must be the original FIT file", file=sys.stderr)
             return 2
-        if args.fill_missing_from_course and args.course is None:
+        policy = (
+            DEFAULT_REPAIR_POLICY
+            if complete
+            else replace(
+                LEGACY_REPAIR_POLICY,
+                minimum_confidence=(
+                    DEFAULT_REPAIR_POLICY.minimum_confidence
+                    if args.osm_graph_id
+                    else LEGACY_REPAIR_POLICY.minimum_confidence
+                ),
+            )
+        )
+        policy = replace(
+            policy,
+            fill_missing_from_course=(
+                args.fill_missing_from_course
+                if args.fill_missing_from_course is not None
+                else policy.fill_missing_from_course
+            ),
+            minimum_confidence=args.min_confidence or policy.minimum_confidence,
+            minimum_invalidation_confidence=(
+                args.min_invalidation_confidence or policy.minimum_invalidation_confidence
+            ),
+        )
+        args.min_confidence = policy.minimum_confidence
+        if policy.fill_missing_from_course and args.course is None:
             print("error: --fill-missing-from-course requires --course", file=sys.stderr)
             return 2
-        if args.min_confidence is None:
-            args.min_confidence = (
-                IntegrityConfidence.MEDIUM if args.osm_graph_id else IntegrityConfidence.HIGH
-            )
         if args.osm_graph_id is None and (
             args.osm_routing_config is not None or args.osm_cache_dir is not None
         ):
@@ -330,12 +377,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "error: --osm-routing-config/--osm-cache-dir require --osm-graph-id",
                 file=sys.stderr,
             )
-            return 2
-        try:
-            activity = read_fit(args.activity_file)
-            course = read_gpx_course(args.course) if args.course is not None else None
-        except (FitReadError, GpxCourseReadError, OSError) as error:
-            print(f"error: {error}", file=sys.stderr)
             return 2
         if args.html is not None:
             try:
@@ -357,59 +398,35 @@ def main(argv: Sequence[str] | None = None) -> int:
                     file=sys.stderr,
                 )
                 return 2
-        integrity = analyze_integrity(activity)
-        config = CourseReconstructionConfig()
-        plan = build_repair_plan(
-            activity,
-            integrity,
-            course,
-            config,
-            fill_missing_from_course=args.fill_missing_from_course,
-            minimum_invalidation_confidence=args.min_invalidation_confidence,
+        execution = PipelineConfig(
+            data_dir=args.work_dir if complete else PipelineConfig().data_dir,
+            osm_mode=args.osm_mode if complete else OSMMode.DISABLED,
+            osm_graph_id=args.osm_graph_id,
+            osm_routing_config=args.osm_routing_config,
+            osm_cache_dir=args.osm_cache_dir,
         )
-        osm_result = None
-        ranking_result = None
-        if args.osm_graph_id is not None:
-            from warpbuster.reconstruction.osm import (
-                OSMReconstructionError,
-                OSMReconstructionProvider,
-                ValhallaRoutingClient,
+        try:
+            run = run_repair(
+                args.activity_file,
+                args.course,
+                args.output,
+                policy=policy,
+                config=execution,
+                dry_run=args.dry_run,
+                overwrite=args.overwrite,
             )
-
-            try:
-                osm_config = OSMReconstructionConfig()
-                osm_result = OSMReconstructionProvider(
-                    ValhallaRoutingClient(args.osm_routing_config, args.osm_cache_dir),
-                    osm_config,
-                ).discover(activity, plan, args.osm_graph_id)
-            except OSMReconstructionError as error:
-                plan = replace(
-                    plan,
-                    automatic_osm_json=json.dumps(
-                        {
-                            "policy": "gpx-first-automatic-osm-v2",
-                            "status": "unavailable",
-                            "graph_id": args.osm_graph_id,
-                            "error": {
-                                "code": error.code,
-                                "message": error.message,
-                                "details": error.details,
-                            },
-                            "decisions": [],
-                        }
-                    ),
-                )
-                print(
-                    f"warning: OSM [{error.code}]: {error.message}; retaining GPX and cleaning",
-                    file=sys.stderr,
-                )
-        if course is not None or osm_result is not None:
-            ranking_result = rank_gap_candidates(activity, plan, osm_result)
-        if osm_result is not None:
-            plan = apply_automatic_osm_routes(
-                activity, integrity, plan, osm_result, minimum_confidence=args.min_confidence
+        except PipelineError as error:
+            print(f"error: {error}", file=sys.stderr)
+            return 3 if error.code == "repair_refused" else 2
+        activity, course, integrity = run.activity, run.course, run.integrity
+        config, plan, selection = run.reconstruction_config, run.plan, run.selection
+        osm_result, ranking_result = run.osm.discovery, run.ranking
+        if run.osm.warning:
+            print(f"warning: {run.osm.warning}", file=sys.stderr)
+        elif complete and run.osm.status == "unavailable":
+            print(
+                f"warning: OSM [{run.osm.error_code}]; retaining GPX and cleaning", file=sys.stderr
             )
-        selection = select_repair_intervals(plan, args.min_confidence)
         if args.dry_run:
             if args.html is not None:
                 try:
@@ -448,6 +465,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     ranking_result=ranking_result,
                 )
             )
+            if complete and args.json:
+                rendered = _process_json(rendered, run)
             print(_html_notice(rendered, args.html) if not args.json else rendered)
             if selection.has_changes or plan.status is RepairPlanStatus.NOT_NEEDED:
                 return 0
@@ -490,6 +509,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     ranking_result=ranking_result,
                 )
             )
+            if complete and args.json:
+                rendered = _process_json(rendered, run)
             print(_html_notice(rendered, args.html) if not args.json else rendered)
             if plan.status is RepairPlanStatus.NOT_NEEDED:
                 return 0
@@ -499,20 +520,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 3
-        try:
-            result = write_repaired_fit(
-                activity,
-                plan,
-                args.output,
-                minimum_confidence=args.min_confidence,
-                overwrite=args.overwrite,
-            )
-        except (FitWriteError, OSError) as error:
-            print(f"error: {error}", file=sys.stderr)
-            return 3
+        result = run.write_result
+        assert result is not None
         if args.html is not None:
             try:
-                fixed_activity = read_fit(result.output_path)
+                fixed_activity = run.fixed_activity
                 write_repair_html(
                     activity,
                     integrity,
@@ -534,7 +546,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     file=sys.stderr,
                 )
                 return 3
-        if args.json and args.osm_graph_id is not None:
+        if args.json and (complete or args.osm_graph_id is not None):
             document = write_result_report(result)
             document["repair_plan"] = repair_report(
                 plan,
@@ -547,6 +559,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             rendered = json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True)
         else:
             rendered = write_result_json(result) if args.json else write_result_console(result)
+        if complete and args.json:
+            rendered = _process_json(rendered, run)
         print(_html_notice(rendered, args.html) if not args.json else rendered)
         return 0
     if args.command == "validate":
@@ -590,3 +604,18 @@ def _html_notice(rendered: str, output_path: Path | None) -> str:
     if output_path is None:
         return rendered
     return f"{rendered}\nHTML report: {output_path}"
+
+
+def _process_json(rendered: str, run: RepairRun) -> str:
+    """Include reproducible acquisition provenance in local full-process JSON."""
+    document = json.loads(rendered)
+    document["pipeline"] = {
+        "policy": run.policy.as_dict(),
+        "osm": {
+            "status": run.osm.status,
+            "stage": run.osm.stage,
+            "error_code": run.osm.error_code,
+            "audit": run.osm.private_audit,
+        },
+    }
+    return json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True)

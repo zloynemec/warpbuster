@@ -21,6 +21,7 @@ dist/
 !web/dist/**
 web/.sites-runtime/
 .warpbuster-web/
+.warpbuster/
 docker-compose.prod.yml
 deploy.prod.sh
 PRODUCTION.md

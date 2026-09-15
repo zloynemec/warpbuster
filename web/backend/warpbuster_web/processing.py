@@ -4,23 +4,13 @@ import argparse
 import json
 import math
 import os
-import time
-from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
-from warpbuster.config import CourseReconstructionConfig
-from warpbuster.fit.reader import FitReadError, read_fit
-from warpbuster.fit.writer import FitWriteError, write_repaired_fit
-from warpbuster.gpx.course import GpxCourseReadError, read_gpx_course
-from warpbuster.integrity import analyze_integrity
-from warpbuster.models.integrity import IntegrityConfidence
-from warpbuster.reconstruction.local import build_repair_plan
-from warpbuster.reconstruction.selection import select_repair_intervals
+from warpbuster.pipeline import OSMMode, PipelineError, run_repair
 from warpbuster.report.gaps import distance_policy, gap_audit
 
-from .config import REPAIR_POLICY, OSMMode, WebConfig
-from .osm_pipeline import OSMWebResult, eligible_gap_count, run_osm_pipeline_isolated
+from .config import WebConfig
 from .performance import public_performance
 
 PUBLIC_FIELDS = {
@@ -69,79 +59,26 @@ def process_job(
     *,
     input_directory: Path | None = None,
     config: WebConfig | None = None,
-    osm_runner: Callable[..., OSMWebResult] = run_osm_pipeline_isolated,
 ):
-    started = time.monotonic()
-    # The public worker passes an explicit environment-derived config. Direct library
-    # calls stay deterministic/offline unless the caller explicitly opts into OSM.
+    # Direct library calls remain offline. The public worker passes its deployment config.
     web_config = config or replace(WebConfig.from_environment(), osm_mode=OSMMode.DISABLED)
     input_directory = input_directory if input_directory is not None else directory
     try:
-        activity = read_fit(input_directory / "original.fit")
-    except (FitReadError, OSError, ValueError) as error:
-        raise ProcessingError("invalid_fit") from error
-    try:
-        course = read_gpx_course(input_directory / "course.gpx")
-    except (GpxCourseReadError, OSError, ValueError) as error:
-        raise ProcessingError("invalid_gpx") from error
-    if not activity.records:
-        raise ProcessingError("empty_activity")
-    if len(activity.records) > record_limit or course.point_count > record_limit:
-        raise ProcessingError("too_many_records")
-
-    # Web policy explicitly enables course gap filling and MEDIUM thresholds.
-    # Course never enters detection; the Core defaults remain unchanged.
-    integrity = analyze_integrity(activity)
-    plan = build_repair_plan(
-        activity,
-        integrity,
-        course,
-        CourseReconstructionConfig(),
-        fill_missing_from_course=REPAIR_POLICY["fill_missing_from_course"],
-        minimum_invalidation_confidence=IntegrityConfidence(
-            REPAIR_POLICY["minimum_invalidation_confidence"]
-        ),
-    )
-    if time.monotonic() - started > web_config.base_plan_timeout_seconds:
-        raise ProcessingError("timeout")
-    minimum_confidence = IntegrityConfidence(REPAIR_POLICY["minimum_confidence"])
-    osm_eligible_gaps = eligible_gap_count(activity, plan)
-    remaining = web_config.process_timeout_seconds - (time.monotonic() - started)
-    osm_started = time.monotonic()
-    if remaining <= web_config.publish_reserve_seconds:
-        osm = OSMWebResult(plan, "unavailable", "setup", "osm_timeout")
-    else:
-        try:
-            osm = osm_runner(activity, integrity, plan, web_config)
-        except Exception:
-            # OSM is an optional reconstruction stage. Keep the immutable base plan
-            # and never expose exception text from companion/native code.
-            osm = OSMWebResult(plan, "unavailable", "routing", "routing_failed")
-    osm_duration_seconds = time.monotonic() - osm_started
-    plan = osm.plan
-    selection = select_repair_intervals(plan, minimum_confidence)
-    result = None
-    fixed = None
-    if selection.has_changes:
-        try:
-            result = write_repaired_fit(
-                activity,
-                plan,
-                directory / "corrected.fit",
-                minimum_confidence=minimum_confidence,
-            )
-            fixed = read_fit(result.output_path)
-        except (FitWriteError, FitReadError, OSError, ValueError) as error:
-            (directory / "corrected.fit").unlink(missing_ok=True)
-            raise ProcessingError("repair_refused") from error
-        if (
-            not result.validation.valid
-            or not result.post_write_verified
-            or result.diff.unexpected_changed_field_count
-            or result.diff.timestamps.compared_count != result.diff.timestamps.unchanged_count
-            or result.diff.sensors.compared_count != result.diff.sensors.unchanged_count
-        ):
-            raise ProcessingError("repair_refused")
+        run = run_repair(
+            input_directory / "original.fit",
+            input_directory / "course.gpx",
+            directory / "corrected.fit",
+            config=replace(web_config.pipeline_config(), record_limit=record_limit),
+        )
+    except PipelineError as error:
+        raise ProcessingError(error.code) from error
+    activity, course, integrity = run.activity, run.course, run.integrity
+    assert course is not None
+    plan, selection = run.plan, run.selection
+    result, fixed = run.write_result, run.fixed_activity
+    osm = run.osm
+    osm_duration_seconds = run.osm_duration_seconds
+    osm_eligible_gaps = run.osm_eligible_gaps
 
     # Construct every public field explicitly. Never serialize dataclasses, inspect_report,
     # repair_report, local HTML, exception text, source filenames or preservation objects.

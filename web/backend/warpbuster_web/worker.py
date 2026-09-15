@@ -10,7 +10,8 @@ import threading
 import time
 from contextlib import suppress
 
-from .config import REPAIR_POLICY
+from warpbuster.pipeline import DEFAULT_REPAIR_POLICY
+
 from .store import Store
 
 ERRORS = {
@@ -78,7 +79,7 @@ class Worker:
             osm_mode=config.osm_mode.value,
             osm_timeout_seconds=config.osm_total_timeout_seconds,
             publish_reserve_seconds=config.publish_reserve_seconds,
-            **REPAIR_POLICY,
+            **DEFAULT_REPAIR_POLICY.as_dict(),
         )
         error = None
         try:

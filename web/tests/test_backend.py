@@ -414,17 +414,13 @@ def test_web_matches_requested_cli_gap_filling_and_medium_policy(
     assert (
         cli_main(
             [
-                "repair",
+                "process",
                 str(fit),
-                "--course",
                 str(course),
                 "--output",
                 str(expected),
-                "--fill-missing-from-course",
-                "--min-invalidation-confidence",
-                "medium",
-                "--min-confidence",
-                "medium",
+                "--osm-mode",
+                "disabled",
             ]
         )
         == 0

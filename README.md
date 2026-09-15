@@ -22,8 +22,8 @@ WarpBuster находит физически невозможные GPS/GNSS-с�
   почему остальные пропущены.
 - Сравнивать исходный и исправленный FIT, показывать дистанцию, темп, набор/спуск
   высоты и покилометровую статистику.
-- Готовить данные OpenStreetMap и строить маршруты через Valhalla. Их использование
-  для восстановления пока ограничено предварительным просмотром кандидатов.
+- Готовить данные OpenStreetMap через OSM Manager, строить граф через OSM Routing
+  и применять проверенные OSM-кандидаты после GPX.
 
 ## Принцип восстановления
 
@@ -56,6 +56,67 @@ warpbuster --version
 вызывать CLI напрямую: `.venv/bin/warpbuster`.
 
 ## Быстрый старт
+
+### Полная обработка двух файлов
+
+Установите дополнительные пакеты для OSM из этого репозитория:
+
+```bash
+python -m pip install '.[osm]' ./packages/osm-manager ./packages/osm-routing
+warpbuster process activity.fit race.gpx --html
+```
+
+Команда сама читает FIT/GPX, находит повреждения, строит GPX-план, запрашивает
+необходимое OSM-покрытие через Manager, готовит граф через Routing, выбирает
+восстановление и записывает `activity.fixed.fit`. `--html` добавляет отчёт
+`activity.repair.html`; `--json` выводит FIT diff, план, политику и OSM audit.
+Исходные файлы сохраняются. Если изменений нет, новый FIT не создаётся.
+
+Полный пример с явными порогами `MEDIUM` и сохранением FIT, HTML и JSON
+(из корня проекта; замените пути входных файлов):
+
+```bash
+.venv/bin/python -m warpbuster process \
+  "/путь/activity.fit" \
+  "/путь/course.gpx" \
+  --fill-missing-from-course \
+  --min-invalidation-confidence medium \
+  --min-confidence medium \
+  --osm-mode auto \
+  --work-dir .warpbuster \
+  --output activity.fixed.fit \
+  --html activity.repair.html \
+  --json > activity.repair.json
+```
+
+`--min-invalidation-confidence` задаёт порог удаления повреждённых координат,
+а `--min-confidence` — порог применения восстановления. Для `process` оба порога
+уже равны `MEDIUM`, заполнение пропусков и режим OSM `auto` включены по умолчанию;
+в примере эти настройки указаны явно. Для замены существующих FIT/HTML добавьте
+`--overwrite`. Перенаправление `>` перезаписывает JSON независимо от этого флага.
+
+Служебные snapshots и графы сохраняются в `.warpbuster/osm/` и используются повторно.
+Другую директорию задаёт `--work-dir DIR`. Режимы:
+
+```bash
+warpbuster process activity.fit race.gpx --osm-mode offline --work-dir .warpbuster
+warpbuster process activity.fit race.gpx --osm-mode disabled
+warpbuster process activity.fit race.gpx --dry-run --json
+```
+
+`auto` (по умолчанию) разрешает загрузку недостающего OSM-покрытия; `offline`
+использует кеш Manager без сети; `disabled` оставляет GPX-восстановление.
+`--dry-run` готовит тот же план и может заполнять служебный OSM-кеш, но не пишет FIT.
+При недоступности OSM сохраняется пригодный GPX-план; причина отказа видна в отчёте.
+Для воспроизведения с конкретным графом поддержаны `--osm-graph-id` и `--osm-cache-dir`.
+Явный `--osm-graph-id` имеет приоритет над режимом подготовки: используется указанный
+готовый граф, без загрузки покрытия.
+
+`process` и веб вызывают **один API** `warpbuster.pipeline.run_repair` с единой
+`DEFAULT_REPAIR_POLICY`: заполнение пропусков включено, пороги invalidation и
+reconstruction — `MEDIUM`. Явные CLI-флаги могут переопределить эту политику.
+Существующая команда `repair` сохраняет прежние defaults и использует тот же API.
+Без явной OSM-конфигурации библиотечный `run_repair` работает без сети.
 
 ### Посмотреть и проанализировать запись
 
@@ -182,10 +243,11 @@ python -m warpbuster_web
 Откройте [http://127.0.0.1:8000/fix](http://127.0.0.1:8000/fix).
 Это локальный сервер; статическая демостраница сама по себе файлы не обрабатывает.
 
-Веб-интерфейс включает заполнение пропусков по GPX, автоматический bounded OSM
-fallback и оба порога `MEDIUM`. Карта и Valhalla graph подготавливаются сервисом;
+Веб-интерфейс использует общую с `process` политику Core: заполнение пропусков по GPX,
+автоматический bounded OSM fallback и оба порога `MEDIUM`. Карта и Valhalla graph
+подготавливаются общим сценарием `warpbuster.pipeline` через companion API;
 пользователь не вводит graph ID и не выбирает маршрут. OSM-сбой не отменяет уже
-проверенный GPX-результат. Настройки CLI по умолчанию остаются `HIGH`.
+проверенный GPX-результат. Прежние defaults команды `repair` сохранены.
 
 Результат, включая карту и сводку, виден любому, у кого есть ссылка и доступ к серверу.
 Скачать исправленный FIT может только загрузивший файлы из исходного браузера
@@ -203,8 +265,9 @@ warpbuster-osm ensure --gpx race.gpx --json > manifest.json
 warpbuster-osm-route prepare manifest.json
 ```
 
-`prepare` возвращает `graph_id` подготовленного графа. Подставьте его вместо
-`sha256:GRAPH_DIGEST`, чтобы выполнить весь сценарий одной командой:
+Ручная подготовка выше нужна только для работы с выбранным графом; `process`
+выполняет её автоматически. `prepare` возвращает `graph_id` подготовленного графа.
+Подставьте его вместо `sha256:GRAPH_DIGEST` для старого CLI-сценария:
 
 ```bash
 warpbuster repair activity.fit \
@@ -229,9 +292,9 @@ warpbuster repair activity.fit \
 `--dry-run` строит тот же итоговый план без записи; JSON/HTML показывают источники,
 отказы и FIT diff после записи. Ошибка OSM сохраняет пригодный GPX и очистку.
 Путь остаётся приближённой гипотезой; altitude/distance не выводятся из OSM.
-Для CLI подготовка графа выполняется отдельно; web worker выполняет bounded
-acquisition/prepare автоматически в изолированной process group. DEM остаётся
-отдельным будущим этапом.
+В `process` подготовка графа автоматическая, через тот же Core-сценарий, что в вебе.
+Linux web worker дополнительно включает изолированную process group с лимитами
+ресурсов; локальный CLI вызывает companion API напрямую. DEM остаётся будущим этапом.
 
 В Core включён приближённый сбор OSM-кандидатов ([010I](tasks/010i-approximate-osm-candidates.md)):
 привязка допускает расстояние до 100 м, близкие проекции на одну дорогу объединяются

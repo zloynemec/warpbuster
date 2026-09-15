@@ -4,16 +4,12 @@ import json
 import os
 import time
 
-from warpbuster.config import CourseReconstructionConfig
 from warpbuster.fit.reader import read_fit
 from warpbuster.gpx.course import read_gpx_course
-from warpbuster.integrity import analyze_integrity
-from warpbuster.models.integrity import IntegrityConfidence
-from warpbuster.reconstruction.local import build_repair_plan
-from warpbuster.reconstruction.selection import select_repair_intervals
+from warpbuster.pipeline import run_repair
 from warpbuster.report.gaps import distance_policy
 
-from .config import REPAIR_POLICY, WebConfig
+from .config import WebConfig
 from .performance import public_performance
 from .store import Store
 
@@ -30,19 +26,8 @@ def refresh_report(directory, inputs):
     course = read_gpx_course(inputs / "course.gpx") if (inputs / "course.gpx").is_file() else None
     quality = "unknown"
     if original and course:
-        plan = build_repair_plan(
-            original,
-            analyze_integrity(original),
-            course,
-            CourseReconstructionConfig(),
-            fill_missing_from_course=REPAIR_POLICY["fill_missing_from_course"],
-            minimum_invalidation_confidence=IntegrityConfidence(
-                REPAIR_POLICY["minimum_invalidation_confidence"]
-            ),
-        )
-        quality = distance_policy(
-            select_repair_intervals(plan, IntegrityConfidence(REPAIR_POLICY["minimum_confidence"]))
-        )["quality"]
+        run = run_repair(inputs / "original.fit", inputs / "course.gpx", dry_run=True)
+        quality = distance_policy(run.selection)["quality"]
     report["tracks"]["course"] = (
         [
             [[point.latitude, point.longitude] for point in segment.points]

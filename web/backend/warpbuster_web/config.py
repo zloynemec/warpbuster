@@ -1,17 +1,11 @@
 """Explicit deployment and resource limits, separate from detector thresholds."""
 
 import os
-from dataclasses import dataclass
-from enum import StrEnum
+from dataclasses import dataclass, fields
 from pathlib import Path
 from urllib.parse import urlsplit
 
-# Shared by the processor and its invocation log so reported policy matches execution.
-REPAIR_POLICY = {
-    "fill_missing_from_course": True,
-    "minimum_invalidation_confidence": "medium",
-    "minimum_confidence": "medium",
-}
+from warpbuster.pipeline import OSMMode, PipelineConfig
 
 
 def positive_integer_environment(name: str, default: int) -> int:
@@ -25,12 +19,6 @@ def positive_integer_environment(name: str, default: int) -> int:
     if value <= 0:
         raise ValueError(f"{name} must be a positive integer")
     return value
-
-
-class OSMMode(StrEnum):
-    AUTO = "auto"
-    OFFLINE = "offline"
-    DISABLED = "disabled"
 
 
 def _environment(name: str, default: int | float) -> int | float:
@@ -47,35 +35,16 @@ def _environment(name: str, default: int | float) -> int | float:
 
 
 @dataclass(frozen=True)
-class WebConfig:
+class WebConfig(PipelineConfig):
     data_dir: Path = Path(".warpbuster-web")
     static_dir: Path = Path(__file__).resolve().parents[2] / "dist"
     public_origin: str = "http://127.0.0.1:8000"
     file_limit_bytes: int = 20 * 1024 * 1024  # Maximum bytes per FIT/GPX file.
     body_limit_bytes: int = 41 * 1024 * 1024  # Both files plus multipart framing.
     upload_timeout_seconds: int = 60  # Total time to receive and persist one upload.
-    process_timeout_seconds: int = 600  # Hard deadline for the complete job.
-    base_plan_timeout_seconds: int = 180
-    osm_total_timeout_seconds: int = 360
-    osm_acquisition_timeout_seconds: int = 90
-    osm_prepare_timeout_seconds: int = 180
-    osm_routing_timeout_seconds: int = 90
-    publish_reserve_seconds: int = 60
     osm_mode: OSMMode = OSMMode.AUTO
-    osm_coverage_buffer_m: float = 1_000.0
-    osm_maximum_area_km2: float = 250.0
-    osm_maximum_cells: int = 64
-    osm_maximum_requests: int = 8
-    osm_maximum_download_bytes: int = 128 * 1024 * 1024
-    osm_cache_quota_bytes: int = 10 * 1024 * 1024 * 1024
-    osm_job_temp_quota_bytes: int = 2 * 1024 * 1024 * 1024
-    osm_minimum_free_bytes: int = 1 * 1024 * 1024 * 1024
-    osm_child_memory_limit_bytes: int = 2 * 1024 * 1024 * 1024
-    osm_child_cpu_seconds: int = 300
+    isolate_osm: bool = True
     maximum_parallel_osm_jobs: int = 1
-    osm_ipc_maximum_bytes: int = 64 * 1024 * 1024
-    osm_overpass_url: str | None = None
-    record_limit: int = 100_000  # Maximum normalized FIT records / course points.
     retention_seconds: int = 7 * 24 * 3600  # Public report and corrected FIT lifetime.
     session_seconds: int = 30 * 24 * 3600  # Original browser's ownership lifetime.
     max_jobs: int = 1_000  # Stored, unexpired jobs across all owners.
@@ -87,6 +56,7 @@ class WebConfig:
     worker_poll_seconds: float = 1.0  # Idle queue scan interval.
 
     def __post_init__(self) -> None:
+        super().__post_init__()
         origin = urlsplit(self.public_origin)
         if (
             origin.scheme not in {"http", "https"}
@@ -106,26 +76,7 @@ class WebConfig:
             "file_limit_bytes",
             "body_limit_bytes",
             "upload_timeout_seconds",
-            "process_timeout_seconds",
-            "base_plan_timeout_seconds",
-            "osm_total_timeout_seconds",
-            "osm_acquisition_timeout_seconds",
-            "osm_prepare_timeout_seconds",
-            "osm_routing_timeout_seconds",
-            "publish_reserve_seconds",
-            "osm_coverage_buffer_m",
-            "osm_maximum_area_km2",
-            "osm_maximum_cells",
-            "osm_maximum_requests",
-            "osm_maximum_download_bytes",
-            "osm_cache_quota_bytes",
-            "osm_job_temp_quota_bytes",
-            "osm_minimum_free_bytes",
-            "osm_child_memory_limit_bytes",
-            "osm_child_cpu_seconds",
             "maximum_parallel_osm_jobs",
-            "osm_ipc_maximum_bytes",
-            "record_limit",
             "retention_seconds",
             "session_seconds",
             "max_jobs",
@@ -138,17 +89,14 @@ class WebConfig:
         ):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be positive")
-        if not isinstance(self.osm_mode, OSMMode):
-            raise ValueError("osm_mode must be auto, offline or disabled")
         if self.maximum_parallel_osm_jobs != 1:
             raise ValueError("maximum_parallel_osm_jobs must remain 1 for the single worker")
-        if (
-            self.osm_acquisition_timeout_seconds
-            + self.osm_prepare_timeout_seconds
-            + self.osm_routing_timeout_seconds
-            < self.osm_total_timeout_seconds
-        ):
-            raise ValueError("OSM stage timeouts must cover osm_total_timeout_seconds")
+
+    def pipeline_config(self) -> PipelineConfig:
+        """Pass only shared execution settings to Core, excluding HTTP/storage state."""
+        return PipelineConfig(
+            **{item.name: getattr(self, item.name) for item in fields(PipelineConfig)}
+        )
 
     @property
     def secure_cookie(self) -> bool:
