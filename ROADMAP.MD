@@ -229,14 +229,14 @@ Roadmap следует порядку milestone из [`docs/MILESTONES.md`](docs
     Docker/runtime, failure tests, runbook и приёмка шести пар. Production AUTO
     проверен; ручной выбор и DEM не входят в задачу.
 
-- [ ] **M12 / Task 020 — DEM-backed Elevation**
+- [x] **M12 / Task 020 — DEM-backed Elevation**
   ([уточнённое ТЗ](tasks/020-dem-backed-elevation.md)) — отдельная optional подсистема
-  - **020A:** зафиксировать проверенный Mapzen/Tilezen Skadi profile, составной
+  - [x] **020A:** зафиксировать проверенный Mapzen/Tilezen Skadi profile, составной
     attribution contract, реальный resolution и vertical datum WGS84/EGM96;
-  - **020B:** immutable tile cache с coverage, hashes, offline reuse и bounded download;
-  - **020C:** детерминированный sampler для route polyline, bounded interpolation и
+  - [x] **020B:** immutable tile cache с coverage, hashes, offline reuse и bounded download;
+  - [x] **020C:** детерминированный sampler для route polyline, bounded interpolation и
     явные missing-coverage diagnostics;
-  - **020D:** GPX route export с `<ele>`, raw/smoothed elevation profiles и расчётом
+  - [x] **020D:** GPX route export с `<ele>`, raw/smoothed elevation profiles и расчётом
     ascent/descent по именованной filtering policy;
   - сравнивать DEM-профиль с сохранённой FIT/course altitude как независимое evidence;
   - DEM не используется Integrity Detector и не заменяет правдоподобные FIT-высоты.

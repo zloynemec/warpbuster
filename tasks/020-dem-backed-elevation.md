@@ -1,6 +1,7 @@
 # Task 020 — DEM-backed Elevation
 
-Статус: запланирована; ТЗ уточнено по результатам feasibility-проверки 2026-09-15.
+Статус: Task 020 (020A–020D) выполнена 2026-09-16. ТЗ уточнено по
+результатам feasibility-проверки 2026-09-15.
 
 ## Простыми словами
 
@@ -58,6 +59,12 @@ stored_grid: 3601 × 3601
 nominal_spacing: 1 arc-second
 void_value: -32768
 ```
+
+020A реализована как immutable `SkadiDatasetProfile` с canonical JSON/SHA-256 и
+командой `warpbuster-osm-route dem profile --json`. Профиль фиксирует формат,
+WGS84/EGM96, номинальный шаг сетки и отдельный версионированный attribution bundle.
+Фактическая точность не объявляется равной шагу сетки: upstream resolution зависит от
+региона и доступности source data. 020A не загружает и не семплирует тайлы.
 
 Источник download:
 
@@ -170,6 +177,14 @@ Buffer, maximum points, maximum tiles, maximum compressed/uncompressed bytes и 
 Никаких скрытых magic numbers.
 
 ## Immutable DEM cache
+
+020B реализована в `warpbuster_osm_routing.dem_coverage` и `.dem_cache` с отдельным
+root, полным tile/snapshot validation, `AUTO/OFFLINE/DISABLED`, content-addressed
+objects, атомарной публикацией, typed errors, object quota и dry-run/apply prune.
+Snapshot создаётся только при полном coverage; при отказе optional DEM не блокирует
+2D route. `lease` защищает snapshot и его объекты от prune для будущего sampler.
+На данный момент глобальный maintenance lock сериализует acquisition/prune; это
+консервативное ограничение, а не обещание параллельных загрузок разных тайлов.
 
 Рекомендуемая логическая структура:
 
@@ -287,6 +302,16 @@ distance-domain алгоритм, который:
 реальными probes до завершения Task 020. Они не могут появиться в коде как безымянные
 константы.
 
+020D фиксирует `distance-triangle-excursion-v1`: треугольное расстояние-взвешенное
+среднее в радиусе 60 м внутри каждого covered segment, с сохранением его endpoints;
+для filtered ascent/descent используется peak/valley hysteresis с разворотом от 3 м.
+Raw totals считаются без порога. Synthetic fixtures проверяют flat, 1 м sawtooth, постепенный
+4 м climb, short segment, gap и отрицательные высоты. Повторный публичный probe
+`N44E033` для 457 samples между ранее проверенными точками 7 и 144 м дал raw
+ascent/descent 571/434 м и filtered 526.1/388.9 м; net rise практически сохранён.
+Это консервативная presentation policy, не калибровка точности DEM и не device ascent.
+Policy ID/hash меняются при смене параметров; raw не меняется.
+
 ## GPX export
 
 Task 020 экспортирует отдельный route GPX 1.1, но не переписывает исходный FIT.
@@ -369,6 +394,9 @@ DEM_CACHE_CORRUPT
 DEM_SNAPSHOT_NOT_FOUND
 DEM_ENGINE_MISMATCH
 DEM_RESPONSE_INVALID
+DEM_ENGINE_ERROR
+DEM_EXPORT_FAILED
+OUTPUT_EXISTS
 DATUM_UNKNOWN
 DATUM_MISMATCH
 ```
@@ -503,29 +531,29 @@ HGT во временной директории. Network integration test с р
 
 ## Acceptance criteria
 
-- [ ] Зафиксирован `mapzen-skadi-egm96-v1`, его формат, EGM96 datum, ограничения и
+- [x] Зафиксирован `mapzen-skadi-egm96-v1`, его формат, EGM96 datum, ограничения и
       полный attribution contract.
-- [ ] `DemCache` отделён от OSM Manager/GraphCache и имеет собственный cache root,
+- [x] `DemCache` отделён от OSM Manager/GraphCache и имеет собственный cache root,
       manifest и `dem_snapshot_id`.
-- [ ] `AUTO`, `OFFLINE`, `DISABLED` имеют проверяемую семантику; sampling не выполняет
+- [x] `AUTO`, `OFFLINE`, `DISABLED` имеют проверяемую семантику; sampling не выполняет
       network.
-- [ ] Download bounded, проверяется полностью и публикуется атомарно; partial/corrupt
+- [x] Download bounded, проверяется полностью и публикуется атомарно; partial/corrupt
       файл никогда не становится cache hit.
-- [ ] Повторный offline запуск даёт тот же snapshot/profile без HTTP/DNS.
-- [ ] Coverage planner корректно и boundedly вычисляет необходимые 1° tiles.
-- [ ] Typed backend использует pinned `Actor.height()` и проверяет response.
-- [ ] Raw/filtered profiles, missing diagnostics и ascent/descent детерминированы и
+- [x] Повторный offline запуск даёт тот же snapshot/profile без HTTP/DNS.
+- [x] Coverage planner корректно и boundedly вычисляет необходимые 1° tiles.
+- [x] Typed backend использует pinned `Actor.height()` и проверяет response.
+- [x] Raw/filtered profiles, missing diagnostics и ascent/descent детерминированы и
       связаны с именованной policy.
-- [ ] Route GPX 1.1 содержит DEM `<ele>`, не меняет geometry/timestamps и имеет audit
+- [x] Route GPX 1.1 содержит DEM `<ele>`, не меняет geometry/timestamps и имеет audit
       sidecar с provenance/attribution.
-- [ ] FIT/course comparison различает unknown/incompatible datum и остаётся только
+- [x] FIT/course comparison различает unknown/incompatible datum и остаётся только
       diagnostic evidence.
-- [ ] DEM не импортируется Integrity Detector, не меняет corruption mask и не
+- [x] DEM не импортируется Integrity Detector, не меняет corruption mask и не
       перезаписывает FIT altitude.
-- [ ] Нет автоматического ranking/application OSM alternatives — это Task 021.
-- [ ] Unit, integration, concurrency, corruption, offline, privacy и boundary tests
+- [x] Нет автоматического ranking/application OSM alternatives — это Task 021.
+- [x] Unit, integration, concurrency, corruption, offline, privacy и boundary tests
       проходят вместе со всеми предыдущими tests.
-- [ ] README/runbook документируют cache location, disk budgets, attribution, network
+- [x] README/runbook документируют cache location, disk budgets, attribution, network
       disclosure, очистку и offline reuse.
 
 ## Не входит в Task 020

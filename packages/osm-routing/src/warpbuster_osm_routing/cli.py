@@ -9,6 +9,12 @@ from pathlib import Path
 from typing import Any
 
 from warpbuster_osm_routing.config import RoutingCacheConfig
+from warpbuster_osm_routing.dem_cache import DemCache, DemCacheConfig
+from warpbuster_osm_routing.dem_coverage import plan_coverage
+from warpbuster_osm_routing.dem_profile import MAPZEN_SKADI_EGM96_V1
+from warpbuster_osm_routing.elevation_filter import ElevationFilteringPolicy
+from warpbuster_osm_routing.elevation_gpx import ElevationGpxWriter
+from warpbuster_osm_routing.elevation_service import ElevationService
 from warpbuster_osm_routing.errors import RoutingError
 from warpbuster_osm_routing.graph_cache import GraphCache
 from warpbuster_osm_routing.models import GeoPoint, RouteAlternativesRequest, RouteRequest
@@ -62,6 +68,40 @@ def build_parser() -> argparse.ArgumentParser:
     profile_commands = profile.add_subparsers(dest="profile_command", required=True)
     profile_show = profile_commands.add_parser("show", help="show trail-running profile v1")
     profile_show.add_argument("--json", action="store_true")
+
+    dem = subparsers.add_parser("dem", help="inspect the Task 020 DEM dataset contract")
+    dem_commands = dem.add_subparsers(dest="dem_command", required=True)
+    dem_profile = dem_commands.add_parser("profile", help="inspect the Skadi dataset profile")
+    dem_profile.add_argument("--json", action="store_true")
+    dem_prepare = dem_commands.add_parser("prepare", help="cache Skadi tiles for a route JSON")
+    dem_prepare.add_argument("route", type=Path)
+    dem_prepare.add_argument("--mode", choices=("auto", "offline", "disabled"), default="offline")
+    dem_prepare.add_argument("--cache-dir", type=Path)
+    dem_prepare.add_argument("--json", action="store_true")
+    dem_inspect = dem_commands.add_parser("inspect", help="verify one DEM snapshot")
+    dem_inspect.add_argument("snapshot_id")
+    dem_inspect.add_argument("--cache-dir", type=Path)
+    dem_inspect.add_argument("--json", action="store_true")
+    dem_prune = dem_commands.add_parser("prune", help="list or remove old DEM cache entries")
+    dem_prune.add_argument("--apply", action="store_true")
+    dem_prune.add_argument("--cache-dir", type=Path)
+    dem_prune.add_argument("--json", action="store_true")
+    dem_sample = dem_commands.add_parser(
+        "sample", help="sample raw height from a verified snapshot"
+    )
+    dem_sample.add_argument("snapshot_id")
+    dem_sample.add_argument("route", type=Path)
+    dem_sample.add_argument("--cache-dir", type=Path)
+    _add_dem_filter_options(dem_sample)
+    dem_sample.add_argument("--json", action="store_true")
+    dem_export = dem_commands.add_parser("export", help="write DEM GPX and audit sidecar")
+    dem_export.add_argument("snapshot_id")
+    dem_export.add_argument("route", type=Path)
+    dem_export.add_argument("--output", type=Path, required=True)
+    dem_export.add_argument("--graph-id")
+    dem_export.add_argument("--cache-dir", type=Path)
+    _add_dem_filter_options(dem_export)
+    dem_export.add_argument("--json", action="store_true")
 
     spike = subparsers.add_parser("spike", help="run the Task 010A temporary route probe")
     spike.add_argument("manifest", type=Path)
@@ -128,6 +168,59 @@ def _execute(args: argparse.Namespace) -> dict[str, Any]:
             "status": "OK",
             "profile": TRAIL_RUNNING_V1.inspection_document(),
         }
+    if args.command == "dem":
+        if args.dem_command == "profile":
+            return {
+                "operation": "dem_profile_show",
+                "status": "OK",
+                "profile": MAPZEN_SKADI_EGM96_V1.inspection_document(),
+            }
+        dem_config = DemCacheConfig.defaults()
+        if args.cache_dir is not None:
+            from dataclasses import replace
+
+            dem_config = replace(dem_config, cache_directory=args.cache_dir)
+        dem_cache = DemCache(dem_config)
+        if args.dem_command == "inspect":
+            return {"operation": "dem_inspect", **dem_cache.inspect(args.snapshot_id).as_dict()}
+        if args.dem_command == "prune":
+            return dem_cache.prune(apply=args.apply)
+        if args.dem_command in {"sample", "export"}:
+            points = _read_dem_route(
+                args.route, dem_config.maximum_manifest_bytes, dem_config.maximum_points
+            )
+            filtering_policy = ElevationFilteringPolicy(
+                window_radius_m=args.smoothing_radius_m,
+                minimum_excursion_m=args.minimum_excursion_m,
+            )
+            profile = ElevationService(dem_cache, filtering_policy=filtering_policy).sample(
+                args.snapshot_id, points
+            )
+            if args.dem_command == "sample":
+                return {"operation": "dem_sample", **profile.as_dict()}
+            return {
+                "operation": "dem_export",
+                **ElevationGpxWriter(dem_cache)
+                .write(profile, args.output, graph_id=args.graph_id)
+                .as_dict(),
+            }
+        assert args.dem_command == "prepare"
+        if args.mode == "disabled":
+            return {"operation": "dem_prepare", **dem_cache.ensure(None, "disabled").as_dict()}
+        points = _read_dem_route(
+            args.route, dem_config.maximum_manifest_bytes, dem_config.maximum_points
+        )
+        plan = plan_coverage(
+            points,
+            buffer_m=dem_config.buffer_m,
+            maximum_points=dem_config.maximum_points,
+            maximum_tiles=dem_config.maximum_tiles,
+        )
+        return {
+            "operation": "dem_prepare",
+            "coverage": plan.as_dict(),
+            **dem_cache.ensure(plan, args.mode).as_dict(),
+        }
     try:
         config = RoutingCacheConfig.load(args.config).with_cache_directory(args.cache_dir)
     except ValueError as error:
@@ -169,6 +262,24 @@ def _execute(args: argparse.Namespace) -> dict[str, Any]:
     if args.command == "prune":
         return cache.prune(apply=args.apply)
     raise AssertionError(f"unhandled command: {args.command}")
+
+
+def _read_dem_route(path: Path, maximum_bytes: int, maximum_points: int) -> tuple[GeoPoint, ...]:
+    try:
+        if path.stat().st_size > maximum_bytes:
+            raise RoutingError("RESOURCE_LIMIT_EXCEEDED", "DEM route JSON exceeds byte limit")
+        route = json.loads(path.read_text(encoding="utf-8"))
+        raw_points = route["points"]
+        if not isinstance(raw_points, list) or not 1 <= len(raw_points) <= maximum_points:
+            raise ValueError("DEM route points are invalid")
+        return tuple(GeoPoint(item["latitude"], item["longitude"]) for item in raw_points)
+    except (OSError, UnicodeError, ValueError, KeyError, TypeError) as error:
+        raise RoutingError("INVALID_REQUEST", "invalid DEM route JSON") from error
+
+
+def _add_dem_filter_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--smoothing-radius-m", type=float, default=60.0)
+    parser.add_argument("--minimum-excursion-m", type=float, default=3.0)
 
 
 def _add_cache_options(parser: argparse.ArgumentParser) -> None:
@@ -250,6 +361,30 @@ def _print_console(document: dict[str, Any]) -> None:
             f"(compatible={'yes' if profile['engine_compatible'] else 'no'})"
         )
         print(json.dumps(profile["costing_options"], indent=2, sort_keys=True))
+    elif operation == "dem_profile_show":
+        profile = document["profile"]
+        print("WarpBuster DEM dataset profile")
+        print(f"Profile: {profile['profile_id']}")
+        print(f"SHA-256: {profile['profile_sha256']}")
+        print(f"Vertical datum: {profile['vertical_datum']}")
+        print(f"Attribution sources: {len(profile['attributions'])}")
+    elif operation in {"dem_prepare", "dem_inspect"}:
+        print(f"WarpBuster DEM: {document['status']}")
+        if document["dem_snapshot_id"] is not None:
+            print(f"Snapshot: {document['dem_snapshot_id']}")
+    elif operation == "dem_prune":
+        print(f"WarpBuster DEM prune: {document['status']}")
+        for key in ("snapshots", "index", "objects"):
+            print(f"{key}: {len(document[key])}")
+    elif operation == "dem_sample":
+        print(f"WarpBuster DEM height: {document['status']}")
+        print(f"Snapshot: {document['dem_snapshot_id']}")
+        print(f"Profile: {document['elevation_profile_id']}")
+        print(f"Samples: {len(document['samples'])}")
+    elif operation == "dem_export":
+        print(f"WarpBuster DEM export: {document['status']}")
+        print(f"GPX: {document['gpx_path']}")
+        print(f"Audit: {document['audit_path']}")
 
 
 def _print_alternatives(document: dict[str, Any]) -> None:

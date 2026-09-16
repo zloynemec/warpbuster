@@ -7,10 +7,145 @@ Task 010C adds a versioned request-time trail-running profile without changing g
 identity. Task 010D adds bounded audited snapping and a stable single-route API.
 Task 010E adds opt-in audited alternatives and advisory pairwise comparisons.
 Task 010F requires the graph build and query runtime to use the exact same Valhalla version.
+Task 020A adds the independent DEM dataset profile. Task 020B adds bounded acquisition
+and an independent DEM tile cache. Task 020C adds offline raw elevation sampling;
+Task 020D adds filtered results, GPX and diagnostic altitude comparison.
 
 It does not read FIT, detect corruption, select reconstruction candidates, or modify an
-activity. It performs no network requests; OSM Manager is responsible for acquiring and
-publishing source snapshots.
+activity. OSM Manager acquires OSM snapshots. Only explicit DEM `auto` mode can access
+the Mapzen/Tilezen AWS elevation bucket; graph preparation and DEM `offline` mode do not.
+
+## Task 020A: DEM dataset profile
+
+```bash
+warpbuster-osm-route dem profile
+warpbuster-osm-route dem profile --json
+```
+
+The immutable `mapzen-skadi-egm96-v1` contract identifies Mapzen/Tilezen Skadi tiles on
+AWS Open Data. The horizontal coordinate system is EPSG:4326; elevation is in metres
+relative to the WGS84/EGM96 geoid. Each gzip-compressed HGT tile covers 1° × 1° and
+contains a 3601 × 3601 signed big-endian 16-bit grid (25,934,402 uncompressed bytes).
+`-32768` means void. Negative values can be valid bathymetry. The nominal output grid
+spacing is one arc-second, **not** a guarantee of input resolution or accuracy.
+
+The source is a regional composite, not OSM elevation. According to the [provider's
+data-source list](https://github.com/tilezen/joerd/blob/master/docs/data-sources.md),
+inputs include SRTM (~30 m land coverage, nominal quality may be coarser), GMTED
+(7.5–30 arc-seconds), ETOPO1 bathymetry (1 arc-minute), EU-DEM (~30 m), and regional
+datasets with finer or coarser resolution. The HGT raster alone cannot prove which
+inputs contributed to a particular point. For display and audit, use the entire
+versioned attribution bundle returned by `dem profile --json`, and review the
+[provider attribution terms](https://github.com/tilezen/joerd/blob/master/docs/attribution.md).
+The Joerd software's MIT license does **not** license the composite terrain data;
+individual upstream provider terms and required credits vary. The AWS dataset listing
+points to that same attribution document as its license reference.
+
+The JSON profile includes a SHA-256 over canonical source/format/datum/attribution
+semantics, plus primary documentation links and limitations. This is a profile
+identity, not a downloaded tile or snapshot identity. Nothing in 020A/020B changes
+Integrity Detector, FIT altitude, or the OSM routing graph.
+
+## Task 020B: prepare and verify DEM tiles
+
+Supply a bounded JSON route with `points` containing `latitude` and `longitude`:
+
+```json
+{"points":[{"latitude":44.5,"longitude":33.6},{"latitude":44.6,"longitude":33.7}]}
+```
+
+```bash
+warpbuster-osm-route dem prepare route.json --mode auto --cache-dir /data/cache/dem --json
+warpbuster-osm-route dem prepare route.json --mode offline --cache-dir /data/cache/dem --json
+warpbuster-osm-route dem inspect sha256:SNAPSHOT_DIGEST --cache-dir /data/cache/dem --json
+warpbuster-osm-route dem prune --cache-dir /data/cache/dem --json
+warpbuster-osm-route dem prune --apply --cache-dir /data/cache/dem --json
+```
+
+`auto` downloads only missing one-degree Skadi tiles; `offline` makes no network
+requests, and `disabled` returns without reading the route. The default mode is
+`offline`. `WARPBUSTER_DEM_CACHE_DIR` selects the independent cache root when
+`--cache-dir` is absent; otherwise it defaults to the platform cache parent plus
+`dem`. Production should explicitly mount `/data/cache/dem`. The cache root must not
+be the filesystem or home root.
+
+Every tile is bounded and staged, then verified for gzip CRC, exact 25,934,402-byte
+decoded HGT length, compressed size and SHA-256 before publication. A published object
+is verified again on reuse; corrupt entries are not treated as misses. A complete
+content-addressed snapshot is published only after *all* required tiles are present.
+The snapshot ID includes profile semantics and sorted tile hashes, not cache paths or
+timestamps. Concurrent callers share locks; stale locks are reported, never stolen
+automatically. `inspect` rechecks the snapshot and objects. `prune` is dry-run unless
+`--apply`; it respects snapshot leases and only removes unreferenced aged objects.
+
+`DemCacheConfig` names the tile/point/byte/time/lock/age limits. Defaults include 16
+tiles, 20,000 route points, a 30 m coverage buffer, 16 MiB maximum compressed tile,
+512 MiB object quota, a 15 s connect/read timeout and a 120 s total acquisition
+deadline. The deadline is checked before and after each bounded read; one in-flight
+socket read can extend the wall time by up to its read timeout. Cache misses, timeouts,
+corruption and quota failures are typed errors; optional DEM failure must not alter an
+otherwise admissible 2D repair. Tile requests disclose the approximate one-degree
+route region to the public AWS source.
+
+## Task 020C: sample raw DEM height
+
+```bash
+warpbuster-osm-route dem sample sha256:SNAPSHOT_DIGEST route.json --cache-dir /data/cache/dem --json
+```
+
+`dem sample` verifies and leases the exact snapshot, then queries pinned Valhalla 3.8.3
+`Actor.height()` entirely offline. It keeps every input vertex, adds great-circle samples
+at most 30 m apart, and returns chainage, unrounded raw metres, and explicit
+`TILE_NOT_IN_SNAPSHOT` or `VOID` diagnostics. Missing values remain `null`; the overall
+status is `PARTIAL`. A one-tile snapshot can therefore be sampled against a longer
+route without silently acquiring new tiles. Engine failures and malformed responses
+are typed errors, not partial results. Input is capped at 20,000 points; the densified
+result is capped at 20,000 samples before the engine runs. Native requests are batched
+at 512 points and bounded by request/response byte limits. `ElevationSamplingConfig`
+names these policy values. The profile ID binds snapshot, original geometry, pinned
+engine, sampling policy and a versioned filtering policy. It changes when any of these
+change. The returned geometry comes from the input, not Valhalla's rounded
+coordinate echo. Native bilinear interpolation is part of the versioned semantics.
+
+Sampling uses a temporary hardlink view of verified cache objects, not a second copy of
+large HGT files. The view is removed after the call, and snapshot leases prevent cache
+pruning during it. The raw profile does not modify FIT or course altitude.
+
+## Task 020D: filtered results and GPX
+
+```bash
+warpbuster-osm-route dem sample sha256:SNAPSHOT_DIGEST route.json --cache-dir /data/cache/dem --json
+warpbuster-osm-route dem export sha256:SNAPSHOT_DIGEST route.json \
+  --output route-dem.gpx --cache-dir /data/cache/dem --json
+```
+
+Both commands accept `--smoothing-radius-m` (default 60 m) and
+`--minimum-excursion-m` (default 3 m). The versioned
+`distance-triangle-excursion-v1` policy uses a triangular distance-weighted mean
+within each uninterrupted covered segment. Segment endpoints are retained; gaps remain
+`null`, never interpolated. Raw ascent/descent sum signed adjacent changes. Filtered
+totals track peaks and valleys with a 3 m reversal hysteresis; several small
+same-direction steps therefore contribute together, while a small reversal does not
+split a climb. This is a presentation/reporting heuristic, not the device's ascent.
+The 60 m / 3 m defaults suppress a 1 m synthetic sawtooth without
+erasing a 4 m gradual climb. On the previously probed real Skadi tile `N44E033`, a
+457-sample route from 7 to 144 m yielded raw ascent/descent 571/434 m and filtered
+526.1/388.9 m. This single probe does not establish regional accuracy; tune the
+explicit policy for other terrains and keep the raw series for audit.
+
+`dem export` writes a GPX 1.1 route with filtered `<ele>` for covered samples, no
+`<ele>` for missing samples, no generated timestamps, and no FIT changes. It also
+writes `route-dem.gpx.audit.json` with raw/filtered samples and totals, tile hashes and
+sizes, dataset/engine/policy IDs, missing diagnostics and the full attribution bundle.
+Both outputs are deterministic and new-file-only: existing targets are not overwritten.
+The optional `--graph-id sha256:...` links the export to an audited 2D route.
+
+`compare_altitudes(profile, observations)` is a read-only API for caller-aligned FIT
+or GPX-course observations. Each observation supplies an exact profile sample index,
+chainage, altitude field and declared vertical datum. Only declared
+`WGS84/EGM96 geoid` observations receive absolute residual statistics. Unknown or
+incompatible datums return `DATUM_UNKNOWN`/`DATUM_MISMATCH` without residuals. The API
+does not map-match, infer FIT semantics, rank routes, or update activity fields.
 
 ## Prepare and reuse a graph
 
