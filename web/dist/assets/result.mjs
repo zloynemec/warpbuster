@@ -53,7 +53,7 @@ function renderReport(data, status) {
   const approximate = (data.approximate_osm?.decisions || []).filter(item => item.approximate && item.selected_route_id);
   byId("approximate-warning").hidden = approximate.length === 0;
   byId("approximate-warning").textContent = approximate.length
-    ? `OSM-маршрут выбран приблизительно, фактический путь не подтверждён. Выбранные варианты: ${approximate.map(item => `${item.selected_route_id} (${item.selection_mode || "2D"})`).join(", ")}.`
+    ? "OSM-маршрут выбран приблизительно, фактический путь не подтверждён."
     : "";
   const dem = data.approximate_osm?.dem;
   byId("dem-status").hidden = !dem || dem.status === "disabled" || dem.status === "not_needed";

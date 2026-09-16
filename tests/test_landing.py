@@ -65,6 +65,13 @@ def test_result_script_references_existing_elements_after_copy_changes() -> None
     assert references <= ids, f"Missing result elements: {references - ids}"
 
 
+def test_result_copy_does_not_expose_approximate_route_ids() -> None:
+    script = (SITE / "assets" / "result.mjs").read_text(encoding="utf-8")
+    assert "OSM-маршрут выбран приблизительно, фактический путь не подтверждён." in script
+    assert "Выбранные варианты" not in script
+    assert "${item.selected_route_id}" not in script
+
+
 @pytest.mark.parametrize(
     "route", ["index.html", "fix/index.html", "faq/index.html", "404/index.html"]
 )
