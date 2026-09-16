@@ -1,7 +1,7 @@
 # Task 021 — Approximate Elevation-aware OSM Reconstruction
 
-Статус: ТЗ, реализация не начата. Предпосылки: Task 012C (автоматический GPX-first +
-OSM в Web) и Task 020 (отдельный DEM subsystem) завершены.
+Статус: 021A–021C завершены; 021D–021E не начаты. Предпосылки: Task 012C
+(автоматический GPX-first + OSM в Web) и Task 020 (отдельный DEM subsystem) завершены.
 
 ## 1. Цель и продуктовая позиция
 
@@ -183,10 +183,12 @@ DEM evidence имеет три состояния:
 высотной серии DEM-профиль показывается в результате, но не выбирает дорогу по
 собственной крутизне.
 
-DEM tie-break должен быть bounded и не превосходить решение явных 2D hard checks.
-Перед кодом 021C фиксируются именованные пороги minimum aligned samples/span,
-coverage, near-best band и minimum DEM advantage в typed config; значения
-обосновываются synthetic и доступными реальными probes. Отсутствующие/void samples
+DEM tie-break bounded и не превосходит решение явных 2D hard checks. В typed policy
+021C заданы defaults: минимум 5 сопоставленных FIT records, 30 м span, 80% общего
+DEM coverage, преимущество ошибки формы более 5 м и максимум 8 профилей на gap;
+near-best band берётся из `GapCandidateRankingConfig` (default score delta 1).
+Значения проверены синтетическими развилками; перед rollout 021D их следует
+сопоставить с доступными приватными реальными probes. Отсутствующие/void samples
 не заполняются нулём и не соединяются через gap. Raw профиль используется для
 comparison, filtered — для
 presentation; smoothing не подменяет наблюдение. Без надёжной сопоставимости
@@ -267,15 +269,21 @@ provider, selected route ID, selection mode, число рассмотренны
 
 ## 9. Подзадачи реализации
 
-- **021A — Decision contract.** Зафиксировать hard/soft gates, typed reasons,
-  policy identity, synthetic fixtures и audit schema. Не менять application.
-- **021B — Approximate auto-selection.** Для `ORIGINAL_MISSING` выбирать лучший
-  hard-safe OSM candidate даже при soft ambiguity, проверять allocation и writer,
-  сохранять GPX-first и старую политику для других gap origins. Работает без DEM.
-- **021C — Optional DEM evidence.** Bounded candidate sampling, candidate-local
-  alignment FIT altitude с DEM, offset-neutral ошибка формы и её применение для
-  выбора между близкими 2D alternatives; `USABLE/UNINFORMATIVE/UNAVAILABLE`;
-  отсутствие DEM возвращает к проверенному выбору 021B.
+- **021A — Decision contract (завершена).** Зафиксированы предварительные hard/soft
+  gates, typed reasons, policy identity/hash, synthetic fixtures и privacy-safe
+  audit schema в `approximate_contract.py`. Контракт сам по себе не разрешает
+  запись FIT; application не менялся.
+- **021B — Approximate auto-selection (завершена).** Для `ORIGINAL_MISSING` Core
+  выбирает лучший hard-safe OSM candidate даже при soft ambiguity, проверяет
+  allocation и writer, сохраняет GPX-first и старую политику для других gap origins.
+  Новый режим доступен только через явный `approximate_policy` вызов Core API;
+  CLI/Web opt-in появится в 021D. Работает без DEM.
+- **021C — Optional DEM evidence (завершена в Core).** Bounded candidate sampling
+  после allocation/preflight, сопоставление FIT altitude с raw DEM по
+  `original_vertex_index`, offset-neutral ошибка формы и выбор между близкими 2D
+  alternatives; `USABLE/UNINFORMATIVE/UNAVAILABLE`. При отсутствии DEM, недостатке
+  наблюдений, void, превышении бюджета или ошибке sampler сохраняется выбор 021B.
+  Реальный CLI/Web вызов sampler и deadline budget относятся к 021D.
 - **021D — CLI/Web integration и отчёт.** Подключить один Core path к `repair`/
   `process` CLI и Web с явным opt-in, DEM mode/snapshot configuration, dry-run,
   одинаковой семантикой решения и FIT diff. Для Web дополнительно проверить

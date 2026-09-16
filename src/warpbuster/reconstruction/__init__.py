@@ -1,5 +1,11 @@
 """Optional reconstruction providers operating after integrity detection."""
 
+from warpbuster.reconstruction.approximate_contract import (
+    ApproximateSelectionPolicy,
+    DemComparisonConfig,
+    assess_gap_scope,
+    assess_ranked_osm_candidate,
+)
 from warpbuster.reconstruction.automatic_osm import apply_automatic_osm_routes
 from warpbuster.reconstruction.candidate_ranking import rank_gap_candidates
 from warpbuster.reconstruction.course import build_course_repair_plan
@@ -18,10 +24,14 @@ from warpbuster.reconstruction.osm_application import (
 from warpbuster.reconstruction.selection import select_repair_intervals
 
 __all__ = [
+    "ApproximateSelectionPolicy",
+    "DemComparisonConfig",
     "OSMReconstructionProvider",
     "ValhallaRoutingClient",
     "apply_automatic_osm_routes",
     "apply_confirmed_osm_routes",
+    "assess_gap_scope",
+    "assess_ranked_osm_candidate",
     "build_course_repair_plan",
     "build_missing_course_plan",
     "build_repair_plan",

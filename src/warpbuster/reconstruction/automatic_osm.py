@@ -20,7 +20,20 @@ from warpbuster.models.reconstruction import (
     UnresolvedGap,
 )
 from warpbuster.models.reconstruction import ReconstructionReason as Reason
+from warpbuster.reconstruction.approximate_contract import (
+    POLICY_ID,
+    ApproximateSelectionPolicy,
+    AttemptStatus,
+    CandidateAttemptAudit,
+    DecisionReason,
+    DemEvidenceStatus,
+    GapDecisionAudit,
+    SelectionMode,
+    assess_gap_scope,
+    assess_ranked_osm_candidate,
+)
 from warpbuster.reconstruction.candidate_ranking import rank_gap_candidates
+from warpbuster.reconstruction.dem_choice import DemChoice, DemSampler, compare_dem_candidates
 from warpbuster.reconstruction.gaps import (
     CONFIDENCE_RANK,
     coordinate_mask,
@@ -55,6 +68,42 @@ def _preflight(activity: ActivityData, plan: RepairPlan, candidate: GapRepairPla
     return True
 
 
+def _preflight_composed(
+    activity: ActivityData, plan: RepairPlan, candidates: dict[str, GapRepairPlan]
+) -> bool:
+    """Check already selected gaps together, not just the candidate in isolation."""
+    from warpbuster.fit.writer import FitWriteError, _validate_composed_geometry
+
+    composed = replace(
+        plan,
+        interval_plans=tuple(candidates[g.gap_id] for g in plan.gaps if g.gap_id in candidates),
+        unresolved_gaps=(),
+    )
+    try:
+        _validate_composed_geometry(
+            activity, composed, select_repair_intervals(composed, IntegrityConfidence.MEDIUM)
+        )
+    except FitWriteError:
+        return False
+    return True
+
+
+def _approximate_mode(reasons: tuple[DecisionReason, ...]) -> SelectionMode:
+    if any(
+        reason
+        in {
+            DecisionReason.INSUFFICIENT_2D_EVIDENCE,
+            DecisionReason.SCORE_ABOVE_RECOMMENDATION,
+            DecisionReason.OBSERVED_COMPONENTS_BELOW_RECOMMENDATION,
+        }
+        for reason in reasons
+    ):
+        return SelectionMode.APPROXIMATE_LOW_EVIDENCE
+    if DecisionReason.AMBIGUOUS_2D in reasons:
+        return SelectionMode.APPROXIMATE_TIE_BREAK
+    return SelectionMode.RANKED
+
+
 def apply_automatic_osm_routes(
     activity: ActivityData,
     integrity: IntegrityReport,
@@ -64,10 +113,25 @@ def apply_automatic_osm_routes(
     minimum_confidence: IntegrityConfidence = IntegrityConfidence.MEDIUM,
     config: AutomaticOSMApplicationConfig | None = None,
     ranking_config: GapCandidateRankingConfig | None = None,
+    approximate_policy: ApproximateSelectionPolicy | None = None,
+    dem_sampler: DemSampler | None = None,
+    dem_snapshot_id: str | None = None,
 ) -> RepairPlan:
     """Return a final plan without writing or asserting confirmed route identity."""
-    cfg = config or AutomaticOSMApplicationConfig()
-    ranking_cfg = ranking_config or GapCandidateRankingConfig()
+    if approximate_policy is None and (dem_sampler is not None or dem_snapshot_id is not None):
+        raise ValueError("DEM comparison requires approximate_policy")
+    if approximate_policy is not None and (config is not None or ranking_config is not None):
+        raise ValueError("approximate_policy cannot be combined with legacy config overrides")
+    cfg = (
+        approximate_policy.application
+        if approximate_policy
+        else config or AutomaticOSMApplicationConfig()
+    )
+    ranking_cfg = (
+        approximate_policy.ranking
+        if approximate_policy
+        else ranking_config or GapCandidateRankingConfig()
+    )
     mask = coordinate_mask(activity, integrity, plan.minimum_invalidation_confidence)
     if (
         plan.activity_path != activity.preservation.source_path
@@ -93,12 +157,45 @@ def apply_automatic_osm_routes(
     decisions: list[dict[str, Any]] = []
     for evaluation, ranked in zip(discovery.evaluations, ranking.rankings, strict=True):
         gap = evaluation.interval
+        scope = assess_gap_scope(gap, minimum_confidence) if approximate_policy else None
+        approximate = scope is not None and scope.eligible_for_attempt
+        typed_attempts: list[CandidateAttemptAudit] = []
+        accepted_for_dem: list[tuple[RankedGapCandidate, GapRepairPlan, dict[str, Any]]] = []
+        dem_status = DemEvidenceStatus.NOT_REQUESTED
+        dem_profile_ids: tuple[str, ...] = ()
+        dem_collect = False
+        if approximate and (dem_sampler is not None or dem_snapshot_id is not None):
+            if dem_sampler is None or not dem_snapshot_id:
+                dem_status = DemEvidenceStatus.UNAVAILABLE
+            elif approximate_policy is not None:
+                observed_count = sum(
+                    record.altitude is not None and isfinite(record.altitude)
+                    for record in activity.records[
+                        gap.start_record_index : gap.end_record_index + 1
+                    ]
+                )
+                if observed_count >= approximate_policy.dem.minimum_aligned_samples:
+                    dem_collect = True
+                else:
+                    dem_status = DemEvidenceStatus.UNINFORMATIVE
         decision: dict[str, Any] = {"gap_id": gap.gap_id, "status": "unresolved", "attempts": []}
         decisions.append(decision)
+        if scope is not None and scope.hard_reasons:
+            decision["approximate_scope_reasons"] = [reason.value for reason in scope.hard_reasons]
         existing = candidates.get(gap.gap_id)
         if existing is not None and existing in selected:
             if _preflight(activity, plan, existing):
                 decision.update(status="gpx_selected", provider="gpx", reason="gpx_first")
+                if approximate_policy is not None:
+                    decision["selection_mode"] = SelectionMode.GPX_FIRST.value
+                    decision["approximate_audit"] = GapDecisionAudit(
+                        gap.gap_id,
+                        approximate_policy.policy_hash,
+                        SelectionMode.GPX_FIRST,
+                        None,
+                        ranked.search_complete,
+                        graph_id=discovery.graph_id,
+                    ).as_dict()
                 continue
             decision["gpx_rejection"] = "candidate_transition_implausible"
             candidates.pop(gap.gap_id)
@@ -129,6 +226,23 @@ def apply_automatic_osm_routes(
         if blocked is None:
             routes = {r.route_id: r for r in evaluation.candidates}
             for index, candidate in enumerate(sorted(ranked.candidates, key=_order)):
+                if (
+                    accepted_for_dem
+                    and approximate_policy is not None
+                    and len(accepted_for_dem) > approximate_policy.dem.maximum_profiles_per_gap
+                ):
+                    break
+                if (
+                    accepted_for_dem
+                    and approximate_policy is not None
+                    and (
+                        candidate.score is None
+                        or candidate.score
+                        > (accepted_for_dem[0][0].score or 0)
+                        + approximate_policy.ranking.near_best_score_delta
+                    )
+                ):
+                    break
                 if index >= cfg.maximum_candidate_attempts:
                     blocked = "candidate_attempt_limit"
                     break
@@ -145,17 +259,49 @@ def apply_automatic_osm_routes(
                 audit = route.as_dict().get("audit")
                 if not isinstance(audit, dict) or audit.get("status") not in {"PASS", "WARN"}:
                     attempt["reason"] = "routing_audit_unusable"
+                    if approximate:
+                        typed_attempts.append(
+                            CandidateAttemptAudit(
+                                route.route_id,
+                                AttemptStatus.REJECTED,
+                                candidate.score,
+                                (DecisionReason.ROUTING_AUDIT_UNUSABLE,),
+                            )
+                        )
                     continue
+                assessment = (
+                    assess_ranked_osm_candidate(
+                        ranked, candidate, approximate_policy, gap_id=gap.gap_id
+                    )
+                    if approximate and approximate_policy is not None
+                    else None
+                )
                 if (
-                    not candidate.eligible
+                    bool(assessment and not assessment.eligible_for_attempt)
+                    or not candidate.eligible
                     or candidate.score is None
-                    or candidate.score > ranking_cfg.maximum_recommended_score
-                    or candidate.observed_components
-                    < ranking_cfg.minimum_observed_evidence_components
+                    or (
+                        not approximate
+                        and (
+                            candidate.score > ranking_cfg.maximum_recommended_score
+                            or candidate.observed_components
+                            < ranking_cfg.minimum_observed_evidence_components
+                        )
+                    )
                 ):
                     attempt["reason"] = "insufficient_route_quality"
                     attempt["ranking_reasons"] = candidate.reasons
+                    if approximate and assessment is not None:
+                        typed_attempts.append(
+                            CandidateAttemptAudit(
+                                route.route_id,
+                                AttemptStatus.REJECTED,
+                                candidate.score,
+                                assessment.hard_reasons,
+                            )
+                        )
                     continue
+                typed_reason = DecisionReason.ALLOCATION_REJECTED
                 result = _allocate(
                     activity,
                     plan,
@@ -168,9 +314,28 @@ def apply_automatic_osm_routes(
                     snapshot,
                 )
                 if isinstance(result, GapRepairPlan):
-                    if not _preflight(activity, plan, result):
+                    if not _preflight(activity, plan, result) or (
+                        approximate
+                        and not _preflight_composed(
+                            activity, plan, {**candidates, gap.gap_id: result}
+                        )
+                    ):
                         result = Reason.CANDIDATE_TRANSITION_IMPLAUSIBLE
+                        typed_reason = DecisionReason.WRITER_PREFLIGHT_REJECTED
                     else:
+                        if dem_collect:
+                            attempt["status"] = AttemptStatus.PREFLIGHT_ACCEPTED.value
+                            accepted_for_dem.append((candidate, result, attempt))
+                            assert assessment is not None
+                            typed_attempts.append(
+                                CandidateAttemptAudit(
+                                    route.route_id,
+                                    AttemptStatus.PREFLIGHT_ACCEPTED,
+                                    candidate.score,
+                                    assessment.soft_reasons,
+                                )
+                            )
+                            continue
                         candidates[gap.gap_id] = result
                         failures.pop(gap.gap_id, None)
                         attempt["status"] = "selected"
@@ -180,9 +345,100 @@ def apply_automatic_osm_routes(
                         decision.update(
                             status="osm_selected", provider="osm", selected_route_id=route.route_id
                         )
+                        if approximate and assessment is not None:
+                            mode = _approximate_mode(assessment.soft_reasons)
+                            decision["selection_mode"] = mode.value
+                            decision["approximate"] = True
+                            typed_attempts.append(
+                                CandidateAttemptAudit(
+                                    route.route_id,
+                                    AttemptStatus.SELECTED,
+                                    candidate.score,
+                                    assessment.soft_reasons,
+                                )
+                            )
                         break
                 reason = result
                 attempt["reason"] = reason.value
+                if approximate:
+                    typed_attempts.append(
+                        CandidateAttemptAudit(
+                            route.route_id,
+                            AttemptStatus.REJECTED,
+                            candidate.score,
+                            (typed_reason,),
+                        )
+                    )
+            if (
+                accepted_for_dem
+                and approximate_policy is not None
+                and dem_sampler is not None
+                and dem_snapshot_id
+            ):
+                dem_choice = (
+                    DemChoice(DemEvidenceStatus.UNAVAILABLE)
+                    if blocked == "candidate_attempt_limit"
+                    else compare_dem_candidates(
+                        activity,
+                        gap,
+                        tuple((item[0].source_candidate_id, item[1]) for item in accepted_for_dem),
+                        dem_sampler,
+                        dem_snapshot_id,
+                        approximate_policy.dem,
+                    )
+                )
+                dem_status = dem_choice.status
+                dem_profile_ids = dem_choice.profile_ids
+                selected_id = (
+                    dem_choice.preferred_route_id or accepted_for_dem[0][0].source_candidate_id
+                )
+                selected_candidate, selected_plan, selected_attempt = next(
+                    item for item in accepted_for_dem if item[0].source_candidate_id == selected_id
+                )
+                candidates[gap.gap_id] = selected_plan
+                failures.pop(gap.gap_id, None)
+                selected_attempt["status"] = AttemptStatus.SELECTED.value
+                assert selected_plan.osm_provenance is not None
+                selected_attempt["allocation_method"] = (
+                    selected_plan.osm_provenance.allocation_method.value
+                )
+                selected_attempt["signal_diagnostics"] = (
+                    selected_plan.osm_provenance.signal_diagnostics
+                )
+                mode = _approximate_mode(
+                    assess_ranked_osm_candidate(
+                        ranked, selected_candidate, approximate_policy, gap_id=gap.gap_id
+                    ).soft_reasons
+                )
+                decision.update(
+                    status="osm_selected",
+                    provider="osm",
+                    selected_route_id=selected_id,
+                    selection_mode=mode.value,
+                    approximate=True,
+                )
+                by_route = {item.route_id: item for item in dem_choice.candidates}
+                typed_attempts = [
+                    replace(
+                        item,
+                        status=AttemptStatus.SELECTED
+                        if item.route_id == selected_id
+                        else item.status,
+                        dem_profile_id=by_route[item.route_id].profile_id,
+                        dem_shape_error_m=by_route[item.route_id].shape_error_m,
+                        dem_aligned_samples=by_route[item.route_id].aligned_samples,
+                    )
+                    if item.status is AttemptStatus.PREFLIGHT_ACCEPTED and item.route_id in by_route
+                    else replace(item, status=AttemptStatus.SELECTED)
+                    if item.status is AttemptStatus.PREFLIGHT_ACCEPTED
+                    and item.route_id == selected_id
+                    else item
+                    for item in typed_attempts
+                ]
+                decision["dem_evidence"] = {
+                    "status": dem_status.value,
+                    "selected_by_dem": dem_choice.preferred_route_id is not None,
+                }
         if decision["status"] != "osm_selected":
             decision["reason"] = blocked or reason.value
             # A rejected GPX candidate may remain visible, but must not duplicate a gap decision.
@@ -193,6 +449,38 @@ def apply_automatic_osm_routes(
                     if previous is not None
                     else UnresolvedGap(gap, (reason,))
                 )
+        if approximate and approximate_policy is not None:
+            if dem_sampler is not None or dem_snapshot_id is not None:
+                decision.setdefault(
+                    "dem_evidence",
+                    {"status": dem_status.value, "selected_by_dem": False},
+                )
+            selected_mode = (
+                SelectionMode(decision["selection_mode"]) if "selection_mode" in decision else None
+            )
+            decision["approximate_audit"] = GapDecisionAudit(
+                gap.gap_id,
+                approximate_policy.policy_hash,
+                selected_mode,
+                decision.get("selected_route_id"),
+                ranked.search_complete,
+                graph_id=discovery.graph_id,
+                dem_status=dem_status,
+                dem_snapshot_id=dem_snapshot_id if dem_profile_ids else None,
+                dem_profile_ids=dem_profile_ids,
+                attempts=tuple(typed_attempts),
+                reasons=(
+                    DecisionReason.ATTEMPT_LIMIT_REACHED
+                    if blocked == "candidate_attempt_limit"
+                    else DecisionReason.NO_ACCEPTABLE_ROUTE,
+                )
+                if selected_mode is None
+                else (DecisionReason.DEM_UNAVAILABLE,)
+                if dem_status is DemEvidenceStatus.UNAVAILABLE
+                else (DecisionReason.DEM_UNINFORMATIVE,)
+                if dem_status is DemEvidenceStatus.UNINFORMATIVE
+                else (),
+            ).as_dict()
     final = replace(
         plan,
         interval_plans=tuple(candidates[g.gap_id] for g in plan.gaps if g.gap_id in candidates),
@@ -220,7 +508,14 @@ def apply_automatic_osm_routes(
         reasons=(Reason.SOME_INTERVALS_UNRESOLVED if unresolved else Reason.ALL_INTERVALS_READY,),
         automatic_osm_json=_json(
             {
-                "policy": "gpx-first-automatic-osm-v2",
+                "policy": POLICY_ID
+                if approximate_policy is not None
+                else "gpx-first-automatic-osm-v2",
+                **(
+                    {"policy_hash": approximate_policy.policy_hash}
+                    if approximate_policy is not None
+                    else {}
+                ),
                 "graph_id": discovery.graph_id,
                 "confidence": "medium",
                 "identity_confirmed": False,

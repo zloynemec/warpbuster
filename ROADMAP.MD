@@ -253,9 +253,9 @@ Roadmap следует порядку milestone из [`docs/MILESTONES.md`](docs
     plausible movement, `INVALIDATED` и `MIXED` не получают эту permissive policy;
   - разрешить заполнение altitude только отдельно доказанных missing/corrupted
     значений; coordinate repair и altitude repair остаются разными решениями;
-  - [ ] **021A:** decision contract, hard/soft gates и audit;
-  - [ ] **021B:** approximate auto-selection для `ORIGINAL_MISSING`, без DEM;
-  - [ ] **021C:** сравнение формы FIT altitude и DEM для выбора маршрута,
+  - [x] **021A:** decision contract, hard/soft gates и audit;
+  - [x] **021B:** approximate auto-selection для `ORIGINAL_MISSING`, без DEM;
+  - [x] **021C:** сравнение формы FIT altitude и DEM для выбора маршрута,
     с fallback к 021B;
   - [ ] **021D:** единый Core path в CLI и Web, opt-in, отчёт и FIT diff;
   - [ ] **021E:** отдельно gated optional altitude completion.
