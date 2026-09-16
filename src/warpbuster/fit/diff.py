@@ -37,6 +37,8 @@ _MISSING = "<missing>"
 def diff_fit(
     original_path: str | Path,
     fixed_path: str | Path,
+    *,
+    expected_extra_fields: frozenset[tuple[str, str]] = frozenset(),
 ) -> FitDiffReport:
     """Decode and compare two FIT files at message-field occurrence granularity."""
     original = read_fit(original_path)
@@ -45,12 +47,16 @@ def diff_fit(
         fixed.preservation, FitPreservationData
     ):
         raise TypeError("FIT diff requires FIT preservation data")
-    return diff_preservation(original.preservation, fixed.preservation)
+    return diff_preservation(
+        original.preservation, fixed.preservation, expected_extra_fields=expected_extra_fields
+    )
 
 
 def diff_preservation(
     original: FitPreservationData,
     fixed: FitPreservationData,
+    *,
+    expected_extra_fields: frozenset[tuple[str, str]] = frozenset(),
 ) -> FitDiffReport:
     """Compare decoded preservation snapshots without assuming writer provenance."""
     original_messages = original.messages
@@ -100,7 +106,9 @@ def diff_preservation(
                 added_coordinate_count += 1
             changed_count += 1
             display_name = _display_field_name(field_key)
-            expected = (left.message_type, display_name) in _EXPECTED_REPAIR_FIELDS
+            expected = (left.message_type, display_name) in (
+                _EXPECTED_REPAIR_FIELDS | expected_extra_fields
+            )
             if expected:
                 expected_count += 1
             else:

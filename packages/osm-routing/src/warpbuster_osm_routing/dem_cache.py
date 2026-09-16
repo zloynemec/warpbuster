@@ -13,9 +13,10 @@ import time
 import urllib.error
 import urllib.request
 import zlib
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, fields
+from functools import partial
 from pathlib import Path
 from typing import Any, BinaryIO, Literal, Self, get_type_hints
 
@@ -105,8 +106,15 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def _open_http(url: str, timeout: float) -> BinaryIO:
-    opener = urllib.request.build_opener(_NoRedirect)
+def _open_http(
+    url: str, timeout: float, *, proxy_mapping: Mapping[str, str] | None = None
+) -> BinaryIO:
+    handlers = (
+        (urllib.request.ProxyHandler(dict(proxy_mapping)), _NoRedirect)
+        if proxy_mapping is not None
+        else (_NoRedirect,)
+    )
+    opener = urllib.request.build_opener(*handlers)
     return opener.open(url, timeout=timeout)  # type: ignore[no-any-return]
 
 
@@ -114,8 +122,14 @@ class DemCache:
     """Acquire complete verified tiles; publish only complete immutable snapshots."""
 
     def __init__(
-        self, config: DemCacheConfig, *, response_factory: ResponseFactory = _open_http
+        self,
+        config: DemCacheConfig,
+        *,
+        response_factory: ResponseFactory = _open_http,
+        proxy_mapping: Mapping[str, str] | None = None,
     ) -> None:
+        if proxy_mapping is not None and response_factory is not _open_http:
+            raise ValueError("proxy_mapping cannot be combined with response_factory")
         self.config = config.validated()
         self.root = config.cache_directory.expanduser().resolve()
         if self.root in {Path(self.root.anchor), Path.home().resolve()}:
@@ -125,7 +139,11 @@ class DemCache:
         self.index = self.root / "index" / MAPZEN_SKADI_EGM96_V1.profile_id
         self.staging = self.root / "staging"
         self.locks = self.root / "locks"
-        self.response_factory = response_factory
+        self.response_factory = (
+            partial(_open_http, proxy_mapping=dict(proxy_mapping))
+            if proxy_mapping is not None
+            else response_factory
+        )
 
     def ensure(self, plan: DemCoveragePlan | None, mode: DemMode) -> DemSnapshot:
         if mode == "disabled":

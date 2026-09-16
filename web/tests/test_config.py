@@ -1,7 +1,7 @@
 """Deployment configuration defaults and environment overrides."""
 
 import pytest
-from warpbuster_web.config import OSMMode, WebConfig
+from warpbuster_web.config import DEMMode, OSMMode, WebConfig
 
 LIMIT_ENVIRONMENT = {
     "WARPBUSTER_WEB_MAX_JOBS": "1200",
@@ -21,9 +21,13 @@ def test_capacity_defaults_match_public_deployment_policy(monkeypatch):
     assert config.max_pending_jobs == 50
     assert config.process_timeout_seconds == 600
     assert config.osm_mode is OSMMode.AUTO
+    assert config.approximate_osm is True
+    assert config.dem_mode is DEMMode.AUTO
+    assert config.complete_missing_altitude is True
     assert config.osm_total_timeout_seconds == 360
     assert config.publish_reserve_seconds == 60
     assert config.osm_maximum_cells == 64
+    assert config.osm_maximum_area_km2 == 1_000.0
 
 
 def test_capacity_limits_can_be_overridden_from_environment(monkeypatch):
@@ -52,8 +56,31 @@ def test_osm_operator_mode_and_limits_are_environment_controlled(monkeypatch):
     monkeypatch.setenv("WARPBUSTER_WEB_OSM_MAXIMUM_AREA_KM2", "42.5")
     config = WebConfig.from_environment()
     assert config.osm_mode is OSMMode.OFFLINE
+    assert config.dem_mode is DEMMode.OFFLINE
     assert config.osm_maximum_cells == 12
     assert config.osm_maximum_area_km2 == 42.5
+
+
+def test_disabling_approximate_or_dem_derives_safe_defaults(monkeypatch):
+    monkeypatch.setenv("WARPBUSTER_WEB_APPROXIMATE_OSM", "false")
+    config = WebConfig.from_environment()
+    assert not config.approximate_osm
+    assert config.dem_mode is DEMMode.DISABLED
+    assert not config.complete_missing_altitude
+
+    monkeypatch.setenv("WARPBUSTER_WEB_APPROXIMATE_OSM", "true")
+    monkeypatch.setenv("WARPBUSTER_WEB_DEM_MODE", "disabled")
+    config = WebConfig.from_environment()
+    assert config.approximate_osm
+    assert not config.complete_missing_altitude
+
+
+def test_disabling_osm_disables_entire_optional_chain(monkeypatch):
+    monkeypatch.setenv("WARPBUSTER_WEB_OSM_MODE", "disabled")
+    config = WebConfig.from_environment()
+    assert not config.approximate_osm
+    assert config.dem_mode is DEMMode.DISABLED
+    assert not config.complete_missing_altitude
 
 
 @pytest.mark.parametrize("value", ["", "enabled", "AUTO"])
@@ -79,3 +106,39 @@ def test_processor_environment_preserves_operator_osm_policy(monkeypatch, tmp_pa
     assert actual.osm_maximum_cells == 17
     assert actual.osm_maximum_area_km2 == 81.5
     assert actual.osm_child_cpu_seconds == 123
+
+
+def test_approximate_dem_settings_round_trip_to_worker(monkeypatch, tmp_path):
+    expected = WebConfig(
+        data_dir=tmp_path / "private",
+        approximate_osm=True,
+        dem_mode=DEMMode.OFFLINE,
+        dem_snapshot_id="sha256:" + "a" * 64,
+        dem_timeout_seconds=17,
+        complete_missing_altitude=True,
+    )
+    for name, value in expected.processor_environment().items():
+        monkeypatch.setenv(name, value)
+    actual = WebConfig.from_environment()
+    assert actual.pipeline_config().approximate_osm
+    assert actual.dem_mode is DEMMode.OFFLINE
+    assert actual.dem_snapshot_id == expected.dem_snapshot_id
+    assert actual.dem_timeout_seconds == 17
+    assert actual.complete_missing_altitude
+
+
+def test_web_refuses_global_fit_altitude_datum():
+    with pytest.raises(ValueError, match="web cannot assert FIT altitude datum"):
+        WebConfig(
+            approximate_osm=True,
+            dem_mode=DEMMode.OFFLINE,
+            complete_missing_altitude=True,
+            fit_altitude_datum="WGS84/EGM96 geoid",
+        )
+
+
+@pytest.mark.parametrize("value", ["", "enabled", "2"])
+def test_invalid_approximate_switch_fails_startup(monkeypatch, value):
+    monkeypatch.setenv("WARPBUSTER_WEB_APPROXIMATE_OSM", value)
+    with pytest.raises(ValueError, match="WARPBUSTER_WEB_APPROXIMATE_OSM must be boolean"):
+        WebConfig.from_environment()

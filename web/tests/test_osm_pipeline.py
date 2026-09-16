@@ -16,13 +16,19 @@ from warpbuster.pipeline.osm import (
     execute_osm_pipeline,
     run_osm_pipeline_isolated,
 )
-from warpbuster_web.config import OSMMode, WebConfig
+from warpbuster_web.config import DEMMode, OSMMode, WebConfig
 from warpbuster_web.processing import process_job
 
 
 def test_disabled_osm_publishes_schema_three_without_private_graph_data(tmp_path):
     _repairable_fixture(tmp_path)
-    config = WebConfig(data_dir=tmp_path / "data", osm_mode=OSMMode.DISABLED)
+    config = WebConfig(
+        data_dir=tmp_path / "data",
+        osm_mode=OSMMode.DISABLED,
+        approximate_osm=False,
+        dem_mode=DEMMode.DISABLED,
+        complete_missing_altitude=False,
+    )
     assert process_job(tmp_path, 100_000, config=config)
     report = json.loads((tmp_path / "result.json").read_text())
     assert report["schema_version"] == 3

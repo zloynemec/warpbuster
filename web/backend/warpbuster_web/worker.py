@@ -77,6 +77,10 @@ class Worker:
             command=command,
             timeout_seconds=config.process_timeout_seconds,
             osm_mode=config.osm_mode.value,
+            approximate_osm=config.approximate_osm,
+            dem_mode=config.dem_mode.value,
+            dem_timeout_seconds=config.dem_timeout_seconds,
+            complete_missing_altitude=config.complete_missing_altitude,
             osm_timeout_seconds=config.osm_total_timeout_seconds,
             publish_reserve_seconds=config.publish_reserve_seconds,
             **DEFAULT_REPAIR_POLICY.as_dict(),
@@ -140,6 +144,26 @@ class Worker:
                         applied_gpx_gaps=summary.get("applied_gpx_gaps"),
                         applied_osm_gaps=summary.get("applied_osm_gaps"),
                         unresolved_gaps=summary.get("unresolved_gaps"),
+                    )
+                approximate = public.get("approximate_osm")
+                if isinstance(approximate, dict) and isinstance(approximate.get("dem"), dict):
+                    dem = approximate["dem"]
+                    self.store.events.write(
+                        "dem_pipeline_completed",
+                        uid,
+                        status=dem.get("status"),
+                        error=dem.get("error_code"),
+                        duration_seconds=dem.get("duration_seconds"),
+                    )
+                altitude = public.get("altitude_completion")
+                if isinstance(altitude, dict):
+                    self.store.events.write(
+                        "altitude_completion_completed",
+                        uid,
+                        status=altitude.get("status"),
+                        reason=altitude.get("reason"),
+                        eligible_records=altitude.get("eligible_records"),
+                        completed_records=altitude.get("completed_records"),
                     )
             except OSError, ValueError:
                 pass

@@ -24,6 +24,7 @@ from warpbuster.models.reconstruction import RepairPlanStatus
 from warpbuster.pipeline import (
     DEFAULT_REPAIR_POLICY,
     LEGACY_REPAIR_POLICY,
+    DEMMode,
     OSMMode,
     PipelineConfig,
     PipelineError,
@@ -194,6 +195,33 @@ def build_parser() -> argparse.ArgumentParser:
         help="optional prepared graph cache override used with --osm-graph-id",
     )
     repair_options.add_argument(
+        "--approximate-missing-osm",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="select a hard-safe approximate OSM route for original missing positions (process default: on)",
+    )
+    repair_options.add_argument(
+        "--dem-mode",
+        type=DEMMode,
+        choices=tuple(DEMMode),
+        default=None,
+        help="DEM evidence: disabled, offline cache, or automatic tiles (process default: follows OSM mode)",
+    )
+    repair_options.add_argument("--dem-snapshot-id", help="exact verified DEM snapshot identity")
+    repair_options.add_argument("--dem-cache-dir", type=Path, help="DEM tile cache directory")
+    repair_options.add_argument("--dem-timeout-seconds", type=int, default=60)
+    repair_options.add_argument(
+        "--complete-missing-altitude",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="fill only absent FIT altitude in selected OSM gaps from verified DEM (process default: on)",
+    )
+    repair_options.add_argument(
+        "--fit-altitude-datum",
+        choices=("egm96",),
+        help="per-file declaration that existing FIT altitude uses WGS84/EGM96 geoid",
+    )
+    repair_options.add_argument(
         "--json",
         action="store_true",
         help="emit a machine-readable RepairPlan",
@@ -239,6 +267,12 @@ def build_parser() -> argparse.ArgumentParser:
         choices=tuple(OSMMode),
         default=OSMMode.AUTO,
         help="auto downloads missing coverage; offline uses cache; disabled uses GPX only",
+    )
+    process_parser.add_argument(
+        "--osm-max-area-km2",
+        type=float,
+        default=PipelineConfig().osm_maximum_area_km2,
+        help="maximum union OSM coverage area per job in km² (default: 1000)",
     )
     process_parser.add_argument(
         "--work-dir",
@@ -398,13 +432,49 @@ def main(argv: Sequence[str] | None = None) -> int:
                     file=sys.stderr,
                 )
                 return 2
-        execution = PipelineConfig(
-            data_dir=args.work_dir if complete else PipelineConfig().data_dir,
-            osm_mode=args.osm_mode if complete else OSMMode.DISABLED,
-            osm_graph_id=args.osm_graph_id,
-            osm_routing_config=args.osm_routing_config,
-            osm_cache_dir=args.osm_cache_dir,
-        )
+        try:
+            osm_enabled = (
+                (args.osm_mode is not OSMMode.DISABLED) if complete else bool(args.osm_graph_id)
+            )
+            approximate = (
+                args.approximate_missing_osm
+                if args.approximate_missing_osm is not None
+                else complete and osm_enabled
+            )
+            dem_mode = args.dem_mode or (
+                DEMMode.AUTO
+                if approximate and complete and args.osm_mode is OSMMode.AUTO
+                else DEMMode.OFFLINE
+                if approximate and complete
+                else DEMMode.DISABLED
+            )
+            complete_altitude = (
+                args.complete_missing_altitude
+                if args.complete_missing_altitude is not None
+                else complete and dem_mode is not DEMMode.DISABLED
+            )
+            execution = PipelineConfig(
+                data_dir=args.work_dir if complete else PipelineConfig().data_dir,
+                osm_mode=args.osm_mode if complete else OSMMode.DISABLED,
+                osm_maximum_area_km2=(
+                    args.osm_max_area_km2 if complete else PipelineConfig().osm_maximum_area_km2
+                ),
+                osm_graph_id=args.osm_graph_id,
+                osm_routing_config=args.osm_routing_config,
+                osm_cache_dir=args.osm_cache_dir,
+                approximate_osm=approximate,
+                dem_mode=dem_mode,
+                dem_snapshot_id=args.dem_snapshot_id,
+                dem_cache_dir=args.dem_cache_dir,
+                dem_timeout_seconds=args.dem_timeout_seconds,
+                complete_missing_altitude=complete_altitude,
+                fit_altitude_datum=(
+                    "WGS84/EGM96 geoid" if args.fit_altitude_datum == "egm96" else None
+                ),
+            )
+        except ValueError as error:
+            print(f"error: {error}", file=sys.stderr)
+            return 2
         try:
             run = run_repair(
                 args.activity_file,
@@ -441,6 +511,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         overwrite=args.overwrite,
                         osm_result=osm_result,
                         ranking_result=ranking_result,
+                        dem_stage=_dem_summary(run) if args.approximate_missing_osm else None,
                     )
                 except (HtmlReportError, OSError) as error:
                     print(f"error: {error}", file=sys.stderr)
@@ -465,8 +536,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     ranking_result=ranking_result,
                 )
             )
-            if complete and args.json:
+            if args.json and (complete or args.approximate_missing_osm):
                 rendered = _process_json(rendered, run)
+            if not args.json and args.approximate_missing_osm:
+                rendered += _approximate_notice(run)
             print(_html_notice(rendered, args.html) if not args.json else rendered)
             if selection.has_changes or plan.status is RepairPlanStatus.NOT_NEEDED:
                 return 0
@@ -485,6 +558,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         overwrite=args.overwrite,
                         osm_result=osm_result,
                         ranking_result=ranking_result,
+                        dem_stage=_dem_summary(run) if args.approximate_missing_osm else None,
                     )
                 except (HtmlReportError, OSError) as error:
                     print(f"error: {error}", file=sys.stderr)
@@ -509,8 +583,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     ranking_result=ranking_result,
                 )
             )
-            if complete and args.json:
+            if args.json and (complete or args.approximate_missing_osm):
                 rendered = _process_json(rendered, run)
+            if not args.json and args.approximate_missing_osm:
+                rendered += _approximate_notice(run)
             print(_html_notice(rendered, args.html) if not args.json else rendered)
             if plan.status is RepairPlanStatus.NOT_NEEDED:
                 return 0
@@ -538,6 +614,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     overwrite=args.overwrite,
                     osm_result=osm_result,
                     ranking_result=ranking_result,
+                    dem_stage=_dem_summary(run) if args.approximate_missing_osm else None,
                 )
             except (FitReadError, HtmlReportError, OSError) as error:
                 print(
@@ -559,8 +636,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             rendered = json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True)
         else:
             rendered = write_result_json(result) if args.json else write_result_console(result)
-        if complete and args.json:
+        if args.json and (complete or args.approximate_missing_osm):
             rendered = _process_json(rendered, run)
+        if not args.json and args.approximate_missing_osm:
+            rendered += _approximate_notice(run)
         print(_html_notice(rendered, args.html) if not args.json else rendered)
         return 0
     if args.command == "validate":
@@ -617,5 +696,34 @@ def _process_json(rendered: str, run: RepairRun) -> str:
             "error_code": run.osm.error_code,
             "audit": run.osm.private_audit,
         },
+        "dem": _dem_summary(run),
+        "altitude_completion": run.dem.altitude.public_summary(),
     }
     return json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True)
+
+
+def _dem_summary(run: RepairRun) -> dict[str, object]:
+    return {
+        "status": run.dem.status,
+        "snapshot_id": run.dem.snapshot_id,
+        "error_code": run.dem.error_code,
+        "duration_seconds": round(run.dem.duration_seconds, 3),
+        "altitude_completion": run.dem.altitude.public_summary(),
+    }
+
+
+def _approximate_notice(run: RepairRun) -> str:
+    automatic = json.loads(run.plan.automatic_osm_json) if run.plan.automatic_osm_json else {}
+    decisions = automatic.get("decisions", [])
+    lines = [
+        f"Approximate OSM policy: {automatic.get('policy', 'unavailable')}",
+        f"DEM: {run.dem.status}" + (f" ({run.dem.error_code})" if run.dem.error_code else ""),
+        "Altitude completion: " + str(run.dem.altitude.public_summary()["status"]),
+    ]
+    for decision in decisions:
+        if decision.get("selected_route_id"):
+            lines.append(
+                f"  route={decision['selected_route_id']}; "
+                f"mode={decision.get('selection_mode', 'unknown')}; actual path unconfirmed"
+            )
+    return "\n" + "\n".join(lines)

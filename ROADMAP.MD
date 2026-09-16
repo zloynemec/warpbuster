@@ -257,8 +257,10 @@ Roadmap следует порядку milestone из [`docs/MILESTONES.md`](docs
   - [x] **021B:** approximate auto-selection для `ORIGINAL_MISSING`, без DEM;
   - [x] **021C:** сравнение формы FIT altitude и DEM для выбора маршрута,
     с fallback к 021B;
-  - [ ] **021D:** единый Core path в CLI и Web, opt-in, отчёт и FIT diff;
-  - [ ] **021E:** отдельно gated optional altitude completion.
+  - [x] **021D:** единый Core path в CLI и Web, opt-in, отчёт и FIT diff;
+  - [x] **021E:** отдельно gated optional altitude completion.
+  - [x] После 021E: approximate OSM, DEM и altitude completion включены по
+    умолчанию в `process`/Web; legacy `repair` и Core API оставлены opt-in.
 
 Tasks 011/012 и веб-интеграция 012C завершены: routing уже восстанавливает часть
 пустот. Task 021 расширяет выбор среди проверенных OSM alternatives и добавляет DEM

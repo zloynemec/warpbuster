@@ -107,6 +107,7 @@ class FitWriteResult:
     coordinate_field_change_count: int
     distance_field_change_count: int
     summary_field_change_count: int
+    altitude_field_change_count: int
     selection: RepairSelection
     validation: FitValidationReport
     diff: FitDiffReport

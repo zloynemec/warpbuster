@@ -50,6 +50,21 @@ function renderReport(data, status) {
   byId("osm-warning").textContent = data.osm?.status === "unavailable"
     ? "Карта для дополнительного восстановления была недоступна. Проверенные изменения по GPX сохранены."
     : "";
+  const approximate = (data.approximate_osm?.decisions || []).filter(item => item.approximate && item.selected_route_id);
+  byId("approximate-warning").hidden = approximate.length === 0;
+  byId("approximate-warning").textContent = approximate.length
+    ? `OSM-маршрут выбран приблизительно, фактический путь не подтверждён. Выбранные варианты: ${approximate.map(item => `${item.selected_route_id} (${item.selection_mode || "2D"})`).join(", ")}.`
+    : "";
+  const dem = data.approximate_osm?.dem;
+  byId("dem-status").hidden = !dem || dem.status === "disabled" || dem.status === "not_needed";
+  byId("dem-status").textContent = dem?.status === "complete"
+    ? "DEM-профиль проверен для выбора OSM-маршрута."
+    : dem?.status === "unavailable" ? "DEM недоступен; применён безопасный 2D-вариант." : "";
+  const altitude = data.altitude_completion;
+  byId("altitude-status").hidden = !altitude;
+  byId("altitude-status").textContent = altitude?.status === "applied"
+    ? `Из DEM заполнена только отсутствующая высота: ${altitude.completed_records} записей. Существующая высота FIT сохранена.`
+    : altitude ? `Высота FIT не дополнялась (${altitude.reason || altitude.status}); восстановление координат сохранено.` : "";
   byId("owner-download").hidden = !status.can_download;
   byId("no-file-note").hidden = data.outcome === "repaired";
   byId("share-url").value = `${window.location.origin}/res/${uid}`;
@@ -57,7 +72,7 @@ function renderReport(data, status) {
   byId("diff-panel").hidden = !data.fit_diff;
   if (data.fit_diff) {
     const diff = data.fit_diff;
-    byId("preservation-note").textContent = `Временные метки: ${diff.timestamps_unchanged ? "без изменений" : "изменены"}. Датчики: ${diff.sensors_unchanged ? "без изменений" : "изменены"}. Поля разработчика и неизвестные поля: ${diff.developer_fields_unchanged && diff.unknown_fields_unchanged ? "сохранены" : "есть отличия"}.`;
+    byId("preservation-note").textContent = `Временные метки: ${diff.timestamps_unchanged ? "без изменений" : "изменены"}. Датчики, кроме явно дополненной высоты: ${(diff.non_altitude_sensors_unchanged ?? diff.sensors_unchanged) ? "без изменений" : "изменены"}. Поля разработчика и неизвестные поля: ${diff.developer_fields_unchanged && diff.unknown_fields_unchanged ? "сохранены" : "есть отличия"}.`;
     byId("diff-counts").textContent = `Изменено полей: ${diff.changed_fields}. Координаты: ${diff.coordinate_fields}, дистанция: ${diff.distance_fields}, агрегаты: ${diff.summary_fields}.` + (diff.truncated_changes ? ` Показана часть изменений; ещё ${diff.truncated_changes} не включены в таблицу.` : "");
     byId("diff-rows").replaceChildren();
     for (const change of diff.changes) {

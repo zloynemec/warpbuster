@@ -10,11 +10,12 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
+from urllib.request import ProxyHandler
 
 import pytest
 
 from warpbuster_osm_routing.cli import main
-from warpbuster_osm_routing.dem_cache import DemCache, DemCacheConfig
+from warpbuster_osm_routing.dem_cache import DemCache, DemCacheConfig, _open_http
 from warpbuster_osm_routing.dem_coverage import DemCoveragePlan, plan_coverage, tile_name
 from warpbuster_osm_routing.errors import RoutingError
 from warpbuster_osm_routing.models import GeoPoint
@@ -48,6 +49,36 @@ def _cache(tmp_path: Path, data: bytes, calls: list[str]) -> DemCache:
 
 def _plan(name: str = "N44E033") -> DemCoveragePlan:
     return DemCoveragePlan((name,), 2, 30.0)
+
+
+def test_explicit_proxy_mapping_avoids_system_lookup(monkeypatch, tmp_path: Path) -> None:
+    from warpbuster_osm_routing import dem_cache
+
+    handlers = []
+    response = FakeResponse(b"test", "https://example.test/tile")
+
+    class Opener:
+        def open(self, url: str, timeout: float) -> FakeResponse:
+            assert url == response.url and timeout == 2
+            return response
+
+    def capture(*args: object) -> Opener:
+        handlers.extend(args)
+        return Opener()
+
+    monkeypatch.setattr(dem_cache.urllib.request, "build_opener", capture)
+    monkeypatch.setattr(
+        dem_cache.urllib.request,
+        "getproxies",
+        lambda: pytest.fail("system proxy lookup must stay in parent"),
+    )
+    cache = DemCache(
+        DemCacheConfig(cache_directory=tmp_path / "dem"),
+        proxy_mapping={"https": "http://proxy.test:8080"},
+    )
+    assert cache.response_factory(response.url, 2) is response
+    assert any(isinstance(item, ProxyHandler) for item in handlers)
+    assert _open_http is not cache.response_factory
 
 
 def test_coverage_names_boundaries_and_resource_limit() -> None:

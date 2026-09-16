@@ -22,6 +22,7 @@ def local_fixture(
     name: str = "activity",
     position_fields: bool = True,
     detour: tuple[int, int, float] | None = None,
+    include_altitude: bool = True,
 ) -> tuple[ActivityData, CourseData]:
     full = eastward_observations(
         [float(i) for i in range(count)], [float(i * 2) for i in range(count)]
@@ -58,7 +59,7 @@ def local_fixture(
         retain_invalid_position_fields=position_fields,
         distances_m=distances,
         speeds_mps=speeds,
-        altitudes_m=[100.0] * count,
+        altitudes_m=[100.0] * count if include_altitude else None,
     )
     write_gpx_activity(
         course_path,

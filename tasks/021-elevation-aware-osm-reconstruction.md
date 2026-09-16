@@ -1,6 +1,11 @@
 # Task 021 — Approximate Elevation-aware OSM Reconstruction
 
-Статус: 021A–021C завершены; 021D–021E не начаты. Предпосылки: Task 012C
+Статус: 021A–021E реализованы; production smoke-test ещё не выполнен. Предпосылки: Task 012C
+
+После реализации 021E отдельным решением включены approximate OSM, DEM и дополнение
+отсутствующей высоты по умолчанию в CLI `process` и Web. Упоминания явного opt-in
+ниже описывают исходные критерии 021D; legacy `repair` и библиотечный API
+сохраняют прежние defaults. Флаги CLI и переменные Web позволяют отключить этапы.
 (автоматический GPX-first + OSM в Web) и Task 020 (отдельный DEM subsystem) завершены.
 
 ## 1. Цель и продуктовая позиция
@@ -340,7 +345,7 @@ provider, selected route ID, selection mode, число рассмотренны
       void, timeout и datum mismatch не блокируют 2D repair.
 - [ ] GPX-first и existing CLI/Web fallback сохранены; один Core-алгоритм доступен
       через оба entry points, FIT публикуется только после validation и FIT diff.
-- [ ] Altitude completion независимо gated и никогда не перезаписывает plausible
+- [x] Altitude completion независимо gated и никогда не перезаписывает plausible
       FIT altitude; невозможность completion не отменяет 2D repair.
 - [ ] Policy/config/audit/versioning и privacy contract документированы; решение
       повторяемо при перестановке candidates.

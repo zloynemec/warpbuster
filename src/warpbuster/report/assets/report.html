@@ -331,6 +331,8 @@
     if (repair) summaryItems.push(["Gap geometry", repair.geometry_status, true], ["Distance / metrics", repair.distance.status, false]);
     if (osmReconstruction) summaryItems.push(["OSM candidates", `${osmReconstruction.candidate_gap_count} gap(s) / ${osmReconstruction.candidate_count} route(s)`, false]);
     if (automaticOSM) summaryItems.push(["OSM application", automaticOSM.status || `automatic: ${automaticOSM.decisions.filter((item) => item.status === "osm_selected").length} ${writeResult ? "applied" : "planned"}`, false]);
+    if (repair?.dem_stage) summaryItems.push(["DEM evidence", `${repair.dem_stage.status}${repair.dem_stage.error_code ? ` (${repair.dem_stage.error_code})` : ""}`, false]);
+    if (repair?.dem_stage?.altitude_completion) summaryItems.push(["Altitude completion", `${repair.dem_stage.altitude_completion.status} / ${repair.dem_stage.altitude_completion.completed_records} record(s)`, false]);
     if (automaticOSM) {
       document.getElementById("automatic-osm-section").hidden = false;
       document.getElementById("automatic-osm-decisions").textContent = JSON.stringify(automaticOSM, null, 2);

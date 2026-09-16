@@ -20,6 +20,7 @@ from typing import Any
 from warpbuster.models.activity import ActivityData
 from warpbuster.models.integrity import IntegrityReport
 from warpbuster.models.reconstruction import OSMDryRunResult, RepairPlan
+from warpbuster.reconstruction.approximate_contract import POLICY_ID, ApproximateSelectionPolicy
 from warpbuster.reconstruction.automatic_osm import apply_automatic_osm_routes
 from warpbuster.reconstruction.osm import OSMReconstructionProvider, osm_gap_anchors
 from warpbuster.report.osm import osm_reconstruction_report
@@ -213,6 +214,7 @@ def execute_osm_pipeline(
                 graph.graph_id,
                 policy,
                 cache_directory=routing_cache,
+                approximate_osm=config.approximate_osm,
             )
     except Exception as error:
         return OSMResult(base_plan, "unavailable", "routing", _safe_code(error, "routing_failed"))
@@ -258,6 +260,7 @@ def _discover_and_apply(
     *,
     routing_config: Path | None = None,
     cache_directory: Path | None = None,
+    approximate_osm: bool = False,
 ) -> tuple[RepairPlan, OSMDryRunResult]:
     """One discovery/application contract for acquired and explicitly prepared graphs."""
     from warpbuster.reconstruction.osm import ValhallaRoutingClient
@@ -266,7 +269,12 @@ def _discover_and_apply(
         ValhallaRoutingClient(routing_config, cache_directory)
     ).discover(activity, base_plan, graph_id)
     plan = apply_automatic_osm_routes(
-        activity, integrity, base_plan, discovery, minimum_confidence=policy.minimum_confidence
+        activity,
+        integrity,
+        base_plan,
+        discovery,
+        minimum_confidence=policy.minimum_confidence,
+        approximate_policy=ApproximateSelectionPolicy() if approximate_osm else None,
     )
     return plan, discovery
 
@@ -292,6 +300,7 @@ def run_osm_pipeline(
                 policy,
                 routing_config=config.osm_routing_config,
                 cache_directory=config.osm_cache_dir,
+                approximate_osm=config.approximate_osm,
             )
         except OSMReconstructionError as error:
             # Preserve the existing CLI's detailed private diagnostics. The web
@@ -300,7 +309,9 @@ def run_osm_pipeline(
                 base_plan,
                 automatic_osm_json=json.dumps(
                     {
-                        "policy": "gpx-first-automatic-osm-v2",
+                        "policy": POLICY_ID
+                        if config.approximate_osm
+                        else "gpx-first-automatic-osm-v2",
                         "status": "unavailable",
                         "graph_id": config.osm_graph_id,
                         "error": {

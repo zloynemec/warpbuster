@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 from warpbuster.fit.reader import read_fit
-from warpbuster_web.config import OSMMode, WebConfig
+from warpbuster_web.config import DEMMode, OSMMode, WebConfig
 from warpbuster_web.processing import process_job
 
 TRACKS = Path("tests/private/tracks")
@@ -37,7 +37,14 @@ def test_six_private_pairs_reach_schema_three_without_mutating_sources(
     )
     shutil.copyfile(fit, tmp_path / "original.fit")
     shutil.copyfile(gpx, tmp_path / "course.gpx")
-    config = replace(WebConfig(), data_dir=tmp_path / "data", osm_mode=OSMMode.DISABLED)
+    config = replace(
+        WebConfig(),
+        data_dir=tmp_path / "data",
+        osm_mode=OSMMode.DISABLED,
+        approximate_osm=False,
+        dem_mode=DEMMode.DISABLED,
+        complete_missing_altitude=False,
+    )
     process_job(tmp_path, 100_000, config=config)
     report = json.loads((tmp_path / "result.json").read_text())
     assert report["schema_version"] == 3

@@ -155,6 +155,17 @@ def write_result_report(result: FitWriteResult) -> dict[str, object]:
         "coordinate_field_change_count": result.coordinate_field_change_count,
         "distance_field_change_count": result.distance_field_change_count,
         "summary_field_change_count": result.summary_field_change_count,
+        **(
+            {
+                "altitude_field_change_count": result.altitude_field_change_count,
+                "non_altitude_sensors_unchanged": (
+                    result.diff.sensors.compared_count - result.diff.sensors.unchanged_count
+                    == result.altitude_field_change_count
+                ),
+            }
+            if result.altitude_field_change_count
+            else {}
+        ),
         "distance": distance_policy(result.selection),
         "selection": _write_selection_report(result.selection),
         "validation": validation_report(result.validation),

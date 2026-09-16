@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, fields
 from enum import StrEnum
 from pathlib import Path
@@ -48,6 +49,15 @@ class OSMMode(StrEnum):
     DISABLED = "disabled"
 
 
+class DEMMode(StrEnum):
+    AUTO = "auto"
+    OFFLINE = "offline"
+    DISABLED = "disabled"
+
+
+EGM96_VERTICAL_DATUM = "WGS84/EGM96 geoid"
+
+
 @dataclass(frozen=True)
 class PipelineConfig:
     """Operational budgets; no detector thresholds or network activity on import.
@@ -68,7 +78,7 @@ class PipelineConfig:
     osm_mode: OSMMode = OSMMode.DISABLED
     isolate_osm: bool = False  # Linux web deployments require process resource isolation.
     osm_coverage_buffer_m: float = 1_000.0  # Corridor around trusted gap anchors, metres.
-    osm_maximum_area_km2: float = 250.0  # Maximum union coverage area, square kilometres.
+    osm_maximum_area_km2: float = 1_000.0  # Maximum union coverage area, square kilometres.
     osm_maximum_cells: int = 64  # Maximum Manager coverage cells per job.
     osm_maximum_requests: int = 8  # Maximum Overpass requests per job.
     osm_maximum_download_bytes: int = 128 * 1024 * 1024  # Manager download byte budget.
@@ -83,6 +93,13 @@ class PipelineConfig:
     osm_graph_id: str | None = None  # Optional exact prepared Routing graph identity.
     osm_routing_config: Path | None = None  # Prepared-graph Routing configuration.
     osm_cache_dir: Path | None = None  # Prepared-graph Routing cache override.
+    approximate_osm: bool = False  # Explicit Task 021 selection opt-in.
+    dem_mode: DEMMode = DEMMode.DISABLED  # Optional height evidence, disabled by default.
+    dem_snapshot_id: str | None = None  # Exact verified DEM snapshot, if supplied.
+    dem_cache_dir: Path | None = None  # Else data_dir/dem.
+    dem_timeout_seconds: int = 60  # Separate bounded DEM stage, seconds.
+    complete_missing_altitude: bool = False  # Separate Task 021E FIT-write opt-in.
+    fit_altitude_datum: str | None = None  # Explicit per-file assertion, never inferred.
 
     def __post_init__(self) -> None:
         for item in fields(PipelineConfig):
@@ -97,6 +114,31 @@ class PipelineConfig:
                 raise ValueError(f"{item.name} must be finite and positive")
         if not isinstance(self.osm_mode, OSMMode):
             raise ValueError("osm_mode must be auto, offline or disabled")
+        if type(self.approximate_osm) is not bool:
+            raise ValueError("approximate_osm must be boolean")
+        if not isinstance(self.dem_mode, DEMMode):
+            raise ValueError("dem_mode must be auto, offline or disabled")
+        if self.approximate_osm and self.osm_mode is OSMMode.DISABLED and self.osm_graph_id is None:
+            raise ValueError("approximate OSM requires enabled OSM or a prepared graph")
+        if self.dem_mode is not DEMMode.DISABLED and not self.approximate_osm:
+            raise ValueError("DEM evidence requires approximate OSM selection")
+        if self.dem_snapshot_id is not None and (
+            self.dem_mode is DEMMode.DISABLED
+            or re.fullmatch(r"sha256:[0-9a-f]{64}", self.dem_snapshot_id) is None
+        ):
+            raise ValueError("DEM snapshot requires enabled DEM and a valid sha256 ID")
+        if self.dem_cache_dir is not None and (
+            self.dem_mode is DEMMode.DISABLED or not isinstance(self.dem_cache_dir, Path)
+        ):
+            raise ValueError("DEM cache directory requires enabled DEM and must be a path")
+        if type(self.complete_missing_altitude) is not bool:
+            raise ValueError("complete_missing_altitude must be boolean")
+        if self.complete_missing_altitude and self.dem_mode is DEMMode.DISABLED:
+            raise ValueError("altitude completion requires enabled DEM")
+        if self.fit_altitude_datum is not None and (
+            not self.complete_missing_altitude or self.fit_altitude_datum != EGM96_VERTICAL_DATUM
+        ):
+            raise ValueError("FIT altitude datum requires enabled completion and exact EGM96")
         if (
             self.osm_acquisition_timeout_seconds
             + self.osm_prepare_timeout_seconds

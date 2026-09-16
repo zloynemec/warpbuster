@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -25,8 +26,14 @@ from warpbuster.reconstruction import (
     rank_gap_candidates,
     select_repair_intervals,
 )
+from warpbuster.reconstruction.altitude_completion import (
+    AltitudeCompletionPlan,
+    AltitudeCompletionReason,
+    AltitudeCompletionStatus,
+)
 
 from .config import DEFAULT_REPAIR_POLICY, PipelineConfig, RepairPolicy
+from .dem import DEMResult, run_dem_stage
 from .osm import OSMResult, eligible_gap_count, run_osm_pipeline
 
 
@@ -50,6 +57,7 @@ class RepairRun:
     plan: RepairPlan
     selection: RepairSelection
     osm: OSMResult
+    dem: DEMResult
     osm_duration_seconds: float
     osm_eligible_gaps: int
     ranking: CandidateRankingResult | None
@@ -123,7 +131,41 @@ def run_repair(
             # Optional companion/native failures never discard the base GPX plan.
             osm = OSMResult(base_plan, "unavailable", "routing", "routing_failed")
     osm_duration_seconds = time.monotonic() - osm_started
-    plan = osm.plan
+    remaining = execution.process_timeout_seconds - (time.monotonic() - started)
+    dem = run_dem_stage(
+        activity,
+        integrity,
+        base_plan,
+        osm.plan,
+        osm.discovery,
+        execution,
+        policy,
+        budget_seconds=max(0.0, remaining - execution.publish_reserve_seconds),
+    )
+    if (
+        execution.complete_missing_altitude
+        and dem.altitude.status is AltitudeCompletionStatus.DISABLED
+    ):
+        dem = replace(
+            dem,
+            altitude=AltitudeCompletionPlan(
+                AltitudeCompletionStatus.NOT_NEEDED
+                if dem.status == "not_needed"
+                else AltitudeCompletionStatus.UNAVAILABLE,
+                reason=None
+                if dem.status == "not_needed"
+                else AltitudeCompletionReason.DEM_UNAVAILABLE,
+            ),
+        )
+    plan = dem.plan
+    if plan is not osm.plan:
+        private_audit = osm.private_audit
+        if private_audit is not None and plan.automatic_osm_json is not None:
+            private_audit = {
+                **private_audit,
+                "application": {"decisions": json.loads(plan.automatic_osm_json)["decisions"]},
+            }
+        osm = replace(osm, plan=plan, private_audit=private_audit)
     ranking = (
         rank_gap_candidates(activity, base_plan, osm.discovery)
         if course is not None or osm.discovery is not None
@@ -134,20 +176,51 @@ def run_repair(
     fixed = None
     if not dry_run and selection.has_changes:
         try:
-            written = write_repaired_fit(
-                activity,
-                plan,
-                output_path,
-                minimum_confidence=policy.minimum_confidence,
-                overwrite=overwrite,
+            altitude_plan = (
+                dem.altitude if dem.altitude.status is AltitudeCompletionStatus.PLANNED else None
             )
+            try:
+                written = write_repaired_fit(
+                    activity,
+                    plan,
+                    output_path,
+                    minimum_confidence=policy.minimum_confidence,
+                    overwrite=overwrite,
+                    altitude_completion=altitude_plan,
+                )
+            except FitWriteError:
+                if altitude_plan is None:
+                    raise
+                # A DEM/FIT altitude mismatch cannot cancel safe coordinate repair.
+                dem = replace(
+                    dem,
+                    altitude=AltitudeCompletionPlan(
+                        AltitudeCompletionStatus.UNAVAILABLE,
+                        reason=AltitudeCompletionReason.WRITER_REFUSED,
+                        eligible_records=altitude_plan.eligible_records,
+                    ),
+                )
+                written = write_repaired_fit(
+                    activity,
+                    plan,
+                    output_path,
+                    minimum_confidence=policy.minimum_confidence,
+                    overwrite=overwrite,
+                )
+            else:
+                if altitude_plan is not None:
+                    dem = replace(
+                        dem,
+                        altitude=replace(altitude_plan, status=AltitudeCompletionStatus.APPLIED),
+                    )
             fixed = read_fit(written.output_path)
             if (
                 not written.validation.valid
                 or not written.post_write_verified
                 or written.diff.unexpected_changed_field_count
                 or written.diff.timestamps.compared_count != written.diff.timestamps.unchanged_count
-                or written.diff.sensors.compared_count != written.diff.sensors.unchanged_count
+                or written.diff.sensors.compared_count - written.diff.sensors.unchanged_count
+                != written.altitude_field_change_count
             ):
                 raise FitWriteError("written FIT failed preservation verification")
         except (FitWriteError, FitReadError, OSError, ValueError) as error:
@@ -161,6 +234,7 @@ def run_repair(
         plan,
         selection,
         osm,
+        dem,
         osm_duration_seconds,
         osm_eligible_gaps,
         ranking,

@@ -27,8 +27,14 @@ from warpbuster.models.integrity import DistanceSpikeEvidence, IntegrityConfiden
 from warpbuster.models.reconstruction import (
     CandidateCoordinate,
     CoordinateState,
+    GapOrigin,
+    GapRepairPlan,
     RepairPlan,
     RepairSelection,
+)
+from warpbuster.reconstruction.altitude_completion import (
+    AltitudeCompletionPlan,
+    AltitudeCompletionStatus,
 )
 from warpbuster.reconstruction.selection import select_repair_intervals
 
@@ -68,6 +74,7 @@ def write_repaired_fit(
     *,
     minimum_confidence: IntegrityConfidence = IntegrityConfidence.HIGH,
     overwrite: bool = False,
+    altitude_completion: AltitudeCompletionPlan | None = None,
 ) -> FitWriteResult:
     """Atomically apply candidates, replacing an existing output only when requested."""
     preservation = activity.preservation
@@ -106,6 +113,8 @@ def write_repaired_fit(
     _validate_composed_geometry(activity, plan, selection)
     unresolved_invalidated = selection.unresolved_invalidated_indices
     requests = list(_patch_requests(activity, selection))
+    if altitude_completion is not None:
+        requests.extend(_altitude_patch_requests(activity, selection, altitude_completion))
     for item in selection.invalidations:
         if item.record_index not in unresolved_invalidated:
             continue
@@ -134,7 +143,17 @@ def write_repaired_fit(
         validation = validate_fit(temporary_path)
         if not validation.valid:
             raise FitWriteError("patched FIT failed validation")
-        diff = diff_fit(source_path, temporary_path)
+        diff = (
+            diff_fit(
+                source_path,
+                temporary_path,
+                expected_extra_fields=frozenset(
+                    {("record", "altitude"), ("record", "enhanced_altitude")}
+                ),
+            )
+            if altitude_completion is not None and altitude_completion.updates
+            else diff_fit(source_path, temporary_path)
+        )
         if not diff.structure_compatible:
             raise FitWriteError("patched FIT changed data message structure")
         if (
@@ -150,7 +169,9 @@ def write_repaired_fit(
                 f"{diff.unexpected_changed_field_count} unexpected field changes"
             )
         written = read_fit(temporary_path)
-        _verify_written_repair(activity, written, plan, selection, tuple(requests))
+        _verify_written_repair(
+            activity, written, plan, selection, tuple(requests), altitude_completion
+        )
         if overwrite:
             os.replace(temporary_path, destination)
         else:
@@ -171,6 +192,7 @@ def write_repaired_fit(
         coordinate_field_change_count=category_counts.get("coordinate", 0),
         distance_field_change_count=category_counts.get("distance", 0),
         summary_field_change_count=category_counts.get("summary", 0),
+        altitude_field_change_count=category_counts.get("altitude", 0),
         selection=selection,
         validation=replace(validation, path=destination),
         diff=replace(diff, fixed_path=destination),
@@ -256,6 +278,7 @@ def _verify_written_repair(
     plan: RepairPlan,
     selection: RepairSelection,
     requests: tuple[_PatchRequest, ...],
+    altitude_completion: AltitudeCompletionPlan | None = None,
 ) -> None:
     """Verify the decoded temporary FIT before atomic publication, not just the plan."""
     if len(original.records) != len(written.records):
@@ -266,6 +289,11 @@ def _verify_written_repair(
         for u in candidate.coordinate_updates
     }
     invalidated = selection.unresolved_invalidated_indices
+    altitude_by_index = (
+        {item.record_index: item.altitude_m for item in altitude_completion.updates}
+        if altitude_completion is not None
+        else {}
+    )
     for a, b in zip(original.records, written.records, strict=True):
         expected = (a.latitude, a.longitude)
         if a.index in invalidated:
@@ -280,6 +308,11 @@ def _verify_written_repair(
             )
         if (b.latitude, b.longitude) != expected or a.timestamp != b.timestamp:
             raise FitWriteError("written coordinates/timestamps disagree with the selected scope")
+        if a.index in altitude_by_index:
+            if b.altitude is None or abs(b.altitude - altitude_by_index[a.index]) > 0.101:
+                raise FitWriteError("written altitude disagrees with DEM completion plan")
+        elif a.altitude != b.altitude:
+            raise FitWriteError("plausible FIT altitude changed outside the completion scope")
     _validate_composed_geometry(original, plan, selection, written=written)
     # Re-encoding planned fields must be an exact no-op, including quantization
     # and cumulative/summary corrections. This also checks untruncated FIT fields.
@@ -392,6 +425,58 @@ def _patch_requests(
         )
     if desired_distances:
         requests.extend(_summary_requests(activity, corrections))
+    return tuple(requests)
+
+
+def _altitude_patch_requests(
+    activity: ActivityData,
+    selection: RepairSelection,
+    completion: AltitudeCompletionPlan,
+) -> tuple[_PatchRequest, ...]:
+    if (
+        completion.status is not AltitudeCompletionStatus.PLANNED
+        or not completion.snapshot_id
+        or not completion.profile_ids
+    ):
+        raise FitWriteError("altitude completion lacks a verified DEM plan")
+    selected_indices = {
+        update.record_index
+        for candidate in selection.selected_interval_plans
+        for update in candidate.coordinate_updates
+        if isinstance(candidate, GapRepairPlan)
+        and candidate.osm_provenance is not None
+        and candidate.interval.origin is GapOrigin.ORIGINAL_MISSING
+    }
+    preservation = activity.preservation
+    if not isinstance(preservation, FitPreservationData):
+        raise FitWriteError("altitude completion requires original FIT preservation")
+    requests: list[_PatchRequest] = []
+    for update in completion.updates:
+        if update.record_index not in selected_indices:
+            raise FitWriteError("altitude completion is outside the selected OSM gap")
+        record = activity.records[update.record_index]
+        if record.altitude is not None:
+            raise FitWriteError("existing FIT altitude cannot be overwritten")
+        source = preservation.messages[record.source.message_index]
+        if any(
+            name in source.fields and source.fields[name] is not None
+            for name in ("altitude", "enhanced_altitude")
+        ):
+            raise FitWriteError("FIT altitude source field is not actually missing")
+        for name in update.field_names:
+            if name in source.fields:
+                if source.fields[name] is not None:
+                    raise FitWriteError("FIT altitude source field is not invalid")
+                value = update.altitude_m
+                raw = False
+            elif name == "enhanced_altitude":
+                value = round((update.altitude_m + 500.0) * 5.0)
+                raw = True
+            else:
+                raise FitWriteError("cannot add an unsupported FIT altitude field")
+            requests.append(
+                _record_request(record, name, value, raw_value=raw, category="altitude")
+            )
     return tuple(requests)
 
 
@@ -677,12 +762,12 @@ def _patch_fit_bytes(
                         )
                         for request in additions:
                             applied_requests.add((request.message_index, request.field_name))
-                        category_counts["coordinate"] = category_counts.get("coordinate", 0) + len(
-                            additions
-                        )
+                            category_counts[request.category] = (
+                                category_counts.get(request.category, 0) + 1
+                            )
                         category_counts["coordinate_added"] = category_counts.get(
                             "coordinate_added", 0
-                        ) + len(additions)
+                        ) + sum(request.category == "coordinate" for request in additions)
                         category_counts["definition_added"] = (
                             category_counts.get("definition_added", 0) + 2
                         )
@@ -725,7 +810,7 @@ def _patch_fit_bytes(
 def _coordinate_extension(
     frame: object, requests: list[_PatchRequest]
 ) -> tuple[bytes, bytes, bytes, int]:
-    """Append only native sint32 coordinates, before any developer payload.
+    """Append only known native coordinate/height fields before developer payload.
 
     FIT definitions use a one-byte field count and three-byte native descriptors.
     Neither the original definition nor existing payload bytes are re-encoded.
@@ -734,25 +819,39 @@ def _coordinate_extension(
     original = bytes(definition.chunk.bytes)
     fields = definition.field_defs
     field_numbers = {field.def_num for field in fields}
-    coordinate_numbers = {"position_lat": 0, "position_long": 1}
+    known_fields = {
+        "position_lat": (0, 0x85),
+        "position_long": (1, 0x85),
+        "enhanced_altitude": (78, 0x86),  # Standard record uint32, scale 5, offset 500 m.
+    }
     descriptors = bytearray()
     values = bytearray()
     for request in requests:
-        number = coordinate_numbers.get(request.field_name)
+        specification = known_fields.get(request.field_name)
         if (
             frame.name != "record"  # type: ignore[attr-defined]
-            or number is None
-            or number in field_numbers
-            or request.category != "coordinate"
+            or specification is None
+            or (number := specification[0]) in field_numbers
+            or request.category not in {"coordinate", "altitude"}
+            or (request.category == "altitude") != (request.field_name == "enhanced_altitude")
             or not request.raw_value
         ):
             raise FitWriteError(f"cannot add FIT field {request.message_type}.{request.field_name}")
+        minimum = 0 if request.category == "altitude" else -0x80000000
+        maximum = 0xFFFFFFFE if request.category == "altitude" else 0x7FFFFFFE
+        if not minimum <= request.value <= maximum:
+            raise FitWriteError("native FIT field value is outside encodable range")
         field_numbers.add(number)
-        descriptors.extend((number, 4, 0x85))  # FIT sint32 semicircles
-        values.extend(struct.pack(f"{definition.endian}i", round(request.value)))
+        descriptors.extend((number, 4, specification[1]))
+        values.extend(
+            struct.pack(
+                f"{definition.endian}{'I' if request.category == 'altitude' else 'i'}",
+                round(request.value),
+            )
+        )
     count = len(fields) + len(requests)
     if count > 255:
-        raise FitWriteError("coordinate extension exceeds FIT native field count limit")
+        raise FitWriteError("native extension exceeds FIT field count limit")
     boundary = 6 + 3 * len(fields)
     expanded = original[:5] + bytes((count,)) + original[6:boundary]
     expanded += bytes(descriptors) + original[boundary:]
@@ -790,6 +889,16 @@ def _apply_request(
         raise FitWriteError(
             f"cannot patch non-scalar field {request.message_type}.{request.field_name}"
         )
+    if request.category == "altitude":
+        field = field_data.field
+        expected_type = "uint16" if request.field_name == "altitude" else "uint32"
+        if (
+            field is None
+            or field_definition.base_type.name != expected_type
+            or getattr(field, "scale", None) != 5
+            or getattr(field, "offset", None) != 500
+        ):
+            raise FitWriteError("FIT altitude field semantics are not the standard profile")
     payload_offset = int(frame.chunk.offset) + 1  # type: ignore[attr-defined]
     for definition in frame.def_mesg.all_field_defs:  # type: ignore[attr-defined]
         if definition is field_definition:

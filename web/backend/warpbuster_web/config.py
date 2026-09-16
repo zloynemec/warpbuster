@@ -5,7 +5,7 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from warpbuster.pipeline import OSMMode, PipelineConfig
+from warpbuster.pipeline import DEMMode, OSMMode, PipelineConfig
 
 
 def positive_integer_environment(name: str, default: int) -> int:
@@ -34,6 +34,17 @@ def _environment(name: str, default: int | float) -> int | float:
     return value
 
 
+def _boolean_environment(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    if raw.lower() in {"1", "true", "yes"}:
+        return True
+    if raw.lower() in {"0", "false", "no"}:
+        return False
+    raise ValueError(f"{name} must be boolean")
+
+
 @dataclass(frozen=True)
 class WebConfig(PipelineConfig):
     data_dir: Path = Path(".warpbuster-web")
@@ -43,6 +54,9 @@ class WebConfig(PipelineConfig):
     body_limit_bytes: int = 41 * 1024 * 1024  # Both files plus multipart framing.
     upload_timeout_seconds: int = 60  # Total time to receive and persist one upload.
     osm_mode: OSMMode = OSMMode.AUTO
+    approximate_osm: bool = True
+    dem_mode: DEMMode = DEMMode.AUTO
+    complete_missing_altitude: bool = True
     isolate_osm: bool = True
     maximum_parallel_osm_jobs: int = 1
     retention_seconds: int = 7 * 24 * 3600  # Public report and corrected FIT lifetime.
@@ -57,6 +71,8 @@ class WebConfig(PipelineConfig):
 
     def __post_init__(self) -> None:
         super().__post_init__()
+        if self.fit_altitude_datum is not None:
+            raise ValueError("web cannot assert FIT altitude datum for arbitrary uploads")
         origin = urlsplit(self.public_origin)
         if (
             origin.scheme not in {"http", "https"}
@@ -118,6 +134,12 @@ class WebConfig(PipelineConfig):
             "WARPBUSTER_WEB_OSM_ROUTING_TIMEOUT_SECONDS": self.osm_routing_timeout_seconds,
             "WARPBUSTER_WEB_PUBLISH_RESERVE_SECONDS": self.publish_reserve_seconds,
             "WARPBUSTER_WEB_OSM_MODE": self.osm_mode.value,
+            "WARPBUSTER_WEB_APPROXIMATE_OSM": "true" if self.approximate_osm else "false",
+            "WARPBUSTER_WEB_DEM_MODE": self.dem_mode.value,
+            "WARPBUSTER_WEB_DEM_TIMEOUT_SECONDS": self.dem_timeout_seconds,
+            "WARPBUSTER_WEB_COMPLETE_MISSING_ALTITUDE": (
+                "true" if self.complete_missing_altitude else "false"
+            ),
             "WARPBUSTER_WEB_OSM_COVERAGE_BUFFER_M": self.osm_coverage_buffer_m,
             "WARPBUSTER_WEB_OSM_MAXIMUM_AREA_KM2": self.osm_maximum_area_km2,
             "WARPBUSTER_WEB_OSM_MAXIMUM_CELLS": self.osm_maximum_cells,
@@ -132,11 +154,34 @@ class WebConfig(PipelineConfig):
         }
         if self.osm_overpass_url is not None:
             values["WARPBUSTER_WEB_OSM_OVERPASS_URL"] = self.osm_overpass_url
+        if self.dem_snapshot_id is not None:
+            values["WARPBUSTER_WEB_DEM_SNAPSHOT_ID"] = self.dem_snapshot_id
         return {name: str(value) for name, value in values.items()}
 
     @classmethod
     def from_environment(cls) -> WebConfig:
         defaults = cls()
+        osm_mode = OSMMode(os.environ.get("WARPBUSTER_WEB_OSM_MODE", defaults.osm_mode.value))
+        approximate = _boolean_environment(
+            "WARPBUSTER_WEB_APPROXIMATE_OSM",
+            defaults.approximate_osm if osm_mode is not OSMMode.DISABLED else False,
+        )
+        dem_mode = DEMMode(
+            os.environ.get(
+                "WARPBUSTER_WEB_DEM_MODE",
+                (
+                    DEMMode.DISABLED
+                    if not approximate
+                    else DEMMode.OFFLINE
+                    if osm_mode is OSMMode.OFFLINE
+                    else defaults.dem_mode
+                ).value,
+            )
+        )
+        complete_altitude = _boolean_environment(
+            "WARPBUSTER_WEB_COMPLETE_MISSING_ALTITUDE",
+            defaults.complete_missing_altitude if dem_mode is not DEMMode.DISABLED else False,
+        )
         return cls(
             data_dir=Path(os.environ.get("WARPBUSTER_WEB_DATA", str(defaults.data_dir))),
             static_dir=Path(os.environ.get("WARPBUSTER_WEB_STATIC", str(defaults.static_dir))),
@@ -163,7 +208,14 @@ class WebConfig(PipelineConfig):
             publish_reserve_seconds=positive_integer_environment(
                 "WARPBUSTER_WEB_PUBLISH_RESERVE_SECONDS", defaults.publish_reserve_seconds
             ),
-            osm_mode=OSMMode(os.environ.get("WARPBUSTER_WEB_OSM_MODE", defaults.osm_mode.value)),
+            osm_mode=osm_mode,
+            approximate_osm=approximate,
+            dem_mode=dem_mode,
+            dem_snapshot_id=os.environ.get("WARPBUSTER_WEB_DEM_SNAPSHOT_ID"),
+            dem_timeout_seconds=positive_integer_environment(
+                "WARPBUSTER_WEB_DEM_TIMEOUT_SECONDS", defaults.dem_timeout_seconds
+            ),
+            complete_missing_altitude=complete_altitude,
             osm_coverage_buffer_m=_environment(
                 "WARPBUSTER_WEB_OSM_COVERAGE_BUFFER_M", defaults.osm_coverage_buffer_m
             ),

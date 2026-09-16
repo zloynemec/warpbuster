@@ -147,6 +147,7 @@ def write_repair_html(
     overwrite: bool = False,
     osm_result: OSMDryRunResult | None = None,
     ranking_result: CandidateRankingResult | None = None,
+    dem_stage: dict[str, object] | None = None,
 ) -> Path:
     """Write a repair report, optionally replacing its destination atomically."""
     if (fixed_activity is None) is not (write_result is None):
@@ -172,7 +173,7 @@ def write_repair_html(
         ),
         "course": _course_track(course) if course is not None else None,
     }
-    payload["repair"] = _compact_repair_report(
+    repair_document = _compact_repair_report(
         replace(plan, output_written=fixed_activity is not None),
         course,
         config,
@@ -180,6 +181,9 @@ def write_repair_html(
         osm_result,
         ranking_result,
     )
+    if dem_stage is not None:
+        repair_document["dem_stage"] = dem_stage
+    payload["repair"] = repair_document
     payload["write_result"] = (
         write_result_report(write_result) if write_result is not None else None
     )

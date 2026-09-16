@@ -4,10 +4,17 @@ import argparse
 import json
 import math
 import os
+import re
 from dataclasses import replace
 from pathlib import Path
 
-from warpbuster.pipeline import OSMMode, PipelineError, run_repair
+from warpbuster.pipeline import (
+    APPROXIMATE_DECISION_REASONS,
+    DEMMode,
+    OSMMode,
+    PipelineError,
+    run_repair,
+)
 from warpbuster.report.gaps import distance_policy, gap_audit
 
 from .config import WebConfig
@@ -32,6 +39,12 @@ class ProcessingError(Exception):
 
 def finite(value):
     return value if isinstance(value, int | float) and math.isfinite(value) else None
+
+
+def _safe_id(value):
+    return (
+        value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9:_-]{1,128}", value) else None
+    )
 
 
 def track(activity):
@@ -61,7 +74,14 @@ def process_job(
     config: WebConfig | None = None,
 ):
     # Direct library calls remain offline. The public worker passes its deployment config.
-    web_config = config or replace(WebConfig.from_environment(), osm_mode=OSMMode.DISABLED)
+    web_config = config or replace(
+        WebConfig.from_environment(),
+        osm_mode=OSMMode.DISABLED,
+        approximate_osm=False,
+        dem_mode=DEMMode.DISABLED,
+        dem_snapshot_id=None,
+        complete_missing_altitude=False,
+    )
     input_directory = input_directory if input_directory is not None else directory
     try:
         run = run_repair(
@@ -105,7 +125,7 @@ def process_job(
         item["action"] == "applied" and item["provider"] == "osm" for item in public_gaps
     )
     report = {
-        "schema_version": 3,
+        "schema_version": 4 if web_config.approximate_osm else 3,
         "outcome": "repaired"
         if result
         else ("unchanged" if plan.status.value == "not_needed" else "unresolved"),
@@ -177,6 +197,59 @@ def process_job(
         },
         "fit_diff": None,
     }
+    if web_config.complete_missing_altitude:
+        report["altitude_completion"] = run.dem.altitude.public_summary()
+    if web_config.approximate_osm:
+        automatic = json.loads(plan.automatic_osm_json) if plan.automatic_osm_json else {}
+        report["approximate_osm"] = {
+            "policy_id": _safe_id(automatic.get("policy")),
+            "unconfirmed_route_warning": "Approximate route; actual movement is unconfirmed",
+            "decisions": [
+                {
+                    "selected_route_id": _safe_id(details.get("selected_route_id")),
+                    "selection_mode": details.get("selection_mode")
+                    if details.get("selection_mode")
+                    in {"gpx_first", "ranked", "approximate_tie_break", "approximate_low_evidence"}
+                    else None,
+                    "approximate": details.get("approximate") is True,
+                    "attempted_count": evidence.get("attempted_count")
+                    if type(evidence.get("attempted_count")) is int
+                    else 0,
+                    "rejected_count": evidence.get("rejected_count")
+                    if type(evidence.get("rejected_count")) is int
+                    else 0,
+                    "dem_status": evidence.get("dem_status")
+                    if evidence.get("dem_status")
+                    in {"not_requested", "usable", "uninformative", "unavailable"}
+                    else None,
+                    "dem_snapshot_id": _safe_id(evidence.get("dem_snapshot_id")),
+                    "dem_profile_ids": [
+                        value
+                        for item in evidence.get("dem_profile_ids", [])
+                        if (value := _safe_id(item)) is not None
+                    ]
+                    if isinstance(evidence.get("dem_profile_ids"), list)
+                    else [],
+                    "reasons": [
+                        reason
+                        for reason in evidence.get("reasons", [])
+                        if isinstance(reason, str) and reason in APPROXIMATE_DECISION_REASONS
+                    ]
+                    if isinstance(evidence.get("reasons"), list)
+                    else [],
+                }
+                for details in automatic.get("decisions", [])
+                if isinstance(details, dict)
+                for evidence in [details.get("approximate_audit") or {}]
+                if isinstance(evidence, dict)
+            ],
+            "dem": {
+                "status": run.dem.status,
+                "error_code": run.dem.error_code,
+                "snapshot_id": _safe_id(run.dem.snapshot_id),
+                "duration_seconds": round(run.dem.duration_seconds, 3),
+            },
+        }
     if result:
         diff = result.diff
         report["fit_diff"] = {
@@ -205,6 +278,12 @@ def process_job(
                 if (change.message_type, change.field_name) in PUBLIC_FIELDS
             ],
         }
+        if web_config.complete_missing_altitude:
+            report["fit_diff"]["altitude_fields"] = result.altitude_field_change_count
+            report["fit_diff"]["non_altitude_sensors_unchanged"] = (
+                diff.sensors.compared_count - diff.sensors.unchanged_count
+                == result.altitude_field_change_count
+            )
     temporary = directory / "result.json.tmp"
     temporary.write_text(json.dumps(report, ensure_ascii=False, allow_nan=False), encoding="utf-8")
     temporary.chmod(0o600)

@@ -228,6 +228,11 @@ Content-Length), 60 секунд на загрузку, 600 секунд на о
 | `WARPBUSTER_WEB_MAX_OWNER_JOBS` | `100` | Максимум неистёкших заданий одной cookie-сессии |
 | `WARPBUSTER_WEB_MAX_PENDING_JOBS` | `50` | Максимум загрузок, заданий в очереди и обработке |
 | `WARPBUSTER_WEB_OSM_MODE` | `auto` | `auto`, `offline` или аварийное `disabled` |
+| `WARPBUSTER_WEB_APPROXIMATE_OSM` | `true` | Task 021 для полностью отсутствующих GNSS-координат; `false` отключает зависимые этапы по умолчанию |
+| `WARPBUSTER_WEB_DEM_MODE` | `auto` | `disabled`, `offline` или `auto`; по умолчанию следует OSM mode |
+| `WARPBUSTER_WEB_DEM_SNAPSHOT_ID` | не задан | Точный verified `sha256:` snapshot из `/data/dem`; только при DEM mode |
+| `WARPBUSTER_WEB_DEM_TIMEOUT_SECONDS` | `60` | Отдельный deadline DEM-этапа внутри общего job budget |
+| `WARPBUSTER_WEB_COMPLETE_MISSING_ALTITUDE` | `true` | 021E: дополнить только фактически отсутствующую высоту, если у всего FIT нет высотной серии; при disabled DEM по умолчанию выключается |
 | `WARPBUSTER_WEB_PROCESS_TIMEOUT_SECONDS` | `600` | Hard deadline всего job |
 | `WARPBUSTER_WEB_BASE_PLAN_TIMEOUT_SECONDS` | `180` | Бюджет чтения/detection/GPX |
 | `WARPBUSTER_WEB_OSM_TOTAL_TIMEOUT_SECONDS` | `360` | Общий OSM deadline |
@@ -236,7 +241,7 @@ Content-Length), 60 секунд на загрузку, 600 секунд на о
 | `WARPBUSTER_WEB_OSM_ROUTING_TIMEOUT_SECONDS` | `90` | Бюджет routing |
 | `WARPBUSTER_WEB_PUBLISH_RESERVE_SECONDS` | `60` | Резерв writer/validation/publication |
 | `WARPBUSTER_WEB_OSM_COVERAGE_BUFFER_M` | `1000` | Буфер каждого anchor window |
-| `WARPBUSTER_WEB_OSM_MAXIMUM_AREA_KM2` | `250` | Максимальная площадь union coverage |
+| `WARPBUSTER_WEB_OSM_MAXIMUM_AREA_KM2` | `1000` | Максимальная площадь union coverage одного задания |
 | `WARPBUSTER_WEB_OSM_MAXIMUM_CELLS` | `64` | Максимум coverage cells |
 | `WARPBUSTER_WEB_OSM_MAXIMUM_REQUESTS` | `8` | Все bounded Overpass attempts |
 | `WARPBUSTER_WEB_OSM_MAXIMUM_DOWNLOAD_BYTES` | `134217728` | Download budget одного job |
@@ -265,6 +270,22 @@ manifest, engine mismatch или timeout не удаляйте cache вручн�
 остановите worker, сохраните приватный audit и используйте companion `doctor/list/prune`.
 Readiness не проверяет доступность Overpass, потому что сетевой сбой не должен отключать
 GPX-восстановление.
+
+DEM cache хранится в `WARPBUSTER_WEB_DATA/dem` (в контейнере
+обычно `/data/dem`). Режимы `OSM=auto` и `DEM=auto` по умолчанию могут передавать
+внешним поставщикам необходимую географическую область трека для получения карты
+и высот; исходные FIT/GPX, временные метки и датчики им не передаются.
+Отсутствующий или непригодный DEM, включая offline cache miss,
+не отменяет уже выбранный безопасный 2D OSM-маршрут. Для rollback достаточно снять
+`WARPBUSTER_WEB_APPROXIMATE_OSM=false`; DEM и дополнение высоты тогда выключаются
+автоматически, если явно не заданы противоречащие значения. Для заданий с approximate OSM публичный отчёт имеет schema v4 с
+allowlisted route/DEM evidence и предупреждением о неподтверждённом маршруте;
+старые отчёты остаются v3. Приватный FIT/route geometry и raw DEM samples туда не входят.
+Опциональное 021E-дополнение высоты в Web допускается только при полностью отсутствующей
+высотной серии исходного FIT: сервис не может объявить vertical datum частично
+заполненного пользовательского файла совместимым. Отказ высотного этапа оставляет
+координатное 2D-восстановление; публичный отчёт показывает только статус и счётчики,
+не исходные или DEM-высоты по отдельным records.
 
 ### Admin CLI
 
