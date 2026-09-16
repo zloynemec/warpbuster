@@ -241,23 +241,29 @@ Roadmap следует порядку milestone из [`docs/MILESTONES.md`](docs
   - сравнивать DEM-профиль с сохранённой FIT/course altitude как независимое evidence;
   - DEM не используется Integrity Detector и не заменяет правдоподобные FIT-высоты.
 
-- [ ] **M13 / Task 021 — Elevation-aware OSM Reconstruction** — после M11 и M12
-  - использовать DEM-профиль как optional признак для ранжирования alternatives;
-  - объединять geometry, time, recorded distance/pace и elevation evidence в
-    консервативный confidence без привязки к конкретной тренировке;
-  - разрешить заполнение altitude только для отдельно доказанных missing/corrupted
+- [ ] **M13 / Task 021 — Approximate Elevation-aware OSM Reconstruction**
+  ([ТЗ](tasks/021-elevation-aware-osm-reconstruction.md)) — после M11 и M12
+  - для полностью missing GNSS gaps выбирать один hard-safe OSM-маршрут
+    автоматически даже при soft ambiguity: цель — приблизительная траектория,
+    а не метровая точность или подтверждённая идентичность маршрута;
+  - после allocation и FIT preflight отдельно строить DEM-профиль каждого
+    близкого 2D-плана из общего snapshot; сопоставлять сохранённую в GPS-пропуске
+    FIT-высоту с формой подъёмов/спусков, без неё или DEM — 2D fallback;
+  - сохранить GPX-first, trusted anchors, физические ограничения и FIT writer preflight;
+    plausible movement, `INVALIDATED` и `MIXED` не получают эту permissive policy;
+  - разрешить заполнение altitude только отдельно доказанных missing/corrupted
     значений; coordinate repair и altitude repair остаются разными решениями;
-  - отсутствие DEM или несовпадение vertical datum не блокирует однозначный 2D repair;
-  - неоднозначные кандидаты не применяются автоматически.
+  - [ ] **021A:** decision contract, hard/soft gates и audit;
+  - [ ] **021B:** approximate auto-selection для `ORIGINAL_MISSING`, без DEM;
+  - [ ] **021C:** сравнение формы FIT altitude и DEM для выбора маршрута,
+    с fallback к 021B;
+  - [ ] **021D:** единый Core path в CLI и Web, opt-in, отчёт и FIT diff;
+  - [ ] **021E:** отдельно gated optional altitude completion.
 
-Таким образом, routing package завершён, но его интеграция с repair отложена до
-исправления локальной GPX-реконструкции в Task 011 и учёта пауз в Task 011B. Затем Task 012 подключает routing
-к тем же пустотам в dry-run и проверяет однозначные 2D-восстановления. DEM добавляется
-после этого как независимый enrichment/evidence layer до расширенного выбора.
-Эксплуатационное усиление routing (hard query timeout/workers, широкие benchmarks,
-другие платформы и capabilities negotiation) вынесено за объём 010F:
-возвращаться по измеренной потребности, а к timeout — до unattended batch/server режима.
-Это не дополнительные обязательные этапы перед первым локальным 012A dry-run;
-Task 011, в отличие от них, является обязательной предпосылкой.
-Garmin/COROS/Strava integrations, web UI и automatic pipeline остаются отдельными
-будущими направлениями.
+Tasks 011/012 и веб-интеграция 012C завершены: routing уже восстанавливает часть
+пустот. Task 021 расширяет выбор среди проверенных OSM alternatives и добавляет DEM
+как необязательное свидетельство, не меняя Integrity Detector. Отсутствие DEM или
+несовпадение vertical datum не отменяет допустимый 2D repair.
+Дополнительное эксплуатационное усиление routing (широкие benchmarks, другие
+платформы и capabilities negotiation) выполняется по измеренной потребности,
+отдельно от 021. Новые vendor integrations также не входят в 021.
