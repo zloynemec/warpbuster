@@ -475,8 +475,8 @@ HTML/JSON audit проверен автоматически; ручной browse
 3. **M13 / Task 021 — Elevation-aware OSM Reconstruction:** после M11 и M12; optional
    DEM evidence для alternatives и отдельное восстановление только missing/corrupted
    altitude.
-4. **M14 / Task 022 — FIT-only Pipeline and CLI:** 022A реализована 2026-09-17;
-   022B–022D и приёмка всей задачи впереди.
+4. **M14 / Task 022 — FIT-only Pipeline and CLI:** 022A и 022B реализованы
+   2026-09-17; 022C–022D и приёмка всей задачи впереди.
    Один FIT без GPX, OSM/DEM reconstruction при исходном GPS-покрытии не менее 51%
    активного времени; optional start/finish либо общая точка одного кольца для
    восстановления краёв. Порог действует только без GPX, прежний GPX-first workflow

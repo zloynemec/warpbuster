@@ -29,7 +29,9 @@ from warpbuster.reconstruction.automatic_osm import apply_automatic_osm_routes
 from .config import DEMMode, PipelineConfig, RepairPolicy
 
 
-def _reduce_mapping_proxy(value: MappingProxyType) -> tuple[type[dict], tuple[dict]]:
+def _reduce_mapping_proxy(
+    value: MappingProxyType[Any, Any],
+) -> tuple[type[dict[Any, Any]], tuple[dict[Any, Any]]]:
     """Transfer immutable FIT metadata as a detached child-only dictionary."""
     return dict, (dict(value),)
 
@@ -86,8 +88,8 @@ def run_dem_stage(
         # pass the exact mapping so the child never queries SystemConfiguration.
         proxy_mapping = urllib.request.getproxies() if sys.platform == "darwin" else None
         if sys.platform == "darwin":
-            copyreg.pickle(MappingProxyType, _reduce_mapping_proxy)
-        context = get_context("spawn" if sys.platform == "darwin" else "fork")
+            copyreg.pickle(MappingProxyType, _reduce_mapping_proxy)  # type: ignore[arg-type]
+        context: Any = get_context("spawn" if sys.platform == "darwin" else "fork")
     except ValueError:
         return DEMResult(fallback_plan, "unavailable", error_code="isolation_unavailable")
     # Keep the child in the processor's process group: the Web worker's hard
@@ -269,6 +271,44 @@ def _dem_child(
                         or point_count > cache_config.maximum_points
                     ):
                         raise RoutingError("RESOURCE_LIMIT_EXCEEDED", "DEM coverage exceeds budget")
+            for candidate in fallback_plan.endpoint_alternatives:
+                gap = candidate.interval
+                anchor_index = (
+                    gap.anchor_after_record_index
+                    if gap.kind.value == "prefix"
+                    else gap.anchor_before_record_index
+                )
+                if anchor_index is None:
+                    continue
+                anchor = activity.records[anchor_index]
+                if anchor.latitude is None or anchor.longitude is None:
+                    continue
+                vertices = [
+                    GeoPoint(item.candidate_latitude, item.candidate_longitude)
+                    for item in candidate.coordinate_updates
+                ]
+                anchor_point = GeoPoint(anchor.latitude, anchor.longitude)
+                points = (
+                    (*vertices, anchor_point)
+                    if gap.kind.value == "prefix"
+                    else (anchor_point, *vertices)
+                )
+                try:
+                    coverage = plan_coverage(
+                        points,
+                        buffer_m=cache_config.buffer_m,
+                        maximum_points=cache_config.maximum_points,
+                        maximum_tiles=cache_config.maximum_tiles,
+                    )
+                except RoutingError:
+                    continue
+                tiles.update(coverage.tile_names)
+                point_count += coverage.point_count
+                if (
+                    len(tiles) > cache_config.maximum_tiles
+                    or point_count > cache_config.maximum_points
+                ):
+                    raise RoutingError("RESOURCE_LIMIT_EXCEEDED", "DEM coverage exceeds budget")
             if not tiles:
                 raise RoutingError("DEM_COVERAGE_UNAVAILABLE", "no eligible DEM coverage")
             coverage_plan = DemCoveragePlan(
@@ -288,6 +328,17 @@ def _dem_child(
             dem_sampler=sampler,
             dem_snapshot_id=snapshot.snapshot_id,
         )
+        if fallback_plan.endpoint_alternatives:
+            from warpbuster.reconstruction.endpoints import choose_dem_endpoint_routes
+
+            plan = choose_dem_endpoint_routes(
+                activity,
+                plan,
+                fallback_plan,
+                sampler,
+                snapshot.snapshot_id,
+                ApproximateSelectionPolicy().dem,
+            )
         altitude = (
             plan_altitude_completion(
                 activity,

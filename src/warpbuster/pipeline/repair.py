@@ -18,7 +18,9 @@ from warpbuster.models.integrity import IntegrityReport
 from warpbuster.models.reconstruction import (
     CandidateRankingResult,
     CourseData,
+    GapRepairPlan,
     RepairPlan,
+    RepairPlanStatus,
     RepairSelection,
 )
 from warpbuster.reconstruction import (
@@ -31,6 +33,7 @@ from warpbuster.reconstruction.altitude_completion import (
     AltitudeCompletionReason,
     AltitudeCompletionStatus,
 )
+from warpbuster.reconstruction.endpoints import EndpointHints, note_unused_endpoints
 
 from .config import DEFAULT_REPAIR_POLICY, PipelineConfig, RepairPolicy
 from .coverage import (
@@ -81,6 +84,7 @@ def run_repair(
     config: PipelineConfig | None = None,
     dry_run: bool = False,
     overwrite: bool = False,
+    endpoint_hints: EndpointHints | None = None,
 ) -> RepairRun:
     """Read inputs, detect independently, reconstruct and perform one atomic write.
 
@@ -90,6 +94,10 @@ def run_repair(
     """
     started = time.monotonic()
     execution = config or PipelineConfig()
+    if endpoint_hints is not None and not isinstance(endpoint_hints, EndpointHints):
+        raise PipelineError("invalid_endpoint", "endpoint_hints must be EndpointHints")
+    if endpoint_hints is not None and course_path is not None:
+        raise PipelineError("invalid_endpoint", "user endpoints require FIT-only mode")
     try:
         activity = read_fit(activity_path)
     except (FitReadError, OSError, ValueError) as error:
@@ -120,6 +128,8 @@ def run_repair(
         fill_missing_from_course=effective_policy.fill_missing_from_course,
         minimum_invalidation_confidence=effective_policy.minimum_invalidation_confidence,
     )
+    if endpoint_hints is not None:
+        base_plan = note_unused_endpoints(base_plan, endpoint_hints)
     if time.monotonic() - started > execution.base_plan_timeout_seconds:
         raise PipelineError("timeout", "base repair planning exceeded its time budget")
     coverage = (
@@ -134,9 +144,7 @@ def run_repair(
         )
     )
     if coverage.status in {CoverageStatus.BELOW_THRESHOLD, CoverageStatus.UNAVAILABLE}:
-        blocked_selection = select_repair_intervals(
-            base_plan, effective_policy.minimum_confidence
-        )
+        blocked_selection = select_repair_intervals(base_plan, effective_policy.minimum_confidence)
         return RepairRun(
             activity,
             course,
@@ -154,7 +162,7 @@ def run_repair(
             None,
             coverage,
         )
-    osm_eligible_gaps = eligible_gap_count(activity, base_plan)
+    osm_eligible_gaps = eligible_gap_count(activity, base_plan, integrity, endpoint_hints)
     remaining = execution.process_timeout_seconds - (time.monotonic() - started)
     osm_started = time.monotonic()
     if remaining <= execution.publish_reserve_seconds:
@@ -168,7 +176,14 @@ def run_repair(
             ),
         )
         try:
-            osm = run_osm_pipeline(activity, integrity, base_plan, bounded, policy=effective_policy)
+            osm = run_osm_pipeline(
+                activity,
+                integrity,
+                base_plan,
+                bounded,
+                policy=effective_policy,
+                **({"endpoint_hints": endpoint_hints} if endpoint_hints is not None else {}),
+            )
         except Exception:
             # Optional companion/native failures never discard the base GPX plan.
             osm = OSMResult(base_plan, "unavailable", "routing", "routing_failed")
@@ -200,6 +215,44 @@ def run_repair(
             ),
         )
     plan = dem.plan
+    if endpoint_hints is not None and plan.endpoint_audit_json is None:
+        plan = replace(plan, endpoint_audit_json=osm.plan.endpoint_audit_json)
+    if endpoint_hints is not None and plan is not osm.plan:
+        present_ids = {
+            item.interval.gap_id for item in plan.interval_plans if isinstance(item, GapRepairPlan)
+        }
+        endpoint_candidates = tuple(
+            candidate
+            for candidate in osm.plan.interval_plans
+            if isinstance(candidate, GapRepairPlan) and candidate.interval.gap_id not in present_ids
+        )
+        if endpoint_candidates:
+            selected_ids = {item.interval.gap_id for item in endpoint_candidates}
+            plan = replace(
+                plan,
+                interval_plans=tuple(
+                    sorted(
+                        (*plan.interval_plans, *endpoint_candidates),
+                        key=lambda item: item.interval.start_record_index,
+                    )
+                ),
+                unresolved_gaps=tuple(
+                    item
+                    for item in plan.unresolved_gaps
+                    if item.interval.gap_id not in selected_ids
+                ),
+                endpoint_audit_json=osm.plan.endpoint_audit_json,
+                endpoint_alternatives=osm.plan.endpoint_alternatives,
+            )
+            endpoint_selection = select_repair_intervals(plan, effective_policy.minimum_confidence)
+            plan = replace(
+                plan,
+                status=RepairPlanStatus.PARTIAL
+                if endpoint_selection.has_changes and plan.unresolved_gaps
+                else RepairPlanStatus.READY
+                if endpoint_selection.has_changes
+                else RepairPlanStatus.REFUSED,
+            )
     if plan is not osm.plan:
         private_audit = osm.private_audit
         if private_audit is not None and plan.automatic_osm_json is not None:

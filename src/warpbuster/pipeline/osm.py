@@ -17,11 +17,17 @@ from multiprocessing import get_context
 from pathlib import Path
 from typing import Any
 
+from warpbuster.config import OSMReconstructionConfig
 from warpbuster.models.activity import ActivityData
 from warpbuster.models.integrity import IntegrityReport
 from warpbuster.models.reconstruction import OSMDryRunResult, RepairPlan
 from warpbuster.reconstruction.approximate_contract import POLICY_ID, ApproximateSelectionPolicy
 from warpbuster.reconstruction.automatic_osm import apply_automatic_osm_routes
+from warpbuster.reconstruction.endpoints import (
+    EndpointHints,
+    apply_endpoint_routes,
+    endpoint_pairs,
+)
 from warpbuster.reconstruction.osm import OSMReconstructionProvider, osm_gap_anchors
 from warpbuster.report.osm import osm_reconstruction_report
 
@@ -85,9 +91,19 @@ class OSMResult:
             raise ValueError("invalid public OSM error code")
 
 
-def eligible_gap_count(activity: ActivityData, plan: RepairPlan) -> int:
+def eligible_gap_count(
+    activity: ActivityData,
+    plan: RepairPlan,
+    integrity: IntegrityReport | None = None,
+    endpoint_hints: EndpointHints | None = None,
+) -> int:
     """Count gaps using the Core provider's exact anchor contract."""
-    return sum(osm_gap_anchors(activity, plan, gap)[0] is not None for gap in plan.gaps)
+    internal = sum(osm_gap_anchors(activity, plan, gap)[0] is not None for gap in plan.gaps)
+    return internal + (
+        len(endpoint_pairs(activity, integrity, plan, endpoint_hints))
+        if integrity is not None and endpoint_hints is not None
+        else 0
+    )
 
 
 def execute_osm_pipeline(
@@ -98,6 +114,7 @@ def execute_osm_pipeline(
     *,
     policy: RepairPolicy = DEFAULT_REPAIR_POLICY,
     stage_callback: Callable[[str], None] | None = None,
+    endpoint_hints: EndpointHints | None = None,
 ) -> OSMResult:
     """Acquire one bounded snapshot, prepare an exact graph and apply Core 012E."""
     if config.osm_mode is OSMMode.DISABLED:
@@ -108,6 +125,11 @@ def execute_osm_pipeline(
         if anchors is not None:
             before, after = anchors
             lines.append(((before.longitude, before.latitude), (after.longitude, after.latitude)))
+    if endpoint_hints is not None:
+        for gap, point, fit_point in endpoint_pairs(activity, integrity, base_plan, endpoint_hints):
+            first = (point.longitude, point.latitude)
+            second = (fit_point[1], fit_point[0])
+            lines.append((first, second) if gap.kind.value == "prefix" else (second, first))
     if not lines:
         return OSMResult(base_plan, "not_needed")
     coverage_started = time.monotonic()
@@ -215,12 +237,18 @@ def execute_osm_pipeline(
                 policy,
                 cache_directory=routing_cache,
                 approximate_osm=config.approximate_osm,
+                endpoint_hints=endpoint_hints,
             )
     except Exception as error:
         return OSMResult(base_plan, "unavailable", "routing", _safe_code(error, "routing_failed"))
     routing_seconds = time.monotonic() - started
     decisions = _automatic_decisions(final_plan)
-    unresolved = any(item.get("status") == "unresolved" for item in decisions)
+    endpoint_decisions = json.loads(final_plan.endpoint_audit_json or "[]")
+    unresolved = (
+        bool(final_plan.unresolved_gaps)
+        if endpoint_hints is not None
+        else any(item.get("status") == "unresolved" for item in decisions)
+    )
     metrics = OSMMetrics(
         coverage_cells=len(coverage.cells),
         coverage_area_km2=coverage.area_km2,
@@ -231,9 +259,11 @@ def execute_osm_pipeline(
         snapshot_cache_hit=not snapshot.downloaded,
         snapshot_stale=snapshot.stale,
         graph_cache_hit=graph.status == "CACHED",
-        routing_queries=discovery.query_count,
-        candidate_gaps=discovery.candidate_gap_count,
-        candidates=discovery.candidate_count,
+        routing_queries=discovery.query_count
+        + sum(item.get("queried") is True for item in endpoint_decisions),
+        candidate_gaps=discovery.candidate_gap_count
+        + sum(item.get("status") == "osm_selected" for item in endpoint_decisions),
+        candidates=discovery.candidate_count + len(final_plan.endpoint_alternatives),
     )
     return OSMResult(
         final_plan,
@@ -245,6 +275,11 @@ def execute_osm_pipeline(
             "graph": graph.as_dict(),
             "discovery": osm_reconstruction_report(discovery),
             "application": {"decisions": decisions},
+            **(
+                {"endpoints": json.loads(final_plan.endpoint_audit_json)}
+                if final_plan.endpoint_audit_json is not None
+                else {}
+            ),
         },
         metrics=metrics,
         discovery=discovery,
@@ -261,13 +296,13 @@ def _discover_and_apply(
     routing_config: Path | None = None,
     cache_directory: Path | None = None,
     approximate_osm: bool = False,
+    endpoint_hints: EndpointHints | None = None,
 ) -> tuple[RepairPlan, OSMDryRunResult]:
     """One discovery/application contract for acquired and explicitly prepared graphs."""
     from warpbuster.reconstruction.osm import ValhallaRoutingClient
 
-    discovery = OSMReconstructionProvider(
-        ValhallaRoutingClient(routing_config, cache_directory)
-    ).discover(activity, base_plan, graph_id)
+    client = ValhallaRoutingClient(routing_config, cache_directory)
+    discovery = OSMReconstructionProvider(client).discover(activity, base_plan, graph_id)
     plan = apply_automatic_osm_routes(
         activity,
         integrity,
@@ -276,6 +311,20 @@ def _discover_and_apply(
         minimum_confidence=policy.minimum_confidence,
         approximate_policy=ApproximateSelectionPolicy() if approximate_osm else None,
     )
+    if endpoint_hints is not None:
+        plan = apply_endpoint_routes(
+            activity,
+            integrity,
+            plan,
+            graph_id,
+            client,
+            endpoint_hints,
+            minimum_confidence=policy.minimum_confidence,
+            remaining_queries=max(
+                0,
+                OSMReconstructionConfig().maximum_gap_queries - discovery.query_count,
+            ),
+        )
     return plan, discovery
 
 
@@ -286,6 +335,7 @@ def run_osm_pipeline(
     config: PipelineConfig,
     *,
     policy: RepairPolicy = DEFAULT_REPAIR_POLICY,
+    endpoint_hints: EndpointHints | None = None,
 ) -> OSMResult:
     """Resolve either a supplied graph or the full Manager → Routing workflow."""
     if config.osm_graph_id is not None:
@@ -301,6 +351,7 @@ def run_osm_pipeline(
                 routing_config=config.osm_routing_config,
                 cache_directory=config.osm_cache_dir,
                 approximate_osm=config.approximate_osm,
+                endpoint_hints=endpoint_hints,
             )
         except OSMReconstructionError as error:
             # Preserve the existing CLI's detailed private diagnostics. The web
@@ -331,13 +382,18 @@ def run_osm_pipeline(
                 warning=f"OSM [{error.code}]: {error.message}; retaining GPX and cleaning",
             )
         decisions = _automatic_decisions(plan)
-        return OSMResult(
-            plan,
-            "partial" if any(d.get("status") == "unresolved" for d in decisions) else "complete",
-            discovery=discovery,
+        unresolved = (
+            bool(plan.unresolved_gaps)
+            if endpoint_hints is not None
+            else any(d.get("status") == "unresolved" for d in decisions)
         )
+        return OSMResult(plan, "partial" if unresolved else "complete", discovery=discovery)
     runner = run_osm_pipeline_isolated if config.isolate_osm else execute_osm_pipeline
-    return runner(activity, integrity, base_plan, config, policy=policy)
+    if endpoint_hints is None:
+        return runner(activity, integrity, base_plan, config, policy=policy)
+    return runner(
+        activity, integrity, base_plan, config, policy=policy, endpoint_hints=endpoint_hints
+    )
 
 
 def run_osm_pipeline_isolated(
@@ -347,11 +403,12 @@ def run_osm_pipeline_isolated(
     config: PipelineConfig,
     *,
     policy: RepairPolicy = DEFAULT_REPAIR_POLICY,
+    endpoint_hints: EndpointHints | None = None,
 ) -> OSMResult:
     """Run native OSM work in a killable process group with bounded trusted IPC."""
     if config.osm_mode is OSMMode.DISABLED:
         return OSMResult(base_plan, "disabled")
-    if eligible_gap_count(activity, base_plan) == 0:
+    if eligible_gap_count(activity, base_plan, integrity, endpoint_hints) == 0:
         return OSMResult(base_plan, "not_needed")
     if sys.platform != "linux" or not hasattr(os, "setsid"):
         return OSMResult(base_plan, "unavailable", "setup", "isolation_unavailable")
@@ -359,7 +416,9 @@ def run_osm_pipeline_isolated(
     receiving, sending = context.Pipe(duplex=False)
     process = context.Process(
         target=child_main,
-        args=(sending, activity, integrity, base_plan, config, policy),
+        args=(sending, activity, integrity, base_plan, config, policy)
+        if endpoint_hints is None
+        else (sending, activity, integrity, base_plan, config, policy, endpoint_hints),
         name="warpbuster-osm",
     )
     process.start()

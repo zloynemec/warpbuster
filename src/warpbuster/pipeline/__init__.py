@@ -1,6 +1,7 @@
 """Shared file-to-result API for WarpBuster's user interfaces."""
 
 from warpbuster.reconstruction.approximate_contract import DecisionReason
+from warpbuster.reconstruction.endpoints import EndpointHints, UserEndpoint
 
 from .config import (
     DEFAULT_REPAIR_POLICY,
@@ -21,11 +22,13 @@ __all__ = [
     "LEGACY_REPAIR_POLICY",
     "CoverageStatus",
     "DEMMode",
+    "EndpointHints",
     "OSMMode",
     "ObservedGpsCoverage",
     "PipelineConfig",
     "PipelineError",
     "RepairPolicy",
     "RepairRun",
+    "UserEndpoint",
     "run_repair",
 ]

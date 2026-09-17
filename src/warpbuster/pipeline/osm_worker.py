@@ -9,7 +9,13 @@ from typing import Any
 
 
 def child_main(
-    connection: Any, activity: Any, integrity: Any, base_plan: Any, config: Any, policy: Any
+    connection: Any,
+    activity: Any,
+    integrity: Any,
+    base_plan: Any,
+    config: Any,
+    policy: Any,
+    endpoint_hints: Any = None,
 ) -> None:
     """Enter a new process group, enforce inherited limits and return bounded IPC."""
     from .osm import OSMResult, execute_osm_pipeline
@@ -22,7 +28,13 @@ def child_main(
             connection.send_bytes(pickle.dumps(("stage", stage)))
 
         result = execute_osm_pipeline(
-            activity, integrity, base_plan, config, policy=policy, stage_callback=progress
+            activity,
+            integrity,
+            base_plan,
+            config,
+            policy=policy,
+            stage_callback=progress,
+            endpoint_hints=endpoint_hints,
         )
         payload = pickle.dumps(("result", result), protocol=pickle.HIGHEST_PROTOCOL)
         if len(payload) > config.osm_ipc_maximum_bytes:

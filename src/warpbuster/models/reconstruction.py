@@ -482,6 +482,8 @@ class RepairPlan:
 
     # Detached automatic decision audit; never consumed by detector or FIT writer.
     automatic_osm_json: str | None = None
+    endpoint_audit_json: str | None = None
+    endpoint_alternatives: tuple[GapRepairPlan, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -838,6 +840,7 @@ class OSMPathProvenance:
     signal_diagnostics: tuple[str, ...] = ()
     observed_distance_m: float | None = None
     integrated_speed_distance_m: float | None = None
+    user_endpoint: tuple[float, float] | None = None
 
 
 @dataclass(frozen=True, slots=True)

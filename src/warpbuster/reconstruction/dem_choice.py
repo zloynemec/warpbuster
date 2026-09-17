@@ -9,7 +9,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 from warpbuster.models.activity import ActivityData
-from warpbuster.models.reconstruction import GapRepairPlan, ReconstructionGap
+from warpbuster.models.reconstruction import (
+    GapRepairPlan,
+    MissingCourseRunKind,
+    ReconstructionGap,
+)
 from warpbuster.reconstruction.approximate_contract import DemComparisonConfig, DemEvidenceStatus
 
 if TYPE_CHECKING:
@@ -67,7 +71,10 @@ def compare_dem_candidates(
     }
     if len(observed) < config.minimum_aligned_samples:
         return DemChoice(DemEvidenceStatus.UNINFORMATIVE)
-    if gap.anchor_before_record_index is None or gap.anchor_after_record_index is None:
+    endpoint_gap = gap.kind in {MissingCourseRunKind.PREFIX, MissingCourseRunKind.SUFFIX}
+    if not endpoint_gap and (
+        gap.anchor_before_record_index is None or gap.anchor_after_record_index is None
+    ):
         return DemChoice(DemEvidenceStatus.UNINFORMATIVE)
     try:
         # Optional package is loaded only if DEM comparison is explicitly requested.
@@ -80,29 +87,62 @@ def compare_dem_candidates(
                 range(gap.start_record_index, gap.end_record_index + 1)
             ):
                 return DemChoice(DemEvidenceStatus.UNINFORMATIVE)
-            before = activity.records[gap.anchor_before_record_index]
-            after = activity.records[gap.anchor_after_record_index]
-            if (
-                before.latitude is None
-                or before.longitude is None
-                or after.latitude is None
-                or after.longitude is None
-            ):
-                return DemChoice(DemEvidenceStatus.UNINFORMATIVE)
-            vertices = (
-                GeoPoint(before.latitude, before.longitude),
-                *(GeoPoint(item.candidate_latitude, item.candidate_longitude) for item in updates),
-                GeoPoint(after.latitude, after.longitude),
-            )
+            if gap.kind is MissingCourseRunKind.PREFIX:
+                assert gap.anchor_after_record_index is not None
+                anchor = activity.records[gap.anchor_after_record_index]
+                if anchor.latitude is None or anchor.longitude is None:
+                    return DemChoice(DemEvidenceStatus.UNINFORMATIVE)
+                vertices = (
+                    *(
+                        GeoPoint(item.candidate_latitude, item.candidate_longitude)
+                        for item in updates
+                    ),
+                    GeoPoint(anchor.latitude, anchor.longitude),
+                )
+                record_for_vertex = {i: item.record_index for i, item in enumerate(updates)}
+            elif gap.kind is MissingCourseRunKind.SUFFIX:
+                assert gap.anchor_before_record_index is not None
+                anchor = activity.records[gap.anchor_before_record_index]
+                if anchor.latitude is None or anchor.longitude is None:
+                    return DemChoice(DemEvidenceStatus.UNINFORMATIVE)
+                vertices = (
+                    GeoPoint(anchor.latitude, anchor.longitude),
+                    *(
+                        GeoPoint(item.candidate_latitude, item.candidate_longitude)
+                        for item in updates
+                    ),
+                )
+                record_for_vertex = {i + 1: item.record_index for i, item in enumerate(updates)}
+            else:
+                assert gap.anchor_before_record_index is not None
+                assert gap.anchor_after_record_index is not None
+                before = activity.records[gap.anchor_before_record_index]
+                after = activity.records[gap.anchor_after_record_index]
+                if (
+                    before.latitude is None
+                    or before.longitude is None
+                    or after.latitude is None
+                    or after.longitude is None
+                ):
+                    return DemChoice(DemEvidenceStatus.UNINFORMATIVE)
+                vertices = (
+                    GeoPoint(before.latitude, before.longitude),
+                    *(
+                        GeoPoint(item.candidate_latitude, item.candidate_longitude)
+                        for item in updates
+                    ),
+                    GeoPoint(after.latitude, after.longitude),
+                )
+                record_for_vertex = {i + 1: item.record_index for i, item in enumerate(updates)}
             profile = sampler.sample(snapshot_id, vertices)
             if profile.dem_snapshot_id != snapshot_id:
                 return DemChoice(DemEvidenceStatus.UNAVAILABLE)
             aligned: dict[int, tuple[float, float]] = {}
             for sample in profile.samples:
                 vertex = sample.original_vertex_index
-                if vertex is None or not 1 <= vertex <= len(updates):
+                if vertex is None or vertex not in record_for_vertex:
                     continue
-                record_index = updates[vertex - 1].record_index
+                record_index = record_for_vertex[vertex]
                 height = sample.raw_elevation_m
                 if record_index in observed and height is not None and math.isfinite(height):
                     if record_index in aligned or not math.isfinite(sample.chainage_m):
