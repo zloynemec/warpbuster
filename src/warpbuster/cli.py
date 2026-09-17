@@ -24,11 +24,14 @@ from warpbuster.models.reconstruction import RepairPlanStatus
 from warpbuster.pipeline import (
     DEFAULT_REPAIR_POLICY,
     LEGACY_REPAIR_POLICY,
+    CoverageStatus,
     DEMMode,
+    EndpointHints,
     OSMMode,
     PipelineConfig,
     PipelineError,
     RepairRun,
+    UserEndpoint,
     run_repair,
 )
 from warpbuster.report.analyze import analyze_console, analyze_json
@@ -48,7 +51,7 @@ from warpbuster.report.html import (
     write_repair_html,
 )
 from warpbuster.report.inspect import inspect_console, inspect_json
-from warpbuster.report.repair import repair_console, repair_json, repair_report
+from warpbuster.report.repair import coverage_report, repair_console, repair_json, repair_report
 
 _AUTO_HTML_PATH = object()
 
@@ -257,10 +260,37 @@ def build_parser() -> argparse.ArgumentParser:
     process_parser = subparsers.add_parser(
         "process",
         parents=[repair_options],
-        help="process FIT + GPX with automatic OSM preparation and the shared repair policy",
-        description="Complete FIT/GPX processing, including OSM snapshots and routing graphs.",
+        help="process FIT with optional GPX, OSM and DEM",
+        description="Process FIT with an optional GPX course, including OSM snapshots and routing graphs.",
     )
-    process_parser.add_argument("course_file", type=Path, help="reference GPX course")
+    process_parser.add_argument(
+        "course_file", nargs="?", type=Path, help="optional reference GPX course"
+    )
+    process_parser.add_argument(
+        "--start",
+        type=_endpoint_argument,
+        metavar="LAT,LON",
+        help="assumed activity start for a missing FIT prefix",
+    )
+    process_parser.add_argument(
+        "--finish",
+        type=_endpoint_argument,
+        metavar="LAT,LON",
+        help="assumed activity finish for a missing FIT suffix",
+    )
+    process_parser.add_argument(
+        "--loop-point",
+        type=_endpoint_argument,
+        metavar="LAT,LON",
+        help="shared start and finish for one loop",
+    )
+    process_parser.add_argument(
+        "--minimum-observed-gps-coverage-percent",
+        "--min-gps-coverage-percent",
+        type=float,
+        default=PipelineConfig().minimum_observed_gps_coverage_percent,
+        help="FIT-only minimum observed GPS coverage by active time (default: 51)",
+    )
     process_parser.add_argument(
         "--osm-mode",
         type=OSMMode,
@@ -372,6 +402,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         complete = args.command == "process"
         if complete:
             args.course = args.course_file
+            if args.course is not None and any((args.start, args.finish, args.loop_point)):
+                print("error: user endpoints require FIT-only mode", file=sys.stderr)
+                return 2
+            try:
+                endpoint_hints = (
+                    EndpointHints(args.start, args.finish, args.loop_point)
+                    if any((args.start, args.finish, args.loop_point))
+                    else None
+                )
+            except (TypeError, ValueError) as error:
+                print(f"error: {error}", file=sys.stderr)
+                return 2
+            if endpoint_hints is not None and args.approximate_missing_osm is False:
+                print(
+                    "error: user endpoints require approximate missing OSM selection",
+                    file=sys.stderr,
+                )
+                return 2
+        else:
+            endpoint_hints = None
         args.html = _resolve_html_argument(args.html, args.activity_file, repair=True)
         if args.activity_file.suffix.casefold() != ".fit":
             print("error: repair input must be the original FIT file", file=sys.stderr)
@@ -393,7 +443,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             fill_missing_from_course=(
                 args.fill_missing_from_course
                 if args.fill_missing_from_course is not None
-                else policy.fill_missing_from_course
+                else policy.fill_missing_from_course and args.course is not None
             ),
             minimum_confidence=args.min_confidence or policy.minimum_confidence,
             minimum_invalidation_confidence=(
@@ -401,7 +451,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ),
         )
         args.min_confidence = policy.minimum_confidence
-        if policy.fill_missing_from_course and args.course is None:
+        if args.fill_missing_from_course and args.course is None:
             print("error: --fill-missing-from-course requires --course", file=sys.stderr)
             return 2
         if args.osm_graph_id is None and (
@@ -471,6 +521,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 fit_altitude_datum=(
                     "WGS84/EGM96 geoid" if args.fit_altitude_datum == "egm96" else None
                 ),
+                minimum_observed_gps_coverage_percent=(
+                    args.minimum_observed_gps_coverage_percent
+                    if complete
+                    else PipelineConfig().minimum_observed_gps_coverage_percent
+                ),
             )
         except ValueError as error:
             print(f"error: {error}", file=sys.stderr)
@@ -484,6 +539,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 config=execution,
                 dry_run=args.dry_run,
                 overwrite=args.overwrite,
+                endpoint_hints=endpoint_hints,
             )
         except PipelineError as error:
             print(f"error: {error}", file=sys.stderr)
@@ -494,8 +550,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         if run.osm.warning:
             print(f"warning: {run.osm.warning}", file=sys.stderr)
         elif complete and run.osm.status == "unavailable":
+            retained = (
+                "retaining GPX and cleaning"
+                if course is not None
+                else "retaining original FIT geometry"
+            )
             print(
-                f"warning: OSM [{run.osm.error_code}]; retaining GPX and cleaning", file=sys.stderr
+                f"warning: OSM [{run.osm.error_code}]; {retained}",
+                file=sys.stderr,
             )
         if args.dry_run:
             if args.html is not None:
@@ -512,6 +574,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         osm_result=osm_result,
                         ranking_result=ranking_result,
                         dem_stage=_dem_summary(run) if args.approximate_missing_osm else None,
+                        coverage=run.coverage if complete else None,
                     )
                 except (HtmlReportError, OSError) as error:
                     print(f"error: {error}", file=sys.stderr)
@@ -524,6 +587,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     minimum_confidence=args.min_confidence,
                     osm_result=osm_result,
                     ranking_result=ranking_result,
+                    coverage=run.coverage if complete else None,
                 )
                 if args.json
                 else repair_console(
@@ -540,6 +604,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 rendered = _process_json(rendered, run)
             if not args.json and args.approximate_missing_osm:
                 rendered += _approximate_notice(run)
+            if not args.json and complete:
+                rendered += _fit_only_notice(run)
             print(_html_notice(rendered, args.html) if not args.json else rendered)
             if selection.has_changes or plan.status is RepairPlanStatus.NOT_NEEDED:
                 return 0
@@ -559,6 +625,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         osm_result=osm_result,
                         ranking_result=ranking_result,
                         dem_stage=_dem_summary(run) if args.approximate_missing_osm else None,
+                        coverage=run.coverage if complete else None,
                     )
                 except (HtmlReportError, OSError) as error:
                     print(f"error: {error}", file=sys.stderr)
@@ -571,6 +638,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     minimum_confidence=args.min_confidence,
                     osm_result=osm_result,
                     ranking_result=ranking_result,
+                    coverage=run.coverage if complete else None,
                 )
                 if args.json
                 else repair_console(
@@ -587,9 +655,27 @@ def main(argv: Sequence[str] | None = None) -> int:
                 rendered = _process_json(rendered, run)
             if not args.json and args.approximate_missing_osm:
                 rendered += _approximate_notice(run)
+            if not args.json and complete:
+                rendered += _fit_only_notice(run)
             print(_html_notice(rendered, args.html) if not args.json else rendered)
             if plan.status is RepairPlanStatus.NOT_NEEDED:
                 return 0
+            if run.coverage.status is CoverageStatus.BELOW_THRESHOLD:
+                assert run.coverage.observed_percent is not None
+                assert run.coverage.threshold_percent is not None
+                print(
+                    "error: observed GPS coverage "
+                    f"{run.coverage.observed_percent:.4f}% is below "
+                    f"{run.coverage.threshold_percent:.4f}% required for FIT-only reconstruction",
+                    file=sys.stderr,
+                )
+                return 3
+            if run.coverage.status is CoverageStatus.UNAVAILABLE:
+                print(
+                    f"error: observed GPS coverage unavailable: {run.coverage.reason}",
+                    file=sys.stderr,
+                )
+                return 3
             print(
                 "error: no coordinate invalidation or reconstruction candidate meets minimum confidence "
                 f"{args.min_confidence.value.upper()}",
@@ -615,6 +701,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     osm_result=osm_result,
                     ranking_result=ranking_result,
                     dem_stage=_dem_summary(run) if args.approximate_missing_osm else None,
+                    coverage=run.coverage if complete else None,
                 )
             except (FitReadError, HtmlReportError, OSError) as error:
                 print(
@@ -632,6 +719,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 minimum_confidence=args.min_confidence,
                 osm_result=osm_result,
                 ranking_result=ranking_result,
+                coverage=run.coverage if complete else None,
             )
             rendered = json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True)
         else:
@@ -640,6 +728,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             rendered = _process_json(rendered, run)
         if not args.json and args.approximate_missing_osm:
             rendered += _approximate_notice(run)
+        if not args.json and complete:
+            rendered += _fit_only_notice(run)
         print(_html_notice(rendered, args.html) if not args.json else rendered)
         return 0
     if args.command == "validate":
@@ -679,6 +769,16 @@ def _confidence_argument(value: str) -> IntegrityConfidence:
         raise argparse.ArgumentTypeError("confidence must be one of: low, medium, high") from error
 
 
+def _endpoint_argument(value: str) -> UserEndpoint:
+    parts = value.split(",")
+    if len(parts) != 2:
+        raise argparse.ArgumentTypeError("endpoint must be LAT,LON")
+    try:
+        return UserEndpoint(float(parts[0]), float(parts[1]))
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(f"invalid endpoint: {error}") from error
+
+
 def _html_notice(rendered: str, output_path: Path | None) -> str:
     if output_path is None:
         return rendered
@@ -689,6 +789,8 @@ def _process_json(rendered: str, run: RepairRun) -> str:
     """Include reproducible acquisition provenance in local full-process JSON."""
     document = json.loads(rendered)
     document["pipeline"] = {
+        "mode": "fit_with_course" if run.course is not None else "fit_only",
+        "observed_gps_coverage": coverage_report(run.coverage),
         "policy": run.policy.as_dict(),
         "osm": {
             "status": run.osm.status,
@@ -700,6 +802,34 @@ def _process_json(rendered: str, run: RepairRun) -> str:
         "altitude_completion": run.dem.altitude.public_summary(),
     }
     return json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True)
+
+
+def _fit_only_notice(run: RepairRun) -> str:
+    gate = coverage_report(run.coverage)
+    if run.course is not None:
+        return "\nProcessing mode: FIT with GPX; observed GPS gate: not applicable"
+    observed = (
+        f"{gate['observed_gps_coverage_percent']}%"
+        if gate["observed_gps_coverage_percent"] is not None
+        else "unavailable"
+    )
+    lines = [
+        f"Processing mode: FIT-only; observed GPS gate: {gate['status']}",
+        f"  observed={observed}; "
+        f"minimum={gate['minimum_observed_gps_coverage_percent']}%; "
+        f"active={gate['active_duration_seconds']} s; "
+        f"observed={gate['observed_gps_duration_seconds']} s; "
+        f"maximum interval={gate['maximum_observed_gps_interval_seconds']} s",
+    ]
+    if gate["reason"]:
+        lines.append(f"  reason={gate['reason']}")
+    for item in json.loads(run.plan.endpoint_audit_json or "[]"):
+        lines.append(
+            f"  {item.get('kind')}: {item.get('status')}; "
+            f"point={item.get('endpoint')}; route={item.get('selected_route_id')}; "
+            f"reason={item.get('reason')}"
+        )
+    return "\n" + "\n".join(lines)
 
 
 def _dem_summary(run: RepairRun) -> dict[str, object]:

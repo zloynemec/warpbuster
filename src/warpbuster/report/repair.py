@@ -29,6 +29,7 @@ from warpbuster.models.reconstruction import (
     UnresolvedInterval,
     UnresolvedMissingCourseRun,
 )
+from warpbuster.pipeline.coverage import ObservedGpsCoverage
 from warpbuster.reconstruction.selection import select_repair_intervals
 from warpbuster.report.candidate_ranking import candidate_ranking_console, candidate_ranking_report
 from warpbuster.report.gaps import gap_audit, gap_candidate_report, gap_console
@@ -43,6 +44,7 @@ def repair_report(
     minimum_confidence: IntegrityConfidence = IntegrityConfidence.HIGH,
     osm_result: OSMDryRunResult | None = None,
     ranking_result: CandidateRankingResult | None = None,
+    coverage: ObservedGpsCoverage | None = None,
 ) -> dict[str, object]:
     """Build the stable machine-readable dry-run reconstruction report."""
     selection = select_repair_intervals(plan, minimum_confidence)
@@ -55,7 +57,9 @@ def repair_report(
     decisions = {_decision_key(decision.interval): decision for decision in selection.decisions}
     report = {
         "schema_version": "0.1",
-        "scope": "course_reconstruction_dry_run",
+        "scope": "fit_only_reconstruction"
+        if course is None and coverage is not None
+        else "course_reconstruction_dry_run",
         "activity": {"format": "fit", "path": str(plan.activity_path)},
         "course": {
             "path": str(course.source_path),
@@ -121,7 +125,25 @@ def repair_report(
         report["candidate_ranking"] = candidate_ranking_report(ranking_result)
     if plan.automatic_osm_json is not None:
         report["automatic_osm"] = json.loads(plan.automatic_osm_json)
+    if plan.endpoint_audit_json is not None:
+        report["endpoint_audit"] = json.loads(plan.endpoint_audit_json)
+    if coverage is not None:
+        report["mode"] = "fit_with_course" if course is not None else "fit_only"
+        report["observed_gps_coverage"] = coverage_report(coverage)
     return report
+
+
+def coverage_report(coverage: ObservedGpsCoverage) -> dict[str, object]:
+    """Present the original-data gate without rounding its decision value."""
+    return {
+        "status": coverage.status.value,
+        "minimum_observed_gps_coverage_percent": coverage.threshold_percent,
+        "observed_gps_coverage_percent": coverage.observed_percent,
+        "active_duration_seconds": coverage.active_duration_seconds,
+        "observed_gps_duration_seconds": coverage.observed_duration_seconds,
+        "maximum_observed_gps_interval_seconds": coverage.maximum_observed_interval_seconds,
+        "reason": coverage.reason,
+    }
 
 
 def repair_json(
@@ -132,6 +154,7 @@ def repair_json(
     minimum_confidence: IntegrityConfidence = IntegrityConfidence.HIGH,
     osm_result: OSMDryRunResult | None = None,
     ranking_result: CandidateRankingResult | None = None,
+    coverage: ObservedGpsCoverage | None = None,
 ) -> str:
     """Render deterministic JSON for a dry-run RepairPlan."""
     return json.dumps(
@@ -142,6 +165,7 @@ def repair_json(
             minimum_confidence=minimum_confidence,
             osm_result=osm_result,
             ranking_result=ranking_result,
+            coverage=coverage,
         ),
         ensure_ascii=False,
         indent=2,

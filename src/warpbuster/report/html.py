@@ -32,6 +32,7 @@ from warpbuster.models.reconstruction import (
     RepairPlan,
     RepairSelection,
 )
+from warpbuster.pipeline.coverage import ObservedGpsCoverage
 from warpbuster.reconstruction.selection import select_repair_intervals
 from warpbuster.report.analyze import analyze_report
 from warpbuster.report.fit import write_result_report
@@ -148,6 +149,7 @@ def write_repair_html(
     osm_result: OSMDryRunResult | None = None,
     ranking_result: CandidateRankingResult | None = None,
     dem_stage: dict[str, object] | None = None,
+    coverage: ObservedGpsCoverage | None = None,
 ) -> Path:
     """Write a repair report, optionally replacing its destination atomically."""
     if (fixed_activity is None) is not (write_result is None):
@@ -180,6 +182,7 @@ def write_repair_html(
         minimum_confidence,
         osm_result,
         ranking_result,
+        coverage,
     )
     if dem_stage is not None:
         repair_document["dem_stage"] = dem_stage
@@ -1700,6 +1703,7 @@ def _compact_repair_report(
     minimum_confidence: IntegrityConfidence,
     osm_result: OSMDryRunResult | None = None,
     ranking_result: CandidateRankingResult | None = None,
+    coverage: ObservedGpsCoverage | None = None,
 ) -> dict[str, object]:
     report = repair_report(
         plan,
@@ -1708,6 +1712,7 @@ def _compact_repair_report(
         minimum_confidence=minimum_confidence,
         osm_result=osm_result,
         ranking_result=ranking_result,
+        coverage=coverage,
     )
     interval_plans = report.get("interval_plans")
     if isinstance(interval_plans, list):

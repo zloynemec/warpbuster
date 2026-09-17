@@ -58,7 +58,7 @@ warpbuster --version
 
 ## Быстрый старт
 
-### Полная обработка двух файлов
+### Полная обработка FIT с необязательным GPX
 
 Установите дополнительные пакеты для OSM из этого репозитория:
 
@@ -72,6 +72,22 @@ warpbuster process activity.fit race.gpx --html
 восстановление и записывает `activity.fixed.fit`. `--html` добавляет отчёт
 `activity.repair.html`; `--json` выводит FIT diff, план, политику и OSM audit.
 Исходные файлы сохраняются. Если изменений нет, новый FIT не создаётся.
+
+Можно передать только FIT. В этом режиме OSM/DEM восстанавливают допустимые
+внутренние разрывы; отсутствующее начало или конец достраиваются только при
+явной предполагаемой точке пользователя:
+
+```bash
+warpbuster process activity.fit --dry-run --json
+warpbuster process activity.fit --start 44.0,33.0 --finish 44.0,33.01 --html
+warpbuster process loop.fit --loop-point 44.0,33.0 --osm-mode offline --work-dir .warpbuster
+```
+
+FIT-only обработка требует не менее 51% пригодного исходного GPS по активному
+времени. Порог меняет `--min-gps-coverage-percent P`; с GPX он не применяется.
+Пользовательские точки задают место без времени и не изменяют сохранившийся край.
+JSON/HTML показывают исходное покрытие, решение по каждому разрыву, допущения,
+валидацию и FIT diff. Веб-загрузка FIT без GPX относится к отдельной Task 023.
 
 Полный пример с явными порогами `MEDIUM` и сохранением FIT, HTML и JSON
 (из корня проекта; замените пути входных файлов):
@@ -151,8 +167,9 @@ datum для этого файла: `--fit-altitude-datum egm96`. Неизвес
 В legacy `repair` режим выключен по умолчанию; существующие FIT altitude никогда не перезаписываются.
 
 `process` и веб вызывают **один API** `warpbuster.pipeline.run_repair` с единой
-`DEFAULT_REPAIR_POLICY`: заполнение пропусков включено, пороги invalidation и
-reconstruction — `MEDIUM`. Явные CLI-флаги могут переопределить эту политику.
+`DEFAULT_REPAIR_POLICY`: пороги invalidation и reconstruction — `MEDIUM`, а
+заполнение из GPX включено только при наличии GPX. Явные CLI-флаги могут
+переопределить эту политику.
 Существующая команда `repair` сохраняет прежние defaults и использует тот же API.
 Без явной OSM-конфигурации библиотечный `run_repair` работает без сети.
 

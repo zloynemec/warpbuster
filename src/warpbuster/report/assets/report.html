@@ -208,6 +208,13 @@
       <div id="repair-decisions"></div>
     </section>
 
+    <section id="fit-only-section" class="repair-only" hidden>
+      <h2>FIT-only inputs and observed GPS</h2>
+      <div id="fit-only-coverage"></div>
+      <div id="fit-only-endpoints"></div>
+      <p class="hint">Coverage measures usable original GPS over active time before reconstruction. A supplied point is an assumed place at the activity boundary, not a timed FIT observation. Approximate paths may differ from the route actually taken.</p>
+    </section>
+
     <section class="repair-only">
       <h2>Missing-position completion</h2>
       <div id="missing-completion"></div>
@@ -329,6 +336,11 @@
     ]);
     if (repair) summaryItems.splice(2, 0, ["Repair plan", repair.status, true], ["Application", repair.selection.application_status, true]);
     if (repair) summaryItems.push(["Gap geometry", repair.geometry_status, true], ["Distance / metrics", repair.distance.status, false]);
+    if (repair?.observed_gps_coverage) {
+      const gate = repair.observed_gps_coverage;
+      summaryItems.push(["Processing mode", repair.mode, false]);
+      summaryItems.push(["Observed GPS", gate.status === "not_applicable" ? "not applicable" : `${number(gate.observed_gps_coverage_percent)}% / ${number(gate.minimum_observed_gps_coverage_percent)}% required (${gate.status})`, false]);
+    }
     if (osmReconstruction) summaryItems.push(["OSM candidates", `${osmReconstruction.candidate_gap_count} gap(s) / ${osmReconstruction.candidate_count} route(s)`, false]);
     if (automaticOSM) summaryItems.push(["OSM application", automaticOSM.status || `automatic: ${automaticOSM.decisions.filter((item) => item.status === "osm_selected").length} ${writeResult ? "applied" : "planned"}`, false]);
     if (repair?.dem_stage) summaryItems.push(["DEM evidence", `${repair.dem_stage.status}${repair.dem_stage.error_code ? ` (${repair.dem_stage.error_code})` : ""}`, false]);
@@ -362,6 +374,21 @@
       rows.forEach((row) => { const tr = document.createElement("tr"); row.forEach((value, index) => { const td = document.createElement("td"); if (index === row.length - 1) td.className = "reasons"; if (value instanceof Node) td.appendChild(value); else td.textContent = text(value); tr.appendChild(td); }); body.appendChild(tr); });
       node.appendChild(body); wrap.appendChild(node); return wrap;
     };
+
+    if (repair?.mode === "fit_only") {
+      document.getElementById("fit-only-section").hidden = false;
+      const gate = repair.observed_gps_coverage || {};
+      document.getElementById("fit-only-coverage").appendChild(table(["Gate", "Observed / required", "Active / observed seconds", "Maximum GPS interval", "Reason"], [[
+        badge(gate.status), `${number(gate.observed_gps_coverage_percent)}% / ${number(gate.minimum_observed_gps_coverage_percent)}%`,
+        `${number(gate.active_duration_seconds)} / ${number(gate.observed_gps_duration_seconds)}`,
+        `${number(gate.maximum_observed_gps_interval_seconds)} s`, text(gate.reason, "—"),
+      ]]));
+      const endpoints = repair.endpoint_audit || [];
+      if (endpoints.length) document.getElementById("fit-only-endpoints").appendChild(table(["Edge", "Assumed point", "Decision", "Route", "Reason"], endpoints.map((item) => [
+        text(item.kind), Array.isArray(item.endpoint) ? item.endpoint.join(", ") : "not supplied",
+        badge(item.status), text(item.selected_route_id), text(item.reason, "—"),
+      ])));
+    }
 
     const diagnosticKindLabel = (kind) => ({
       corrupted_interval: "Corrupted interval",
@@ -466,7 +493,7 @@
         const details = document.createElement("details"), summary = document.createElement("summary"), pre = document.createElement("pre");
         summary.textContent = "Proof / path";
         const proof = [...new Set((repair.coordinate_dispositions || []).filter((item) => item.record_index >= gap.start_record_index && item.record_index <= gap.end_record_index && item.proof_ranges.length).map((item) => JSON.stringify({ ranges: item.proof_ranges, confidence: item.confidence, reasons: item.proof_reasons })))].map((item) => JSON.parse(item));
-        pre.textContent = JSON.stringify({ invalidation_proof: proof, provider: gap.provider, reconstruction_policy: gap.provider === "osm" ? gap.provenance?.identity_basis : repair.summary.missing_completion_enabled ? "--fill-missing-from-course" : "proven corrupted scope only", automatic_decision: automaticOSM?.decisions.find((item) => item.gap_id === gap.gap_id), timing: gap.timing, path: gap.provenance }, null, 2);
+        pre.textContent = JSON.stringify({ invalidation_proof: proof, provider: gap.provider, reconstruction_policy: gap.provider === "osm" ? gap.provenance?.identity_basis : repair.summary.missing_completion_enabled ? "--fill-missing-from-course" : "proven corrupted scope only", automatic_decision: automaticOSM?.decisions.find((item) => item.gap_id === gap.gap_id), endpoint_decision: repair.endpoint_audit?.find((item) => item.gap_id === gap.gap_id), timing: gap.timing, path: gap.provenance }, null, 2);
         details.append(summary, pre); return details;
       };
       const coverage = repair.coordinate_coverage;

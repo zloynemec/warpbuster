@@ -1,6 +1,7 @@
 """Vendor-neutral compatibility without relaxing unrelated FIT errors."""
 
 import json
+import warnings
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -122,6 +123,27 @@ def test_other_malformed_definitions_remain_fatal(tmp_path: Path, options: dict)
     _append(path, _event_chunks(**options))
     with pytest.raises(FitReadError):
         read_fit(path)
+
+
+def test_unrelated_resource_warning_during_definition_is_not_fit_parse_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "clean.fit"
+    write_synthetic_activity(path)
+    original = fitdecode.FitReader._read_definition_message
+
+    def definition_with_unrelated_warning(self, header_chunk, record_header):
+        warnings.warn("unclosed unrelated database", ResourceWarning, stacklevel=2)
+        return original(self, header_chunk, record_header)
+
+    monkeypatch.setattr(
+        fitdecode.FitReader, "_read_definition_message", definition_with_unrelated_warning
+    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", ResourceWarning)
+        activity = read_fit(path)
+    assert activity.records
+    assert any("unclosed unrelated database" in str(item.message) for item in caught)
 
 
 @pytest.mark.parametrize("damage", ["header_crc", "footer_crc", "truncated", "undefined"])

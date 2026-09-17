@@ -209,6 +209,8 @@ def gap_audit(plan: RepairPlan, selection: RepairSelection) -> dict[str, object]
                 "provenance": asdict(path_provenance) if path_provenance else None,
                 "endpoint_source": candidate.provenance.endpoint_source
                 if candidate and candidate.provenance
+                else "user_supplied"
+                if candidate and candidate.osm_provenance and candidate.osm_provenance.user_endpoint
                 else None,
                 "distance_action": ("corrected" if plan.output_written else "correction_planned")
                 if is_selected and candidate and not candidate.preserve_recorded_distance

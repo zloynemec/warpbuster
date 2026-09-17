@@ -43,7 +43,17 @@ class CompatibleFitReader(fitdecode.FitReader):  # type: ignore[misc]
                 definition = super()._read_definition_message(header_chunk, record_header)
             finally:
                 self.error_handling = fitdecode.ErrorHandling.RAISE
-        if not caught:
+        # Python can emit unrelated GC/resource warnings while fitdecode parses a
+        # definition. Only warnings raised by this FIT decoder are FIT evidence.
+        decoder_warnings = [
+            item
+            for item in caught
+            if item.filename.replace("\\", "/").endswith("/fitdecode/reader.py")
+        ]
+        for item in caught:
+            if item not in decoder_warnings:
+                warnings.warn_explicit(item.message, item.category, item.filename, item.lineno)
+        if not decoder_warnings:
             return definition
 
         raw = definition.chunk.bytes
@@ -65,11 +75,12 @@ class CompatibleFitReader(fitdecode.FitReader):  # type: ignore[misc]
             definition.global_mesg_num != _EVENT_MESSAGE
             or len(candidates) != 1
             or sum(f.def_num == _EVENT_DATA_FIELD for f in definition.field_defs) != 1
-            or len(caught) != 1
-            or str(caught[0].message) != expected
+            or len(decoder_warnings) != 1
+            or str(decoder_warnings[0].message) != expected
         ):
             raise fitdecode.FitParseError(
-                definition.chunk.offset, "; ".join(str(item.message) for item in caught)
+                definition.chunk.offset,
+                "; ".join(str(item.message) for item in decoder_warnings),
             )
 
         opaque = candidates[0]

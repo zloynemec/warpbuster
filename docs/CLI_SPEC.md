@@ -245,7 +245,41 @@ bars. Время показывается как `H:MM:SS` для активно
 HTML path должен отличаться от FIT output path. Если HTML generation неожиданно падает
 после успешного FIT publish, CLI явно сообщает, что FIT уже записан.
 
-## 4. `warpbuster validate`
+## 4. `warpbuster process` — FIT-only или FIT с GPX
+
+```bash
+warpbuster process activity.fit --dry-run --json
+warpbuster process activity.fit --start 44.0,33.0 --osm-mode offline --work-dir .warpbuster --html
+warpbuster process activity.fit --finish 44.0,33.01 --output activity.fixed.fit
+warpbuster process activity.fit --loop-point 44.0,33.0 --json
+warpbuster process activity.fit race.gpx --json
+```
+
+Второй позиционный файл GPX необязателен. Если он передан, сохраняется прежний
+GPX-first workflow; невалидный GPX возвращает ошибку `2` и не включает FIT-only.
+`--start`, `--finish` и `--loop-point` принимают WGS84 `LAT,LON`; одна loop point
+обозначает общий старт и финиш одного кольца и несовместима с отдельными точками.
+Точки доступны только без GPX. Они не содержат времени: старт/финиш считаются
+предполагаемым местом первого/последнего FIT record, не новым измерением. Если край
+уже сохранён, точка не двигает его и помечается как неиспользованная.
+
+Без GPX pipeline требует пригодного исходного GPS не менее 51% активного времени;
+порог можно изменить через `--minimum-observed-gps-coverage-percent P` (короткий
+alias `--min-gps-coverage-percent`). Расчёт выполняется по исходному FIT после
+детекции; редкие соседние фиксации с активным интервалом более 30 секунд не
+засчитываются. С GPX gate имеет `not_applicable` и не ограничивает обработку.
+При `below_threshold`/`unavailable` OSM/DEM и запись исправленного FIT не запускаются;
+CLI возвращает `3`, но `--json`/`--html` сохраняют диагностический отчёт.
+
+Внутренние JSON и HTML содержат mode, статус gate, исходную долю без округления
+для решения, активное/наблюдаемое время, endpoint audit и статус каждого gap.
+Для выбранных путей показаны allocation, OSM/DEM provenance, validation и FIT diff;
+незавершённые края остаются `unresolved`. HTML и JSON содержат приватную геометрию
+забега и должны храниться как приватные артефакты. `--osm-mode auto/offline/disabled`,
+`--dem-mode`, `--dry-run`, `--overwrite` и старый формат `process FIT GPX`
+сохраняют прежний смысл. Веб-интерфейс в Task 022 не изменяется.
+
+## 5. `warpbuster validate`
 
 ```bash
 warpbuster validate activity.fixed.fit
@@ -261,7 +295,7 @@ warpbuster validate activity.fixed.fit
 
 Valid report возвращает `0`, invalid — `4`. Доступен `--json`.
 
-## 5. `warpbuster diff`
+## 6. `warpbuster diff`
 
 ```bash
 warpbuster diff original.fit fixed.fit
@@ -274,7 +308,7 @@ definitions и preservation percentages для timestamps, sensors, developer и
 fields. `-v` показывает не более 20 field changes, `--json` — bounded detail до 200.
 Structural или unexpected changes возвращают `4`.
 
-## 6. Verbosity
+## 7. Verbosity
 
 `-v`:
 - этапы pipeline;
@@ -295,7 +329,7 @@ Geometry warnings отдельно ограничены `IntegrityConfig.geometr
 
 Не выводить тысячи records без отдельного debug flag.
 
-## 7. Exit codes
+## 8. Exit codes
 
 - `0` — команда успешно выполнена, clean/valid where applicable;
 - `1` — integrity anomalies detected;
