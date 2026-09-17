@@ -475,6 +475,18 @@ HTML/JSON audit проверен автоматически; ручной browse
 3. **M13 / Task 021 — Elevation-aware OSM Reconstruction:** после M11 и M12; optional
    DEM evidence для alternatives и отдельное восстановление только missing/corrupted
    altitude.
+4. **M14 / Task 022 — FIT-only Pipeline and CLI:** 022A реализована 2026-09-17;
+   022B–022D и приёмка всей задачи впереди.
+   Один FIT без GPX, OSM/DEM reconstruction при исходном GPS-покрытии не менее 51%
+   активного времени; optional start/finish либо общая точка одного кольца для
+   восстановления краёв. Порог действует только без GPX, прежний GPX-first workflow
+   не меняется. Реализация и приёмка в pipeline/CLI по внутренним JSON/HTML отчётам;
+   старый вызов pipeline полностью совместим, текущий Web работает без изменений.
+   Подробности: [Task 022](../tasks/022-fit-only-reconstruction.md).
+5. **M15 / Task 023 — FIT-only Web Integration:** отдельная задача только после
+   завершения и приёмки 022. Optional GPX, пользовательские endpoints, Web job/worker,
+   форма и публичные отчёты используют уже принятый pipeline.
+   Подробности: [Task 023](../tasks/023-fit-only-web.md).
 
 Прочие будущие epics:
 
@@ -489,4 +501,4 @@ DEM и reconstruction нельзя начинать внутри Task 010; от�
 
 Нумерация: `tasks/013-web-processing-and-result-privacy.md` и
 `tasks/014-shared-processing-pipeline.md` сохраняют исторические номера. Новая очередь
-начинается с Task 020: M12 — Task 020, следующий M13 — Task 021.
+начинается с Task 020: M12 — Task 020, M13 — Task 021, M14 — Task 022, M15 — Task 023.

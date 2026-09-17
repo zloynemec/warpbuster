@@ -10,6 +10,7 @@ from .config import (
     PipelineConfig,
     RepairPolicy,
 )
+from .coverage import CoverageStatus, ObservedGpsCoverage
 from .repair import PipelineError, RepairRun, run_repair
 
 APPROXIMATE_DECISION_REASONS = frozenset(item.value for item in DecisionReason)
@@ -18,8 +19,10 @@ __all__ = [
     "APPROXIMATE_DECISION_REASONS",
     "DEFAULT_REPAIR_POLICY",
     "LEGACY_REPAIR_POLICY",
+    "CoverageStatus",
     "DEMMode",
     "OSMMode",
+    "ObservedGpsCoverage",
     "PipelineConfig",
     "PipelineError",
     "RepairPolicy",

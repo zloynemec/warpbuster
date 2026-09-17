@@ -33,6 +33,12 @@ from warpbuster.reconstruction.altitude_completion import (
 )
 
 from .config import DEFAULT_REPAIR_POLICY, PipelineConfig, RepairPolicy
+from .coverage import (
+    NOT_APPLICABLE_COVERAGE,
+    CoverageStatus,
+    ObservedGpsCoverage,
+    measure_observed_gps_coverage,
+)
 from .dem import DEMResult, run_dem_stage
 from .osm import OSMResult, eligible_gap_count, run_osm_pipeline
 
@@ -63,6 +69,7 @@ class RepairRun:
     ranking: CandidateRankingResult | None
     write_result: FitWriteResult | None
     fixed_activity: ActivityData | None
+    coverage: ObservedGpsCoverage = NOT_APPLICABLE_COVERAGE
 
 
 def run_repair(
@@ -83,8 +90,6 @@ def run_repair(
     """
     started = time.monotonic()
     execution = config or PipelineConfig()
-    if policy.fill_missing_from_course and course_path is None:
-        raise PipelineError("invalid_gpx", "course completion requires a GPX course")
     try:
         activity = read_fit(activity_path)
     except (FitReadError, OSError, ValueError) as error:
@@ -93,6 +98,11 @@ def run_repair(
         course = read_gpx_course(course_path) if course_path is not None else None
     except (GpxCourseReadError, OSError, ValueError) as error:
         raise PipelineError("invalid_gpx", str(error)) from error
+    effective_policy = (
+        policy
+        if course is not None or not policy.fill_missing_from_course
+        else replace(policy, fill_missing_from_course=False)
+    )
     if not activity.records:
         raise PipelineError("empty_activity", "FIT contains no activity records")
     if len(activity.records) > execution.record_limit or (
@@ -107,11 +117,43 @@ def run_repair(
         integrity,
         course,
         reconstruction,
-        fill_missing_from_course=policy.fill_missing_from_course,
-        minimum_invalidation_confidence=policy.minimum_invalidation_confidence,
+        fill_missing_from_course=effective_policy.fill_missing_from_course,
+        minimum_invalidation_confidence=effective_policy.minimum_invalidation_confidence,
     )
     if time.monotonic() - started > execution.base_plan_timeout_seconds:
         raise PipelineError("timeout", "base repair planning exceeded its time budget")
+    coverage = (
+        NOT_APPLICABLE_COVERAGE
+        if course is not None
+        else measure_observed_gps_coverage(
+            activity,
+            integrity,
+            base_plan.coordinate_mask,
+            minimum_percent=execution.minimum_observed_gps_coverage_percent,
+            maximum_interval_seconds=execution.maximum_observed_gps_interval_seconds,
+        )
+    )
+    if coverage.status in {CoverageStatus.BELOW_THRESHOLD, CoverageStatus.UNAVAILABLE}:
+        blocked_selection = select_repair_intervals(
+            base_plan, effective_policy.minimum_confidence
+        )
+        return RepairRun(
+            activity,
+            course,
+            integrity,
+            reconstruction,
+            effective_policy,
+            base_plan,
+            replace(blocked_selection, invalidations=(), distance_spike_repairs=()),
+            OSMResult(base_plan, "not_needed"),
+            DEMResult(base_plan, "not_needed"),
+            0.0,
+            0,
+            None,
+            None,
+            None,
+            coverage,
+        )
     osm_eligible_gaps = eligible_gap_count(activity, base_plan)
     remaining = execution.process_timeout_seconds - (time.monotonic() - started)
     osm_started = time.monotonic()
@@ -126,7 +168,7 @@ def run_repair(
             ),
         )
         try:
-            osm = run_osm_pipeline(activity, integrity, base_plan, bounded, policy=policy)
+            osm = run_osm_pipeline(activity, integrity, base_plan, bounded, policy=effective_policy)
         except Exception:
             # Optional companion/native failures never discard the base GPX plan.
             osm = OSMResult(base_plan, "unavailable", "routing", "routing_failed")
@@ -139,7 +181,7 @@ def run_repair(
         osm.plan,
         osm.discovery,
         execution,
-        policy,
+        effective_policy,
         budget_seconds=max(0.0, remaining - execution.publish_reserve_seconds),
     )
     if (
@@ -171,7 +213,7 @@ def run_repair(
         if course is not None or osm.discovery is not None
         else None
     )
-    selection = select_repair_intervals(plan, policy.minimum_confidence)
+    selection = select_repair_intervals(plan, effective_policy.minimum_confidence)
     written = None
     fixed = None
     if not dry_run and selection.has_changes:
@@ -184,7 +226,7 @@ def run_repair(
                     activity,
                     plan,
                     output_path,
-                    minimum_confidence=policy.minimum_confidence,
+                    minimum_confidence=effective_policy.minimum_confidence,
                     overwrite=overwrite,
                     altitude_completion=altitude_plan,
                 )
@@ -204,7 +246,7 @@ def run_repair(
                     activity,
                     plan,
                     output_path,
-                    minimum_confidence=policy.minimum_confidence,
+                    minimum_confidence=effective_policy.minimum_confidence,
                     overwrite=overwrite,
                 )
             else:
@@ -230,7 +272,7 @@ def run_repair(
         course,
         integrity,
         reconstruction,
-        policy,
+        effective_policy,
         plan,
         selection,
         osm,
@@ -240,4 +282,5 @@ def run_repair(
         ranking,
         written,
         fixed,
+        coverage,
     )

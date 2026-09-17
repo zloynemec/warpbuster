@@ -90,6 +90,8 @@ class PipelineConfig:
     osm_ipc_maximum_bytes: int = 64 * 1024 * 1024  # Cumulative isolated IPC byte budget.
     osm_overpass_url: str | None = None  # None delegates endpoint choice to Manager.
     record_limit: int = 100_000  # Maximum FIT records or GPX course points.
+    minimum_observed_gps_coverage_percent: float = 51.0  # FIT-only, percent of active time.
+    maximum_observed_gps_interval_seconds: float = 30.0  # FIT-only, active seconds per fix pair.
     osm_graph_id: str | None = None  # Optional exact prepared Routing graph identity.
     osm_routing_config: Path | None = None  # Prepared-graph Routing configuration.
     osm_cache_dir: Path | None = None  # Prepared-graph Routing cache override.
@@ -112,6 +114,8 @@ class PipelineConfig:
                 or value <= 0
             ):
                 raise ValueError(f"{item.name} must be finite and positive")
+        if self.minimum_observed_gps_coverage_percent > 100:
+            raise ValueError("minimum_observed_gps_coverage_percent must not exceed 100")
         if not isinstance(self.osm_mode, OSMMode):
             raise ValueError("osm_mode must be auto, offline or disabled")
         if type(self.approximate_osm) is not bool:

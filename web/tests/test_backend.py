@@ -563,13 +563,15 @@ def test_log_correlates_upload_pair_and_actual_processor_invocation(app, client,
         "upload_reused",
         "processing_started",
         "osm_pipeline_completed",
+        "dem_pipeline_completed",
+        "altitude_completion_completed",
         "processing_completed",
     ]
     for event, role in zip(journal[1:3], ("activity", "course"), strict=True):
         assert event["role"] == role
         assert event["size_bytes"] == len(files[role][1])
         assert event["sha256"] == hashlib.sha256(files[role][1]).hexdigest()
-    call, osm, result = journal[-3:]
+    call, osm, result = journal[5], journal[6], journal[-1]
     assert call["command"][-2:] == ["--inputs", str(app.state.store.uploads_dir / uid)]
     assert call["minimum_confidence"] == call["minimum_invalidation_confidence"] == "medium"
     assert call["fill_missing_from_course"] is True
