@@ -142,3 +142,44 @@ def test_invalid_approximate_switch_fails_startup(monkeypatch, value):
     monkeypatch.setenv("WARPBUSTER_WEB_APPROXIMATE_OSM", value)
     with pytest.raises(ValueError, match="WARPBUSTER_WEB_APPROXIMATE_OSM must be boolean"):
         WebConfig.from_environment()
+
+
+COVERAGE_ENVIRONMENT = {
+    "minimum_observed_gps_coverage_percent": "WARPBUSTER_WEB_MINIMUM_OBSERVED_GPS_COVERAGE_PERCENT",
+    "maximum_observed_gps_interval_seconds": "WARPBUSTER_WEB_MAXIMUM_OBSERVED_GPS_INTERVAL_SECONDS",
+}
+
+
+def test_coverage_defaults_match_core(monkeypatch):
+    for name in COVERAGE_ENVIRONMENT.values():
+        monkeypatch.delenv(name, raising=False)
+    config = WebConfig.from_environment()
+    assert config.minimum_observed_gps_coverage_percent == 51.0
+    assert config.maximum_observed_gps_interval_seconds == 30.0
+
+
+@pytest.mark.parametrize("name", COVERAGE_ENVIRONMENT.values())
+@pytest.mark.parametrize("value", ["", "zero", "0", "-1", "nan", "inf", "-inf"])
+def test_invalid_coverage_environment_fails_startup(monkeypatch, name, value):
+    monkeypatch.setenv(name, value)
+    with pytest.raises(ValueError):
+        WebConfig.from_environment()
+
+
+def test_coverage_threshold_above_one_hundred_fails_startup(monkeypatch):
+    monkeypatch.setenv(COVERAGE_ENVIRONMENT["minimum_observed_gps_coverage_percent"], "100.1")
+    with pytest.raises(ValueError, match="minimum_observed_gps_coverage_percent"):
+        WebConfig.from_environment()
+
+
+def test_coverage_configuration_round_trips_to_worker_and_core(monkeypatch):
+    expected = WebConfig(
+        minimum_observed_gps_coverage_percent=72.5,
+        maximum_observed_gps_interval_seconds=12.5,
+    )
+    for name, value in expected.processor_environment().items():
+        monkeypatch.setenv(name, value)
+    actual = WebConfig.from_environment()
+    for field in COVERAGE_ENVIRONMENT:
+        assert getattr(actual, field) == getattr(expected, field)
+        assert getattr(actual.pipeline_config(), field) == getattr(expected, field)

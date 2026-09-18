@@ -60,3 +60,7 @@
   .analyze-button { justify-content: center; }
   .fix-principle { margin-top: 27px; }
 }
+
+.file-requirement { margin: -3px 0 14px; font-size: 13px; font-weight: 600; color: var(--ink); }
+.coverage-refusal { margin: 0 0 22px; padding: 18px 22px; border: 1px solid #c79069; border-radius: 5px; background: #fff5e9; color: #743d25; line-height: 1.65; }
+.coverage-refusal[hidden] { display: none; }

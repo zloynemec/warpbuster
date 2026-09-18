@@ -4,12 +4,12 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#203e31">
-    <meta name="description" content="Подготовьте оригинальный FIT-файл с часов и GPX маршрута для восстановления GPS-трека в WarpBuster.">
+    <meta name="description" content="Загрузите FIT-запись пробежки. Если есть GPX маршрута, добавьте его — он значительно поможет восстановлению.">
     <title>Исправить трек — WarpBuster</title>
     <link rel="icon" href="/assets/favicon.svg?v=2" type="image/svg+xml">
     <link rel="stylesheet" href="/assets/styles.css">
-    <link rel="stylesheet" href="/assets/fix.css">
-    <script type="module" src="/assets/fix-upload.mjs"></script>
+    <link rel="stylesheet" href="/assets/fix.css?v=023b">
+    <script type="module" src="/assets/fix-upload.mjs?v=023b"></script>
   </head>
   <body class="fix-page">
     <a class="skip-link" href="#main">К содержимому</a>
@@ -21,15 +21,17 @@
       <div class="fix-heading">
         <p class="eyebrow"><span class="trail-mark" aria-hidden="true"></span> Восстановление трека</p>
         <h1>Каждый метр — <span>твой.</span></h1>
-        <p class="fix-intro">Начнём с двух файлов: записи твоей пробежки и маршрута, по которому ты планировал бежать.</p>
+        <p class="fix-intro">Добавь запись своей пробежки. Если есть GPX маршрута, загрузи и его — он значительно поможет восстановлению.</p>
       </div>
 
       <section class="upload-section" aria-labelledby="files-title">
-        <div class="upload-heading"><h2 id="files-title">Добавь файлы</h2><span id="ready-count" role="status">Выбрано 0 из 2</span></div>
+        <div class="upload-heading"><h2 id="files-title">Добавь файлы</h2><span id="ready-count" role="status">Выбери FIT-запись</span></div>
+        <p id="coverage-refusal" class="coverage-refusal" role="alert" hidden></p>
         <div class="upload-grid">
           <article class="upload-card" data-file-card="fit">
             <div class="file-heading"><span class="file-step">01</span><span class="file-type">.FIT</span></div>
             <h3 id="fit-title">Запись с часов</h3>
+            <p class="file-requirement">Обязательно</p>
             <p class="file-explanation" id="fit-help">Оригинальный файл твоей пробежки с GPS-точками, временем и данными датчиков.</p>
             <p class="file-source">Где взять: экспортируй активность с часов или из приложения производителя в формате FIT.</p>
             <div class="drop-zone" data-drop-zone="fit">
@@ -46,12 +48,13 @@
 
           <article class="upload-card" data-file-card="gpx">
             <div class="file-heading"><span class="file-step">02</span><span class="file-type">.GPX</span></div>
-            <h3 id="gpx-title">Маршрут забега</h3>
-            <p class="file-explanation" id="gpx-help">План маршрута, по которому ты собирался бежать. Он поможет восстановить повреждённые участки.</p>
-            <p class="file-source">Где взять: скачай GPX у организатора забега или экспортируй маршрут из планировщика.</p>
+            <h3 id="gpx-title">Маршрут</h3>
+            <p class="file-requirement" id="gpx-optional">Необязательно</p>
+            <p class="file-explanation" id="gpx-help">Если есть GPX маршрута, добавь его — он значительно поможет восстановить повреждённые участки и пропуски координат.</p>
+            <p class="file-source">Где взять: экспортируй маршрут из планировщика или приложения, где он сохранён.</p>
             <div class="drop-zone" data-drop-zone="gpx">
               <label class="file-picker" for="gpx-file">
-                <input id="gpx-file" type="file" accept=".gpx" aria-labelledby="gpx-title gpx-action" aria-describedby="gpx-help gpx-error" disabled>
+                <input id="gpx-file" type="file" accept=".gpx" aria-labelledby="gpx-title gpx-action" aria-describedby="gpx-optional gpx-help gpx-error" disabled>
                 <svg class="upload-icon" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 21V5m-6 6 6-6 6 6M5 21v6h22v-6"/></svg>
                 <span class="picker-action" id="gpx-action">Выбрать GPX-файл</span>
                 <span class="picker-hint">или перетащи его сюда</span>

@@ -126,6 +126,12 @@ class WebConfig(PipelineConfig):
         """Serialize only the settings consumed by the isolated processor."""
         values: dict[str, object] = {
             "WARPBUSTER_WEB_DATA": self.data_dir,
+            "WARPBUSTER_WEB_MINIMUM_OBSERVED_GPS_COVERAGE_PERCENT": (
+                self.minimum_observed_gps_coverage_percent
+            ),
+            "WARPBUSTER_WEB_MAXIMUM_OBSERVED_GPS_INTERVAL_SECONDS": (
+                self.maximum_observed_gps_interval_seconds
+            ),
             "WARPBUSTER_WEB_PROCESS_TIMEOUT_SECONDS": self.process_timeout_seconds,
             "WARPBUSTER_WEB_BASE_PLAN_TIMEOUT_SECONDS": self.base_plan_timeout_seconds,
             "WARPBUSTER_WEB_OSM_TOTAL_TIMEOUT_SECONDS": self.osm_total_timeout_seconds,
@@ -186,6 +192,14 @@ class WebConfig(PipelineConfig):
             data_dir=Path(os.environ.get("WARPBUSTER_WEB_DATA", str(defaults.data_dir))),
             static_dir=Path(os.environ.get("WARPBUSTER_WEB_STATIC", str(defaults.static_dir))),
             public_origin=os.environ.get("WARPBUSTER_WEB_ORIGIN", defaults.public_origin),
+            minimum_observed_gps_coverage_percent=_environment(
+                "WARPBUSTER_WEB_MINIMUM_OBSERVED_GPS_COVERAGE_PERCENT",
+                defaults.minimum_observed_gps_coverage_percent,
+            ),
+            maximum_observed_gps_interval_seconds=_environment(
+                "WARPBUSTER_WEB_MAXIMUM_OBSERVED_GPS_INTERVAL_SECONDS",
+                defaults.maximum_observed_gps_interval_seconds,
+            ),
             process_timeout_seconds=positive_integer_environment(
                 "WARPBUSTER_WEB_PROCESS_TIMEOUT_SECONDS", defaults.process_timeout_seconds
             ),

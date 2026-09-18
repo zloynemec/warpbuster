@@ -14,7 +14,7 @@ from .performance import public_performance
 from .store import Store
 
 
-def refresh_report(directory, inputs):
+def refresh_report(directory, inputs, *, has_course=True):
     path = directory / "result.json"
     report = json.loads(path.read_text())
     if report.get("schema_version", 1) >= 2:
@@ -23,10 +23,16 @@ def refresh_report(directory, inputs):
     fixed = (
         read_fit(directory / "corrected.fit") if (directory / "corrected.fit").is_file() else None
     )
-    course = read_gpx_course(inputs / "course.gpx") if (inputs / "course.gpx").is_file() else None
+    course = (
+        read_gpx_course(inputs / "course.gpx")
+        if has_course and (inputs / "course.gpx").is_file()
+        else None
+    )
     quality = "unknown"
-    if original and course:
-        run = run_repair(inputs / "original.fit", inputs / "course.gpx", dry_run=True)
+    if original and (course or not has_course):
+        run = run_repair(
+            inputs / "original.fit", inputs / "course.gpx" if has_course else None, dry_run=True
+        )
         quality = distance_policy(run.selection)["quality"]
     report["tracks"]["course"] = (
         [
@@ -62,14 +68,18 @@ def main():
     store = Store(WebConfig.from_environment())
     with store.connect() as db:
         rows = db.execute(
-            "SELECT uid FROM jobs WHERE status='ready' AND expires>?", (time.time(),)
+            "SELECT uid,has_course FROM jobs WHERE status='ready' AND expires>?", (time.time(),)
         ).fetchall()
     refreshed = 0
     failed = 0
     for row in rows:
         uid = row["uid"]
         try:
-            changed = refresh_report(store.config.data_dir / uid, store.uploads_dir / uid)
+            changed = refresh_report(
+                store.config.data_dir / uid,
+                store.uploads_dir / uid,
+                has_course=bool(row["has_course"]),
+            )
             if changed:
                 store.events.write("report_refreshed", uid, schema_version=2)
                 refreshed += 1

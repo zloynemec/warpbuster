@@ -483,10 +483,19 @@ HTML/JSON audit проверен автоматически; ручной browse
    не меняется. Реализация и приёмка в pipeline/CLI по внутренним JSON/HTML отчётам;
    старый вызов pipeline полностью совместим, текущий Web работает без изменений.
    Подробности: [Task 022](../tasks/022-fit-only-reconstruction.md).
-5. **M15 / Task 023 — FIT-only Web Integration:** отдельная задача только после
-   завершения и приёмки 022. Optional GPX, пользовательские endpoints, Web job/worker,
-   форма и публичные отчёты используют уже принятый pipeline.
+5. **M15 / Task 023 — FIT-only Web Integration:** 023A (backend), 023B
+   (UI/public reports) и 023C (acceptance) завершены 2026-09-18 по прямым указаниям
+   пользователя до формального закрытия 022D. Linux: 932 passed; Node: 22 passed;
+   живой HTTP-сервис: 4 passed; browser smoke и сравнение Web/CLI пройдены.
+   Одна страница `/fix`, обязательный FIT и optional GPX
+   в двух равно заметных блоках, без ручных endpoints. Web job/worker и публичные
+   отчёты используют принятый pipeline; отказ по coverage возвращает на `/fix`
+   с сообщением и повторной загрузкой FIT+GPX.
    Подробности: [Task 023](../tasks/023-fit-only-web.md).
+6. **M16 / Task 024 — Web Start/Finish Input:** после 023; предварительный анализ
+   FIT-only и optional ввод старта/финиша либо общей точки кольца на карте или
+   координатами. Пока зафиксирован только сценарий, без подробного ТЗ.
+   Сценарий: [Task 024](../tasks/024-web-start-finish-input.md).
 
 Прочие будущие epics:
 
@@ -501,4 +510,5 @@ DEM и reconstruction нельзя начинать внутри Task 010; от�
 
 Нумерация: `tasks/013-web-processing-and-result-privacy.md` и
 `tasks/014-shared-processing-pipeline.md` сохраняют исторические номера. Новая очередь
-начинается с Task 020: M12 — Task 020, M13 — Task 021, M14 — Task 022, M15 — Task 023.
+начинается с Task 020: M12 — Task 020, M13 — Task 021, M14 — Task 022,
+M15 — Task 023, M16 — Task 024.

@@ -244,7 +244,7 @@ def test_duplicate_submit_is_idempotent_and_owned(app, client, files):
 @pytest.mark.parametrize("variant", ["missing", "duplicate", "wrong_extension", "empty", "extra"])
 def test_invalid_form_rejected_without_storing_a_job(app, client, files, variant):
     if variant == "missing":
-        del files["course"]
+        del files["activity"]
     elif variant == "duplicate":
         files = [("activity", files["activity"]), ("activity", files["activity"])]
     elif variant == "wrong_extension":

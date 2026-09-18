@@ -20,7 +20,7 @@ from warpbuster_web.config import DEMMode, OSMMode, WebConfig
 from warpbuster_web.processing import process_job
 
 
-def test_disabled_osm_publishes_schema_three_without_private_graph_data(tmp_path):
+def test_disabled_osm_publishes_versioned_report_without_private_graph_data(tmp_path):
     _repairable_fixture(tmp_path)
     config = WebConfig(
         data_dir=tmp_path / "data",
@@ -31,7 +31,7 @@ def test_disabled_osm_publishes_schema_three_without_private_graph_data(tmp_path
     )
     assert process_job(tmp_path, 100_000, config=config)
     report = json.loads((tmp_path / "result.json").read_text())
-    assert report["schema_version"] == 3
+    assert report["schema_version"] == 5
     assert report["osm"]["status"] == "disabled"
     assert report["osm"]["stage"] is report["osm"]["error_code"] is None
     assert report["osm"]["duration_seconds"] >= 0

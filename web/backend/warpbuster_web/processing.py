@@ -15,7 +15,9 @@ from warpbuster.pipeline import (
     PipelineError,
     run_repair,
 )
+from warpbuster.pipeline.coverage import CoverageStatus
 from warpbuster.report.gaps import distance_policy, gap_audit
+from warpbuster.report.repair import coverage_report
 
 from .config import WebConfig
 from .performance import public_performance
@@ -72,6 +74,7 @@ def process_job(
     *,
     input_directory: Path | None = None,
     config: WebConfig | None = None,
+    has_course: bool = True,
 ):
     # Direct library calls remain offline. The public worker passes its deployment config.
     web_config = config or replace(
@@ -86,14 +89,13 @@ def process_job(
     try:
         run = run_repair(
             input_directory / "original.fit",
-            input_directory / "course.gpx",
+            input_directory / "course.gpx" if has_course else None,
             directory / "corrected.fit",
             config=replace(web_config.pipeline_config(), record_limit=record_limit),
         )
     except PipelineError as error:
         raise ProcessingError(error.code) from error
     activity, course, integrity = run.activity, run.course, run.integrity
-    assert course is not None
     plan, selection = run.plan, run.selection
     result, fixed = run.write_result, run.fixed_activity
     osm = run.osm
@@ -109,6 +111,9 @@ def process_job(
             "number": item["number"],
             "start": item["start_record_index"],
             "end": item["end_record_index"],
+            "kind": item["kind"],
+            "filled_points": item["filled_count"],
+            "unresolved_points": item["unresolved_count"],
             "provider": item["provider"],
             "action": item["status"],
             "confidence": item["path_confidence"],
@@ -124,11 +129,31 @@ def process_job(
     applied_osm = sum(
         item["action"] == "applied" and item["provider"] == "osm" for item in public_gaps
     )
+    coverage_refused = run.coverage.status in {
+        CoverageStatus.BELOW_THRESHOLD,
+        CoverageStatus.UNAVAILABLE,
+    }
     report = {
-        "schema_version": 4 if web_config.approximate_osm else 3,
+        "schema_version": 5,
+        "mode": "fit_with_course" if course is not None else "fit_only",
+        "observed_gps_coverage": {
+            "status": run.coverage.status.value,
+            "minimum_observed_gps_coverage_percent": run.coverage.threshold_percent,
+            "observed_gps_coverage_percent": run.coverage.observed_percent,
+            "active_duration_seconds": run.coverage.active_duration_seconds,
+            "observed_gps_duration_seconds": run.coverage.observed_duration_seconds,
+            "reason": run.coverage.reason
+            if run.coverage.reason
+            in {"invalid_record_timestamps", "unresolved_timer_state", "no_active_time"}
+            else None,
+        },
         "outcome": "repaired"
         if result
-        else ("unchanged" if plan.status.value == "not_needed" else "unresolved"),
+        else (
+            "unchanged"
+            if plan.status.value == "not_needed" and not coverage_refused
+            else "unresolved"
+        ),
         "partial": selection.is_partial
         or bool(selection.unresolved_invalidated_indices)
         or any(item["action"] == "unresolved" for item in public_gaps),
@@ -151,7 +176,7 @@ def process_job(
             "corrected": track(fixed) if fixed else [],
             "course": [
                 [[point.latitude, point.longitude] for point in segment.points]
-                for segment in course.segments
+                for segment in (course.segments if course else ())
             ],
         },
         "performance": public_performance(
@@ -284,6 +309,20 @@ def process_job(
                 diff.sensors.compared_count - diff.sensors.unchanged_count
                 == result.altitude_field_change_count
             )
+    # Keep the full Core gate decision in private diagnostics, never served over HTTP.
+    diagnostic_temporary = directory / "private-processing-audit.json.tmp"
+    diagnostic_temporary.write_text(
+        json.dumps(
+            {
+                "mode": "fit_with_course" if course is not None else "fit_only",
+                "observed_gps_coverage": coverage_report(run.coverage),
+            },
+            allow_nan=False,
+        ),
+        encoding="utf-8",
+    )
+    diagnostic_temporary.chmod(0o600)
+    diagnostic_temporary.replace(directory / "private-processing-audit.json")
     temporary = directory / "result.json.tmp"
     temporary.write_text(json.dumps(report, ensure_ascii=False, allow_nan=False), encoding="utf-8")
     temporary.chmod(0o600)
@@ -300,12 +339,11 @@ def process_job(
 
 def main():
     os.umask(0o077)
-    parser = argparse.ArgumentParser(description="Process one private FIT/GPX pair")
+    parser = argparse.ArgumentParser(description="Process a private FIT with optional GPX")
     parser.add_argument("directory", type=Path, help="existing output directory")
     parser.add_argument("record_limit", type=int)
-    parser.add_argument(
-        "--inputs", type=Path, help="input pair directory; defaults to output directory"
-    )
+    parser.add_argument("--inputs", type=Path, help="input directory; defaults to output directory")
+    parser.add_argument("--fit-only", action="store_true", help="explicitly process without GPX")
     args = parser.parse_args()
     directory = args.directory
     try:
@@ -314,6 +352,7 @@ def main():
             args.record_limit,
             input_directory=args.inputs,
             config=WebConfig.from_environment(),
+            has_course=not args.fit_only,
         )
     except ProcessingError as error:
         (directory / "failure.json").write_text(json.dumps({"code": str(error)}), encoding="utf-8")

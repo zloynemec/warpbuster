@@ -1,7 +1,8 @@
 import { requestJson } from "./api.mjs";
+import { coverageMessage, openSubmittedResult } from "./fit-only.mjs?v=023b";
 
 export function validateSelection(files, extension, maxBytes = Infinity) {
-  if (files.length !== 1) return "Добавь один файл в это поле.";
+  if (files.length !== 1 || !files[0]) return "Добавь один файл в это поле.";
   const file = files[0];
   if (!file.name.toLowerCase().endsWith(`.${extension}`)) {
     return `Здесь нужен файл .${extension.toUpperCase()}. Проверь формат экспорта.`;
@@ -19,8 +20,9 @@ export function formatFileSize(bytes) {
     : `${number.format(Math.max(1, Math.ceil(bytes / 1024)))} КБ`;
 }
 
-export function initUploadPage(root) {
+export function initUploadPage(root, { request = requestJson, browser = window } = {}) {
   const selected = new Map();
+  const invalid = new Set();
   const count = root.getElementById("ready-count");
   const button = root.getElementById("analyze-button");
   const note = root.getElementById("analysis-note");
@@ -30,9 +32,13 @@ export function initUploadPage(root) {
   let submitting = false;
   let maxBytes = Infinity;
   let submissionKey = null;
+  const refusal = root.getElementById("coverage-refusal");
+  refusal.textContent = coverageMessage(browser.history.state?.warpbusterCoverageRefusal);
+  refusal.hidden = !refusal.textContent;
   const updateCount = () => {
-    count.textContent = selected.size === 2 ? "Оба файла выбраны" : `Выбрано ${selected.size} из 2`;
-    button.disabled = submitting || !available || selected.size !== 2;
+    count.textContent = invalid.size ? "Проверь выбранные файлы" : selected.has("fit")
+      ? (selected.has("gpx") ? "FIT и GPX выбраны" : "FIT выбран — можно начинать") : "Выбери FIT-запись";
+    button.disabled = submitting || !available || !selected.has("fit") || invalid.size > 0;
   };
 
   for (const extension of ["fit", "gpx"]) {
@@ -47,6 +53,7 @@ export function initUploadPage(root) {
     const clear = () => {
       submissionKey = null;
       selected.delete(extension);
+      invalid.delete(extension);
       input.value = "";
       input.removeAttribute("aria-invalid");
       row.hidden = true;
@@ -63,9 +70,13 @@ export function initUploadPage(root) {
       const message = validateSelection(files, extension, maxBytes);
       clear();
       if (message) {
+        invalid.add(extension);
+        row.hidden = false;
+        name.textContent = "Файл не выбран";
         error.textContent = message;
         error.hidden = false;
         input.setAttribute("aria-invalid", "true");
+        updateCount();
         return;
       }
       const file = files[0];
@@ -99,6 +110,7 @@ export function initUploadPage(root) {
       choose(Array.from(event.dataTransfer?.files ?? []));
     });
     input.disabled = false;
+    input.value = "";
   }
 
   // Dropping a file outside either card must not navigate away and lose the selection.
@@ -114,7 +126,7 @@ export function initUploadPage(root) {
     updateCount();
     note.textContent = "Подключаемся к сервису обработки…";
     try {
-      const session = await requestJson("/api/session", { headers: { "X-WarpBuster-Request": "1" } });
+      const session = await request("/api/session", { headers: { "X-WarpBuster-Request": "1" } });
       maxBytes = session.file_limit_bytes;
       available = true;
       note.textContent = `До ${formatFileSize(maxBytes)} на файл. Результат хранится ${session.retention_days} дней.`;
@@ -128,6 +140,7 @@ export function initUploadPage(root) {
   button.addEventListener("click", async () => {
     if (button.disabled) return;
     for (const extension of ["fit", "gpx"]) {
+      if (extension === "gpx" && !selected.has("gpx")) continue;
       const message = validateSelection([selected.get(extension)], extension, maxBytes);
       if (message) { submitError.textContent = message; submitError.hidden = false; return; }
     }
@@ -141,13 +154,13 @@ export function initUploadPage(root) {
     try {
       const form = new FormData();
       form.append("activity", selected.get("fit"));
-      form.append("course", selected.get("gpx"));
-      const data = await requestJson("/api/jobs", {
+      if (selected.has("gpx")) form.append("course", selected.get("gpx"));
+      const data = await request("/api/jobs", {
         method: "POST", body: form,
         headers: { "X-WarpBuster-Request": "1", "X-WarpBuster-Upload-ID": submissionKey },
       }, 75000);
       if (!/^[A-Za-z0-9_-]{43}$/.test(data.uid)) throw new Error("Сервер вернул некорректный результат.");
-      window.location.assign(`/res/${data.uid}`);
+      openSubmittedResult(data.uid, browser);
     } catch (error) {
       submitError.textContent = error.message;
       submitError.hidden = false;

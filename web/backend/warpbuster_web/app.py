@@ -103,7 +103,7 @@ async def multipart_form(request: Request):
         request.headers.get("content-type", "").split(";")[0].strip().lower()
         != "multipart/form-data"
     ):
-        raise HTTPException(400, "Нужны два файла в формате multipart/form-data.")
+        raise HTTPException(400, "Нужны FIT и необязательный GPX в формате multipart/form-data.")
     parser = MultiPartParser(
         request.headers, request.stream(), max_files=2, max_fields=0, max_part_size=1024
     )
@@ -286,14 +286,22 @@ def create_app(config: WebConfig | None = None, *, start_worker: bool = True):
             async with asyncio.timeout(config.upload_timeout_seconds):
                 async with multipart_form(request) as form:
                     parts = form.multi_items()
-                    if len(parts) != 2 or {key for key, _ in parts} != {"activity", "course"}:
+                    keys = [key for key, _ in parts]
+                    if (
+                        len(keys) != len(set(keys))
+                        or "activity" not in keys
+                        or not set(keys) <= {"activity", "course"}
+                    ):
                         raise HTTPException(
-                            400, "Нужны ровно два файла: FIT-запись и GPX маршрута."
+                            400, "Нужны FIT-запись и, при наличии, один GPX маршрута."
                         )
+                    has_course = "course" in keys
                     for key, filename, extension in (
                         ("activity", "original.fit", ".fit"),
                         ("course", "course.gpx", ".gpx"),
                     ):
+                        if key == "course" and not has_course:
+                            continue
                         upload = form[key]
                         if not isinstance(upload, UploadFile) or not (
                             upload.filename or ""
@@ -321,7 +329,7 @@ def create_app(config: WebConfig | None = None, *, start_worker: bool = True):
                             sha256=digest.hexdigest(),
                         )
             store.events.write("upload_completed", uid)
-            store.state(uid, "queued")
+            store.state(uid, "queued", has_course=has_course)
             committed = True
             return JSONResponse({"uid": uid, "url": f"/res/{uid}"}, status_code=202)
         except TimeoutError:
@@ -343,7 +351,7 @@ def create_app(config: WebConfig | None = None, *, start_worker: bool = True):
                 ("Нужны", "Проверьте", "Один")
             ):
                 raise HTTPException(
-                    400, "Не удалось прочитать загрузку. Выберите два файла ещё раз."
+                    400, "Не удалось прочитать загрузку. Выберите FIT и необязательный GPX ещё раз."
                 ) from None
             raise
         finally:

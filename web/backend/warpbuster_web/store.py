@@ -41,11 +41,21 @@ class Store:
                     uid TEXT PRIMARY KEY, owner TEXT NOT NULL, created REAL NOT NULL,
                     expires REAL NOT NULL, status TEXT NOT NULL,
                     error TEXT, has_fit INTEGER NOT NULL DEFAULT 0,
+                    has_course INTEGER NOT NULL DEFAULT 1 CHECK (has_course IN (0, 1)),
                     submission_key TEXT NOT NULL, UNIQUE(owner, submission_key)
                 );
                 CREATE INDEX IF NOT EXISTS jobs_status ON jobs(status, created);
                 CREATE INDEX IF NOT EXISTS jobs_owner ON jobs(owner);
             """)
+            # Existing jobs were always submitted with a GPX. Never reinterpret a
+            # missing legacy input as FIT-only; it must still fail as invalid_gpx.
+            db.execute("BEGIN IMMEDIATE")
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(jobs)")}
+            if "has_course" not in columns:
+                db.execute(
+                    "ALTER TABLE jobs ADD COLUMN has_course INTEGER NOT NULL DEFAULT 1 "
+                    "CHECK (has_course IN (0, 1))"
+                )
         self.path.chmod(0o600)
 
     @contextmanager
@@ -124,11 +134,20 @@ class Store:
             row = db.execute("SELECT * FROM jobs WHERE uid=?", (uid,)).fetchone()
         return dict(row) if row else None
 
-    def state(self, uid: str, status: str, *, error: str | None = None, has_fit: bool = False):
+    def state(
+        self,
+        uid: str,
+        status: str,
+        *,
+        error: str | None = None,
+        has_fit: bool = False,
+        has_course: bool | None = None,
+    ):
         with self.connect() as db:
             db.execute(
-                "UPDATE jobs SET status=?,error=?,has_fit=? WHERE uid=?",
-                (status, error, has_fit, uid),
+                "UPDATE jobs SET status=?,error=?,has_fit=?,"
+                "has_course=COALESCE(?,has_course) WHERE uid=?",
+                (status, error, has_fit, has_course, uid),
             )
 
     def discard(self, uid: str):

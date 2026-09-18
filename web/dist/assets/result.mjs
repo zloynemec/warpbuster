@@ -1,7 +1,8 @@
 import { requestJson, ApiError } from "./api.mjs";
 import { createResultPoller } from "./polling.mjs";
-import { createTrackMap } from "./result-map.mjs";
+import { createTrackMap } from "./result-map.mjs?v=023b";
 import { renderRunSummary } from "./run-summary.mjs";
+import { coverageDetails, coverageMessage, coverageRefused, endpointMessage, gapCells, returnToUpload, finishResultNavigation } from "./fit-only.mjs?v=023b";
 
 let trackMap;
 let runSummary;
@@ -29,8 +30,24 @@ function renderReport(data, status) {
     unresolved: ["Нужно больше уверенности.", "Безопасного варианта исправления не найдено. Исходная запись не изменялась. Исправленный FIT не создавался."],
   };
   const [title, description] = messages[data.outcome] || messages.unresolved;
-  byId("result-title").textContent = title;
+  byId("result-title").textContent = coverageRefused(data) ? "Восстановление без GPX не запущено." : title;
   byId("result-description").textContent = description + (data.partial ? " Часть участков осталась невосстановленной." : "");
+  byId("result-mode").textContent = data.mode === "fit_only" ? "Восстановление без GPX" : data.mode === "fit_with_course" ? "Восстановление с GPX" : "";
+  byId("coverage-details").textContent = coverageDetails(data.observed_gps_coverage);
+  byId("coverage-status").textContent = { passed: "GPS-данных достаточно для запуска восстановления", below_threshold: "Недостаточно GPS-данных", unavailable: "Покрытие GPS не определено", not_applicable: "" }[data.observed_gps_coverage?.status] || "";
+  byId("coverage-message").textContent = coverageMessage(data.observed_gps_coverage);
+  byId("coverage-message").hidden = !coverageRefused(data);
+  byId("endpoint-note").textContent = endpointMessage(data);
+  byId("endpoint-note").hidden = !byId("endpoint-note").textContent;
+  byId("gap-details").hidden = !(data.gaps || []).length;
+  byId("gap-rows").replaceChildren();
+  for (const gap of data.gaps || []) {
+    const row = document.createElement("tr");
+    for (const value of gapCells(gap)) {
+      const cell = document.createElement("td"); cell.textContent = value; row.append(cell);
+    }
+    byId("gap-rows").append(row);
+  }
   byId("metric-changes").textContent = numeric.format(data.fit_diff?.changed_records || 0);
   byId("metric-before").textContent = distance(data.summary.original_distance_m);
   byId("metric-after").textContent = distance(data.summary.corrected_distance_m);
@@ -48,7 +65,7 @@ function renderReport(data, status) {
   byId("allocation-note").hidden = !(data.gaps || []).some(gap => gap.estimated);
   byId("osm-warning").hidden = data.osm?.status !== "unavailable";
   byId("osm-warning").textContent = data.osm?.status === "unavailable"
-    ? "Карта для дополнительного восстановления была недоступна. Проверенные изменения по GPX сохранены."
+    ? "Карта для дополнительного восстановления была недоступна. Если другие участки прошли проверки, их восстановление сохранено."
     : "";
   const approximate = (data.approximate_osm?.decisions || []).filter(item => item.approximate && item.selected_route_id);
   byId("approximate-warning").hidden = approximate.length === 0;
@@ -59,7 +76,7 @@ function renderReport(data, status) {
   byId("dem-status").hidden = !dem || dem.status === "disabled" || dem.status === "not_needed";
   byId("dem-status").textContent = dem?.status === "complete"
     ? "DEM-профиль проверен для выбора OSM-маршрута."
-    : dem?.status === "unavailable" ? "DEM недоступен; применён безопасный 2D-вариант." : "";
+    : dem?.status === "unavailable" ? "DEM недоступен. Решение по маршруту принято по остальным доступным данным." : "";
   const altitude = data.altitude_completion;
   byId("altitude-status").hidden = !altitude;
   byId("altitude-status").textContent = altitude?.status === "applied"
@@ -87,15 +104,21 @@ function renderReport(data, status) {
   byId("report").hidden = false;
   trackMap?.destroy();
   runSummary?.destroy();
-  trackMap = createTrackMap(document, data.tracks);
+  trackMap = createTrackMap(document, data.tracks, window.L, data.mode);
   runSummary = renderRunSummary(document, data.performance);
 }
 
 const poller = createResultPoller({
   getStatus: () => requestJson(`${endpoint}/status`),
-  onReady: async status => renderReport(await requestJson(endpoint), status),
+  onReady: async status => {
+    const report = await requestJson(endpoint);
+    if (returnToUpload(report, uid)) return;
+    finishResultNavigation(uid);
+    renderReport(report, status);
+  },
   onState: status => {
     if (status.status === "failed" || status.status === "expired") {
+      finishResultNavigation(uid);
       showError(status.message || "Срок хранения результата истёк.", { title: "Обработка завершена без результата" });
       return;
     }

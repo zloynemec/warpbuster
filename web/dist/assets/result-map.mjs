@@ -12,9 +12,13 @@ export function trackSegments(raw = []) {
   return result;
 }
 
-export function createTrackMap(root, tracks, L = window.L) {
+export function createTrackMap(root, tracks, L = window.L, mode = null) {
   const byId = id => root.getElementById(id);
   const segments = Object.fromEntries(["original", "corrected", "course"].map(key => [key, trackSegments(tracks[key])]));
+  byId("show-course").parentElement.hidden = !segments.course.length;
+  byId("track-note").textContent = segments.course.length
+    ? "«Трек» — маршрут из загруженного GPX."
+    : `${mode === "fit_only" ? "GPX не загружен." : "Маршрут GPX недоступен."} На карте показаны доступные участки записи; пропуски не соединяются линией.`;
   const defaults = { original: !segments.corrected.length, corrected: true, course: true };
   if (!L) {
     byId("track-note").textContent = "Не удалось загрузить карту. Обновите страницу.";

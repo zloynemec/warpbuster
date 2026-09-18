@@ -49,7 +49,7 @@ def test_web_approximate_report_is_versioned_and_privacy_allowlisted(tmp_path, m
     )
     assert process_job(directory, 100_000, config=config)
     report = json.loads((directory / "result.json").read_text())
-    assert report["schema_version"] == 4
+    assert report["schema_version"] == 5
     assert report["fit_diff"]["timestamps_unchanged"]
     assert report["fit_diff"]["sensors_unchanged"]
     assert report["approximate_osm"]["policy_id"] == "approximate-original-missing-osm-v1"

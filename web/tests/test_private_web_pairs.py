@@ -24,7 +24,7 @@ PAIRS = (
 
 @pytest.mark.private
 @pytest.mark.parametrize(("fit_name", "gpx_name"), PAIRS)
-def test_six_private_pairs_reach_schema_three_without_mutating_sources(
+def test_six_private_pairs_reach_current_schema_without_mutating_sources(
     tmp_path, fit_name, gpx_name
 ):
     fit = TRACKS / fit_name
@@ -47,7 +47,7 @@ def test_six_private_pairs_reach_schema_three_without_mutating_sources(
     )
     process_job(tmp_path, 100_000, config=config)
     report = json.loads((tmp_path / "result.json").read_text())
-    assert report["schema_version"] == 3
+    assert report["schema_version"] == 5
     assert report["osm"]["status"] == "disabled"
     assert report["summary"]["applied_osm_gaps"] == 0
     if fit_name == "Andromeda_Taras.fit":

@@ -15,7 +15,7 @@
     <link rel="stylesheet" href="/assets/vendor/leaflet/leaflet.css">
     <link rel="stylesheet" href="/assets/result.css">
     <script defer src="/assets/vendor/leaflet/leaflet.js"></script>
-    <script type="module" src="/assets/result.mjs"></script>
+    <script type="module" src="/assets/result.mjs?v=023b"></script>
   </head>
   <body class="fix-page">
     <a class="skip-link" href="#main">К содержимому</a>
@@ -33,6 +33,11 @@
       <section id="report" hidden aria-labelledby="result-title">
         <h1 id="result-title">Результат обработки</h1>
         <p id="result-description" class="result-description"></p>
+        <section class="run-card" aria-labelledby="coverage-title">
+          <div class="run-heading"><h2 id="coverage-title">Исходные GPS-данные</h2><p id="result-mode" class="subtle"></p></div>
+          <p id="coverage-status"></p><p id="coverage-details" class="subtle"></p>
+          <p id="coverage-message" class="viewer-note" hidden></p>
+        </section>
         <div class="result-metrics">
           <div><span>Изменено записей FIT</span><strong id="metric-changes">—</strong></div>
           <div><span>Дистанция в исходном FIT</span><strong id="metric-before">—</strong></div>
@@ -45,6 +50,8 @@
             <div><span>Восстановлено по OSM</span><strong id="metric-osm-gaps">0</strong></div>
             <div><span>Осталось без восстановления</span><strong id="metric-unresolved-gaps">0</strong></div>
           </div>
+          <p id="endpoint-note" class="viewer-note" hidden></p>
+          <details id="gap-details" hidden><summary>Подробности по участкам</summary><div class="table-scroll"><table><thead><tr><th scope="col">№</th><th scope="col">Участок</th><th scope="col">Результат</th><th scope="col">Точек</th><th scope="col">Пояснение</th></tr></thead><tbody id="gap-rows"></tbody></table></div></details>
           <p id="allocation-note" class="distance-warning" hidden>Для части участка распределение по времени приблизительное; исходные временные метки сохранены.</p>
           <p id="osm-warning" class="distance-warning" hidden></p>
           <p id="approximate-warning" class="distance-warning" hidden></p>

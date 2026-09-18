@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 from contextlib import suppress
+from dataclasses import replace
 
 from warpbuster.pipeline import DEFAULT_REPAIR_POLICY
 
@@ -60,12 +61,14 @@ class Worker:
         config = self.store.config
         directory = config.data_dir.resolve() / uid
         inputs = self.store.uploads_dir.resolve() / uid
+        has_course = bool(self.store.get(uid)["has_course"])
         command = [
             sys.executable,
             "-m",
             "warpbuster_web.processing",
             str(directory),
             str(config.record_limit),
+            *([] if has_course else ["--fit-only"]),
             "--inputs",
             str(inputs),
         ]
@@ -83,7 +86,8 @@ class Worker:
             complete_missing_altitude=config.complete_missing_altitude,
             osm_timeout_seconds=config.osm_total_timeout_seconds,
             publish_reserve_seconds=config.publish_reserve_seconds,
-            **DEFAULT_REPAIR_POLICY.as_dict(),
+            has_course=has_course,
+            **replace(DEFAULT_REPAIR_POLICY, fill_missing_from_course=has_course).as_dict(),
         )
         error = None
         try:
@@ -106,8 +110,13 @@ class Worker:
         except OSError, ValueError, KeyError:
             error = "processing_failed"
         finally:
-            # The private input pair is retained separately until the job expires.
-            for filename in ("failure.json", "result.json.tmp", "private-osm-audit.json.tmp"):
+            # Private inputs are retained separately until the job expires.
+            for filename in (
+                "failure.json",
+                "result.json.tmp",
+                "private-osm-audit.json.tmp",
+                "private-processing-audit.json.tmp",
+            ):
                 (directory / filename).unlink(missing_ok=True)
         if error:
             (directory / "corrected.fit").unlink(missing_ok=True)
