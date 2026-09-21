@@ -183,3 +183,22 @@ def test_coverage_configuration_round_trips_to_worker_and_core(monkeypatch):
     for field in COVERAGE_ENVIRONMENT:
         assert getattr(actual, field) == getattr(expected, field)
         assert getattr(actual.pipeline_config(), field) == getattr(expected, field)
+
+
+@pytest.mark.parametrize("value", [None, "", "   ", "12345678", " 87654321 "])
+def test_metrika_environment(monkeypatch, value):
+    monkeypatch.delenv("YANDEX_METRIKA_ID", raising=False)
+    if value is not None:
+        monkeypatch.setenv("YANDEX_METRIKA_ID", value)
+    config = WebConfig.from_environment()
+    assert config.yandex_metrika_id == (value or "").strip()
+    assert "YANDEX_METRIKA_ID" not in config.processor_environment()
+
+
+@pytest.mark.parametrize(
+    "value", ["0", "-1", "1.5", "abc", "１２３", "9007199254740992", '"><script>']
+)
+def test_invalid_metrika_id_rejected(monkeypatch, value):
+    monkeypatch.setenv("YANDEX_METRIKA_ID", value)
+    with pytest.raises(ValueError, match="YANDEX_METRIKA_ID"):
+        WebConfig.from_environment()

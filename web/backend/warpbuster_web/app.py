@@ -400,8 +400,21 @@ def create_app(config: WebConfig | None = None, *, start_worker: bool = True):
     async def robots(request):
         return FileResponse(config.static_dir / "robots.txt", media_type="text/plain")
 
-    async def home(request):
+    def page_response(page: str, *, status_code: int = 200, headers=None):
+        counter_id = config.yandex_metrika_id
+        analytics = ""
+        if counter_id:
+            analytics = (
+                f'<script src="/assets/metrika.js" data-counter-id="{counter_id}" defer></script>'
+                '<noscript><div><img class="metrika-pixel" role="presentation" '
+                f'src="https://mc.yandex.ru/watch/{counter_id}" alt=""></div></noscript>'
+            )
         return HTMLResponse(
+            page.replace("<!-- analytics -->", analytics), status_code=status_code, headers=headers
+        )
+
+    async def home(request):
+        return page_response(
             render_page(
                 config.static_dir / "index.html",
                 origin=config.public_origin,
@@ -412,10 +425,10 @@ def create_app(config: WebConfig | None = None, *, start_worker: bool = True):
         )
 
     async def fix(request):
-        return FileResponse(config.static_dir / "fix" / "index.html")
+        return page_response((config.static_dir / "fix" / "index.html").read_text(encoding="utf-8"))
 
     async def faq(request):
-        return HTMLResponse(
+        return page_response(
             render_page(
                 config.static_dir / "faq" / "index.html",
                 origin=config.public_origin,
@@ -456,7 +469,7 @@ def create_app(config: WebConfig | None = None, *, start_worker: bool = True):
             description = (
                 "После обработки здесь появятся карта, показатели забега и сравнение треков."
             )
-        return HTMLResponse(
+        return page_response(
             render_page(
                 config.static_dir / "res" / "index.html",
                 origin=config.public_origin,
@@ -469,8 +482,8 @@ def create_app(config: WebConfig | None = None, *, start_worker: bool = True):
 
     async def http_error(request, error):
         if error.status_code == 404 and not request.url.path.startswith("/api/"):
-            return FileResponse(
-                config.static_dir / "404" / "index.html",
+            return page_response(
+                (config.static_dir / "404" / "index.html").read_text(encoding="utf-8"),
                 status_code=404,
                 headers={"X-Robots-Tag": "noindex, nofollow"},
             )

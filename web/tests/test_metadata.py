@@ -219,12 +219,12 @@ def test_robots_allows_pages_and_previews_but_blocks_api(app):
 
 
 @pytest.mark.parametrize("route", ["/", "/fix", "/faq", "/missing-page", "/res/invalid"])
-def test_pages_include_counter_and_accessible_telegram_link(app, route):
+def test_pages_disable_counter_by_default_and_keep_telegram_link(app, route):
     with TestClient(app, base_url=ORIGIN) as client:
         response = client.get(route)
         html = response.text
-        assert html.count('src="/assets/metrika.js"') == 1
-        assert "https://mc.yandex.ru/watch/112575529" in html
+        assert "/assets/metrika.js" not in html
+        assert "https://mc.yandex.ru/watch/" not in html
         assert 'href="https://t.me/taraskozlov"' in html
         assert 'aria-label="Тарас Козлов в Telegram"' in html
         csp = response.headers["content-security-policy"]
@@ -256,3 +256,32 @@ def test_www_redirect_returns_301_and_preserves_path_query(app, method):
         assert "set-cookie" not in response.headers
         assert client.get(ORIGIN + "/").status_code == 200
         assert client.get("https://evil.example/").status_code == 400
+
+
+@pytest.mark.parametrize("counter_id", ["12345678", "87654321"])
+def test_configured_counter_on_every_page_and_result_state(tmp_path, counter_id):
+    app = create_app(
+        WebConfig(
+            data_dir=tmp_path / "private", public_origin=ORIGIN, yandex_metrika_id=counter_id
+        ),
+        start_worker=False,
+    )
+    with TestClient(app, base_url=ORIGIN) as client:
+        uid, _ = ready_job(app)
+        for route in ("/", "/fix", "/faq", "/missing", "/res/invalid", f"/res/{uid}"):
+            response = client.get(route)
+            assert response.status_code == (404 if route in ("/missing", "/res/invalid") else 200)
+            assert response.text.count('src="/assets/metrika.js"') == 1
+            assert f'data-counter-id="{counter_id}"' in response.text
+            assert f"https://mc.yandex.ru/watch/{counter_id}" in response.text
+        assert "metrika.js" not in client.get("/api/results/missing/status").text
+
+
+def test_ready_result_has_no_counter_by_default(app):
+    with TestClient(app, base_url=ORIGIN) as client:
+        uid, _ = ready_job(app)
+        response = client.get(f"/res/{uid}")
+        assert response.status_code == 200
+        html = response.text
+        assert "/assets/metrika.js" not in html
+        assert "https://mc.yandex.ru/watch/" not in html

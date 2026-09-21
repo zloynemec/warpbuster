@@ -49,6 +49,7 @@ def _boolean_environment(name: str, default: bool) -> bool:
 class WebConfig(PipelineConfig):
     data_dir: Path = Path(".warpbuster-web")
     static_dir: Path = Path(__file__).resolve().parents[2] / "dist"
+    yandex_metrika_id: str = ""  # Empty disables browser analytics.
     public_origin: str = "http://127.0.0.1:8000"
     file_limit_bytes: int = 20 * 1024 * 1024  # Maximum bytes per FIT/GPX file.
     body_limit_bytes: int = 41 * 1024 * 1024  # Both files plus multipart framing.
@@ -73,6 +74,13 @@ class WebConfig(PipelineConfig):
         super().__post_init__()
         if self.fit_altitude_datum is not None:
             raise ValueError("web cannot assert FIT altitude datum for arbitrary uploads")
+        if self.yandex_metrika_id and (
+            not isinstance(self.yandex_metrika_id, str)
+            or not self.yandex_metrika_id.isascii()
+            or not self.yandex_metrika_id.isdecimal()
+            or not 0 < int(self.yandex_metrika_id) <= 2**53 - 1
+        ):
+            raise ValueError("YANDEX_METRIKA_ID must be empty or a positive safe integer")
         origin = urlsplit(self.public_origin)
         if (
             origin.scheme not in {"http", "https"}
@@ -189,6 +197,7 @@ class WebConfig(PipelineConfig):
             defaults.complete_missing_altitude if dem_mode is not DEMMode.DISABLED else False,
         )
         return cls(
+            yandex_metrika_id=os.environ.get("YANDEX_METRIKA_ID", "").strip(),
             data_dir=Path(os.environ.get("WARPBUSTER_WEB_DATA", str(defaults.data_dir))),
             static_dir=Path(os.environ.get("WARPBUSTER_WEB_STATIC", str(defaults.static_dir))),
             public_origin=os.environ.get("WARPBUSTER_WEB_ORIGIN", defaults.public_origin),
