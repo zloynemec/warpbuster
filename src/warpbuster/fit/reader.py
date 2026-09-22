@@ -150,12 +150,15 @@ def _message_snapshot(
 ) -> SourceMessage:
     native_fields: dict[SourceFieldName, object] = {}
     developer_fields: dict[SourceFieldName, object] = {}
+    stored_field_names: set[SourceFieldName] = set()
     for field in frame.fields:  # type: ignore[attr-defined]
         key = cast(SourceFieldName, field.name_or_num)
         if bool(getattr(field.field_def, "is_dev", False)):
             developer_fields[key] = cast(object, field.value)
         else:
             native_fields[key] = cast(object, field.value)
+            if field.field_def is not None:
+                stored_field_names.add(key)
     if developer_fields:
         native_fields["developer_fields"] = MappingProxyType(developer_fields)
 
@@ -169,6 +172,7 @@ def _message_snapshot(
         occurrence_index=occurrence_index,
         fields=MappingProxyType(native_fields),
         raw_chunk=bytes(chunk.bytes),
+        stored_field_names=frozenset(stored_field_names),
     )
 
 

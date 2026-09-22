@@ -38,6 +38,8 @@ class SourceMessage:
     occurrence_index: int
     fields: Mapping[SourceFieldName, object]
     raw_chunk: bytes
+    # Physically encoded native fields, excluding decoder-generated component values.
+    stored_field_names: frozenset[SourceFieldName] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)

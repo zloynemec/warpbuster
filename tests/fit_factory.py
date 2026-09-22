@@ -193,6 +193,8 @@ def write_repairable_activity(
     *,
     heart_rate_offset: int = 0,
     summary_timestamp_at_start: bool = False,
+    summary_speed_fields: tuple[str, ...] = ("enhanced_avg_speed",),
+    spike_increment_m: float = 10_000.0,
 ) -> bytes:
     """Write a READY single-spike FIT with corrupted coordinate-derived distance."""
     start = datetime(2026, 1, 1, 8, 0, tzinfo=UTC)
@@ -239,7 +241,7 @@ def write_repairable_activity(
     recorded_distance = 0.0
     for index in range(33):
         if index:
-            recorded_distance += 10_000.0 if index in {16, 17} else 6.0
+            recorded_distance += spike_increment_m if index in {16, 17} else 6.0
         latitude = 56.0 if index == 16 else 55.0
         longitude = 37.0 if index == 16 else 37.0 + index * 6.0 / metres_per_longitude_degree
         encoder.on_mesg(
@@ -266,7 +268,7 @@ def write_repairable_activity(
         "total_elapsed_time": duration,
         "total_timer_time": duration,
         "total_distance": recorded_distance,
-        "enhanced_avg_speed": recorded_distance / duration,
+        **{name: recorded_distance / duration for name in summary_speed_fields},
     }
     encoder.on_mesg(Profile["mesg_num"]["LAP"], dict(summary))
     encoder.on_mesg(

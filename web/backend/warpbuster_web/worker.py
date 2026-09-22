@@ -13,6 +13,7 @@ from dataclasses import replace
 
 from warpbuster.pipeline import DEFAULT_REPAIR_POLICY
 
+from .diagnostics import bounded_diagnostic, exception_diagnostic
 from .store import Store
 
 ERRORS = {
@@ -90,6 +91,7 @@ class Worker:
             **replace(DEFAULT_REPAIR_POLICY, fill_missing_from_course=has_course).as_dict(),
         )
         error = None
+        diagnostic = {}
         try:
             return_code, execution_error = self._run_processor(
                 command,
@@ -102,13 +104,16 @@ class Worker:
                 error = "processing_failed"
                 marker = directory / "failure.json"
                 if marker.is_file():
-                    candidate = json.loads(marker.read_text())["code"]
+                    failure = json.loads(marker.read_text())
+                    candidate = failure["code"]
                     if candidate in ERRORS:
                         error = candidate
+                    diagnostic = bounded_diagnostic(failure.get("diagnostic"))
             elif not (directory / "result.json").is_file():
                 error = "processing_failed"
-        except OSError, ValueError, KeyError:
+        except (OSError, ValueError, KeyError) as failure:
             error = "processing_failed"
+            diagnostic = exception_diagnostic(failure)
         finally:
             # Private inputs are retained separately until the job expires.
             for filename in (
@@ -183,6 +188,7 @@ class Worker:
             return_code=return_code,
             error=error,
             has_fit=not error and (directory / "corrected.fit").is_file(),
+            **({"diagnostic": diagnostic} if error and diagnostic else {}),
         )
 
     def _run_processor(self, command, timeout_seconds, environment):

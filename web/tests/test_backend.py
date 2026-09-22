@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+import os
 import sqlite3
 import sys
 import time
@@ -17,8 +18,13 @@ from tests.test_repair_cli import _missing_endpoint_fixture, _repairable_fixture
 from tests.test_unreachable_tail import tail_fixture
 from warpbuster.cli import main as cli_main
 from warpbuster.fit.reader import read_fit
+from warpbuster.fit.writer import FitWriteError
+from warpbuster.pipeline import DEMMode, OSMMode
+from warpbuster.pipeline import repair as pipeline
+from warpbuster_web import processing
 from warpbuster_web.app import create_app
 from warpbuster_web.config import WebConfig
+from warpbuster_web.diagnostics import DIAGNOSTIC_LIMITS, exception_diagnostic
 from warpbuster_web.events import EventLog
 from warpbuster_web.processing import PUBLIC_FIELDS, process_job
 
@@ -602,12 +608,83 @@ def test_processing_failure_and_expiry_are_logged_with_pair_id(app, client, file
     failure = events(app)[-1]
     assert failure["event"] == "processing_failed" and failure["pair_id"] == uid
     assert failure["error"] == "invalid_fit" and failure["return_code"] == 1
+    assert failure["diagnostic"]["reason"]
+    assert "Traceback" in failure["diagnostic"]["traceback"]
     assert (app.state.store.uploads_dir / uid / "original.fit").read_bytes() == b"not a FIT"
     with app.state.store.connect() as db:
         db.execute("UPDATE jobs SET expires=? WHERE uid=?", (time.time() - 1, uid))
     app.state.store.expire()
     assert events(app)[-1]["event"] == "pair_expired"
     assert not (app.state.store.uploads_dir / uid).exists()
+
+
+@pytest.mark.parametrize(
+    ("exception_class", "code"),
+    [(FitWriteError, "repair_refused"), (RuntimeError, "processing_failed")],
+)
+def test_processor_failure_reason_reaches_private_log_only(
+    app, client, files, monkeypatch, exception_class, code
+):
+    uid = submit(client, files).json()["uid"]
+    directory = app.state.config.data_dir / uid
+    reason = "PRIVATE_FAILURE_DETAIL: cannot add FIT field lap.enhanced_avg_speed"
+
+    def refuse(*args, **kwargs):
+        raise exception_class(reason)
+
+    monkeypatch.setattr(pipeline, "write_repaired_fit", refuse)
+    config = replace(
+        app.state.config,
+        osm_mode=OSMMode.DISABLED,
+        approximate_osm=False,
+        dem_mode=DEMMode.DISABLED,
+        complete_missing_altitude=False,
+    )
+    monkeypatch.setattr(WebConfig, "from_environment", classmethod(lambda cls: config))
+
+    def run_processor(command, timeout, environment):
+        # Exercise the real child entry point and parent handoff with an injected failure.
+        monkeypatch.setattr(sys, "argv", command[2:])
+        original_umask = os.umask(0o077)
+        try:
+            return_code = processing.main()
+        finally:
+            os.umask(original_umask)
+        marker = directory / "failure.json"
+        assert marker.stat().st_mode & 0o777 == 0o600
+        assert json.loads(marker.read_text())["diagnostic"]["reason"] == reason
+        return return_code, None
+
+    monkeypatch.setattr(app.state.worker, "_run_processor", run_processor)
+    assert app.state.store.claim() == uid
+    app.state.worker.process(uid)
+    failure = events(app)[-1]
+    assert failure["error"] == code
+    assert failure["diagnostic"]["reason"] == reason
+    assert exception_class.__name__ in failure["diagnostic"]["traceback"]
+    assert "refuse" in failure["diagnostic"]["traceback"]
+    assert app.state.store.events.path.stat().st_mode & 0o777 == 0o600
+    assert app.state.store.get(uid)["error"] == code
+    assert not (directory / "failure.json").exists()
+    assert not (directory / "corrected.fit").exists()
+    for path in (f"/res/{uid}", f"/api/results/{uid}", f"/api/results/{uid}/status"):
+        response = client.get(path)
+        assert "PRIVATE_FAILURE_DETAIL" not in response.text
+        assert "Traceback" not in response.text
+    for path in ("/logs/events.jsonl", f"/res/{uid}/failure.json"):
+        assert client.get(path).status_code == 404
+
+
+def test_exception_diagnostic_is_bounded_and_omits_frame_locals():
+    private_local = "PRIVATE_FRAME_LOCAL_MUST_NOT_BE_LOGGED"
+    try:
+        raise FitWriteError("x" * 100_000 + ": root cause")
+    except FitWriteError as error:
+        diagnostic = exception_diagnostic(error)
+    assert diagnostic["reason"].endswith(": root cause")
+    assert diagnostic["traceback"].endswith(": root cause\n")
+    assert all(len(diagnostic[key]) <= limit for key, limit in DIAGNOSTIC_LIMITS.items())
+    assert private_local not in diagnostic["traceback"]
 
 
 def test_rejected_pair_is_logged_and_partial_inputs_are_removed(app, client, files):

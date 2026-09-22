@@ -238,9 +238,54 @@ def test_writer_refuses_source_changed_after_plan(tmp_path: Path) -> None:
     assert not output_path.exists()
 
 
-def _ready_fixture(tmp_path: Path) -> tuple[Path, ActivityData, RepairPlan]:
+@pytest.mark.parametrize(
+    "speed_fields",
+    [("avg_speed",), ("enhanced_avg_speed",), ("avg_speed", "enhanced_avg_speed")],
+)
+def test_summary_repair_updates_only_physically_stored_speed_fields(
+    tmp_path: Path, speed_fields: tuple[str, ...]
+) -> None:
+    source, activity, plan = _ready_fixture(
+        tmp_path, summary_speed_fields=speed_fields, spike_increment_m=100.0
+    )
+    original_bytes = source.read_bytes()
+    speed_names = {"avg_speed", "enhanced_avg_speed"}
+    for summary in (*activity.laps, *activity.sessions):
+        assert summary.stored_field_names & speed_names == set(speed_fields)
+        # fitdecode exposes this value even when only avg_speed is encoded.
+        assert "enhanced_avg_speed" in summary.fields
+
+    result = write_repaired_fit(activity, plan)
+    fixed = read_fit(result.output_path)
+    assert source.read_bytes() == original_bytes
+    assert result.validation.valid and result.post_write_verified
+    assert result.diff.definitions_unchanged
+    assert result.bytes_written == len(original_bytes)
+    assert result.diff.unexpected_changed_field_count == 0
+    assert result.diff.timestamps.percentage == 100.0
+    assert result.diff.sensors.percentage == 100.0
+    assert result.diff.developer_fields.percentage == 100.0
+    assert result.diff.unknown_fields.compared_count == result.diff.unknown_fields.unchanged_count
+    assert result.summary_field_change_count == 2 * (1 + len(speed_fields))
+    for summary in (*fixed.laps, *fixed.sessions):
+        assert summary.stored_field_names & speed_names == set(speed_fields)
+        assert summary.fields["total_distance"] == pytest.approx(192.0, abs=0.05)
+        for name in {*speed_fields, "enhanced_avg_speed"}:
+            assert summary.fields[name] == pytest.approx(6.0, abs=0.002)
+
+
+def _ready_fixture(
+    tmp_path: Path,
+    *,
+    summary_speed_fields: tuple[str, ...] = ("enhanced_avg_speed",),
+    spike_increment_m: float = 10_000.0,
+) -> tuple[Path, ActivityData, RepairPlan]:
     source_path = tmp_path / "repairable.fit"
-    write_repairable_activity(source_path)
+    write_repairable_activity(
+        source_path,
+        summary_speed_fields=summary_speed_fields,
+        spike_increment_m=spike_increment_m,
+    )
     course_path = tmp_path / "course.gpx"
     observations = eastward_observations(
         [float(index) for index in range(33)],

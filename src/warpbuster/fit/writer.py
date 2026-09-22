@@ -640,7 +640,7 @@ def _summary_requests(
             continue
         corrected_average_speed = corrected_total / timer_time
         for field_name in ("avg_speed", "enhanced_avg_speed"):
-            if field_name not in message.fields:
+            if field_name not in message.stored_field_names:
                 continue
             requests.append(
                 _PatchRequest(

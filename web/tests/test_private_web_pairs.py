@@ -59,3 +59,29 @@ def test_six_private_pairs_reach_current_schema_without_mutating_sources(
         assert read_fit(tmp_path / "corrected.fit").records
         assert report["fit_diff"]["timestamps_unchanged"]
         assert report["fit_diff"]["sensors_unchanged"]
+
+
+@pytest.mark.private
+def test_private_fit_only_with_decoder_expanded_summary_speed(tmp_path):
+    fit = TRACKS / "BST_20250723145002_COROS.fit"
+    if not fit.is_file():
+        pytest.skip("private FIT-only regression fixture is unavailable")
+    original_hash = hashlib.sha256(fit.read_bytes()).digest()
+    shutil.copyfile(fit, tmp_path / "original.fit")
+    assert process_job(tmp_path, 100_000, has_course=False)
+    report = json.loads((tmp_path / "result.json").read_text())
+    assert report["mode"] == "fit_only"
+    diff = report["fit_diff"]
+    assert diff["summary_fields"] > 0
+    for name in (
+        "timestamps_unchanged",
+        "sensors_unchanged",
+        "developer_fields_unchanged",
+        "unknown_fields_unchanged",
+    ):
+        assert diff[name]
+    fixed = read_fit(tmp_path / "corrected.fit")
+    for summary in (*fixed.laps, *fixed.sessions):
+        assert "avg_speed" in summary.stored_field_names
+        assert "enhanced_avg_speed" not in summary.stored_field_names
+    assert hashlib.sha256(fit.read_bytes()).digest() == original_hash

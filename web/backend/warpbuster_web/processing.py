@@ -20,6 +20,7 @@ from warpbuster.report.gaps import distance_policy, gap_audit
 from warpbuster.report.repair import coverage_report
 
 from .config import WebConfig
+from .diagnostics import exception_diagnostic
 from .performance import public_performance
 
 PUBLIC_FIELDS = {
@@ -355,12 +356,19 @@ def main():
             has_course=not args.fit_only,
         )
     except ProcessingError as error:
-        (directory / "failure.json").write_text(json.dumps({"code": str(error)}), encoding="utf-8")
+        _write_failure(directory, str(error), error.__cause__ or error)
         return 1
-    except Exception:
-        (directory / "failure.json").write_text('{"code":"processing_failed"}', encoding="utf-8")
+    except Exception as error:
+        _write_failure(directory, "processing_failed", error)
         return 1
     return 0
+
+
+def _write_failure(directory, code, error):
+    marker = directory / "failure.json"
+    with marker.open("w", encoding="utf-8") as stream:
+        os.fchmod(stream.fileno(), 0o600)
+        json.dump({"code": code, "diagnostic": exception_diagnostic(error)}, stream)
 
 
 if __name__ == "__main__":
