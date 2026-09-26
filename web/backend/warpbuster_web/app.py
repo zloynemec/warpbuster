@@ -397,6 +397,9 @@ def create_app(config: WebConfig | None = None, *, start_worker: bool = True):
             filename="warpbuster-corrected.fit",
         )
 
+    async def favicon(request):
+        return FileResponse(config.static_dir / "favicon.png", media_type="image/png")
+
     async def robots(request):
         return FileResponse(config.static_dir / "robots.txt", media_type="text/plain")
 
@@ -509,6 +512,7 @@ def create_app(config: WebConfig | None = None, *, start_worker: bool = True):
         routes=[
             Route("/", home),
             Route("/robots.txt", robots),
+            Route("/favicon.png", favicon),
             Route("/health", health),
             Route("/fix", fix),
             Route("/faq", faq),

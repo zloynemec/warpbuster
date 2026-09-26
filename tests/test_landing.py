@@ -143,7 +143,7 @@ def test_shared_branding_on_both_pages(route: str) -> None:
     assert any(
         tag == "link"
         and attrs.get("rel") == "icon"
-        and urlsplit(attrs.get("href") or "").path == "/assets/favicon.svg"
+        and urlsplit(attrs.get("href") or "").path == "/favicon.png"
         for tag, attrs in page.nodes
     )
 

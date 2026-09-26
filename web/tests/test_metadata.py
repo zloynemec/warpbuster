@@ -285,3 +285,17 @@ def test_ready_result_has_no_counter_by_default(app):
         html = response.text
         assert "/assets/metrika.js" not in html
         assert "https://mc.yandex.ru/watch/" not in html
+
+
+def test_favicon_is_public_png_120px(app):
+    with TestClient(app, base_url=ORIGIN) as client:
+        response = client.get("/favicon.png")
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/png"
+        assert "x-robots-tag" not in response.headers
+        assert response.content[:8] == b"\x89PNG\r\n\x1a\n"
+        assert int.from_bytes(response.content[16:20], "big") == 120
+        assert int.from_bytes(response.content[20:24], "big") == 120
+        assert client.head("/favicon.png").status_code == 200
+        for route in ("/", "/fix", "/faq", "/res/invalid", "/missing"):
+            assert 'href="/favicon.png" type="image/png" sizes="120x120"' in client.get(route).text
