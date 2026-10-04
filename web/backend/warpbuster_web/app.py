@@ -7,6 +7,7 @@ import sqlite3
 import time
 import uuid
 from contextlib import asynccontextmanager
+from html import escape
 from urllib.parse import urlsplit
 
 from python_multipart.exceptions import MultipartParseError
@@ -17,7 +18,14 @@ from starlette.formparsers import MultiPartException, MultiPartParser
 from starlette.middleware import Middleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.requests import Request
-from starlette.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from starlette.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    Response,
+)
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
@@ -401,7 +409,20 @@ def create_app(config: WebConfig | None = None, *, start_worker: bool = True):
         return FileResponse(config.static_dir / "favicon.png", media_type="image/png")
 
     async def robots(request):
-        return FileResponse(config.static_dir / "robots.txt", media_type="text/plain")
+        rules = (config.static_dir / "robots.txt").read_text(encoding="utf-8").rstrip()
+        return PlainTextResponse(f"{rules}\n\nSitemap: {config.public_origin}/sitemap.xml\n")
+
+    async def sitemap(request):
+        # Only canonical, indexable pages; never publish result identifiers here.
+        urls = "".join(
+            f"  <url><loc>{escape(config.public_origin + route)}</loc></url>\n"
+            for route in ("/", "/fix", "/faq")
+        )
+        return Response(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + urls + "</urlset>\n",
+            media_type="application/xml",
+        )
 
     def page_response(page: str, *, status_code: int = 200, headers=None):
         counter_id = config.yandex_metrika_id
@@ -512,6 +533,7 @@ def create_app(config: WebConfig | None = None, *, start_worker: bool = True):
         routes=[
             Route("/", home),
             Route("/robots.txt", robots),
+            Route("/sitemap.xml", sitemap),
             Route("/favicon.png", favicon),
             Route("/health", health),
             Route("/fix", fix),

@@ -4,6 +4,7 @@ import json
 import secrets
 import time
 import uuid
+import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
 
 import pytest
@@ -211,6 +212,7 @@ def test_robots_allows_pages_and_previews_but_blocks_api(app):
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/plain")
         assert "Allow: /" in response.text
+        assert f"Sitemap: {ORIGIN}/sitemap.xml" in response.text
         assert "Disallow: /api/" in response.text
         assert "Disallow: /res" not in response.text
         assert "x-robots-tag" not in client.get("/").headers
@@ -299,3 +301,30 @@ def test_favicon_is_public_png_120px(app):
         assert client.head("/favicon.png").status_code == 200
         for route in ("/", "/fix", "/faq", "/res/invalid", "/missing"):
             assert 'href="/favicon.png" type="image/png" sizes="120x120"' in client.get(route).text
+
+
+@pytest.mark.parametrize("origin", [ORIGIN, "https://another.example"])
+def test_sitemap_contains_only_public_canonical_pages(tmp_path, origin):
+    app = create_app(
+        WebConfig(data_dir=tmp_path / "private", public_origin=origin), start_worker=False
+    )
+    with TestClient(app, base_url=origin) as client:
+        ready_job(app)
+        response = client.get("/sitemap.xml", headers={"X-Forwarded-Host": "untrusted.example"})
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/xml"
+        assert "x-robots-tag" not in response.headers
+        root = ET.fromstring(response.content)
+        ns = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
+        assert root.tag == ns + "urlset"
+        urls = [node.text for node in root.findall(f"{ns}url/{ns}loc")]
+        assert urls == [origin + route for route in ("/", "/fix", "/faq")]
+        for url in urls:
+            page = client.get(url)
+            assert page.status_code == 200
+            assert "noindex" not in page.headers.get("x-robots-tag", "")
+            assert 'name="robots" content="noindex' not in page.text
+        assert client.head("/sitemap.xml").status_code == 200
+        robots = client.get("/robots.txt")
+        assert robots.text.count("Sitemap:") == 1
+        assert f"Sitemap: {origin}/sitemap.xml" in robots.text
