@@ -58,6 +58,43 @@ warpbuster --version
 
 ## Быстрый старт
 
+### GPS-запись Trail Companion
+
+Извлеките `locations.csv` из ZIP-сессии и выполните:
+
+```bash
+warpbuster analyze-gps locations.csv --json analysis.json --gpx trusted.gpx
+```
+
+JSON содержит каждую исходную точку по `seq`, статус `trusted` / `rejected` /
+`uncertain`, причины и свидетельства существующего Integrity Detector. GPX содержит
+только доверенные исходные точки; исключения и разрывы более 60 секунд разделяют
+сегменты. Координаты и время не исправляются, новые точки не добавляются.
+
+CSV не задаёт вид спорта: по умолчанию применяется **running/trail** (предел
+невозможной скорости 25 м/с). Для записи другого типа используйте
+`--profile generic`; этот профиль не доказывает corruption только по скорости.
+Допущение и все пороги показаны в JSON. Доверие требует заявленной погрешности
+не более 25 м и нормального перехода к соседней точке; одиночная точка или одна
+лишь тишина детектора недостаточны. Большая погрешность означает неопределённость.
+Правдоподобные ложные координаты могут остаться нераспознанными.
+
+Файлы не перезаписываются без `--overwrite`; исходный CSV защищён и с этим флагом.
+Если доверенных точек нет, JSON, GPX и console явно сообщают об этом.
+Библиотечный API использует тот же анализ:
+
+```python
+from warpbuster.gps import GpsAnalysisConfig, analyze_gps, gps_report, trusted_gpx
+
+result = analyze_gps("locations.csv", GpsAnalysisConfig())
+report = gps_report(result)  # dict с тем же содержимым, что analysis.json
+gpx_text = trusted_gpx(result)
+```
+
+Пороги политики задаются в `GpsAnalysisConfig`: `max_horizontal_accuracy_m=25.0`,
+`max_gap_seconds=60.0`, `detector=IntegrityConfig.running()`.
+Подробная политика: [CLI_SPEC](docs/CLI_SPEC.md#21-warpbuster-analyze-gps).
+
 ### Полная обработка FIT с необязательным GPX
 
 Установите дополнительные пакеты для OSM из этого репозитория:

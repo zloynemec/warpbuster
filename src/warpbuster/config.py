@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 
@@ -251,6 +251,24 @@ class IntegrityConfig:
             raise ValueError("distance_spike_max_position_island_records must be at least one")
         if self.distance_spike_max_evidence < 0:
             raise ValueError("distance_spike_max_evidence must not be negative")
+
+
+@dataclass(frozen=True, slots=True)
+class GpsAnalysisConfig:
+    """Point acceptance policy, separate from physical corruption detection."""
+
+    # Recorder has no sport: explicitly assume running/trail unless overridden.
+    detector: IntegrityConfig = field(default_factory=IntegrityConfig.running)
+    # Metres: larger/unknown declared error means uncertain, never corruption.
+    max_horizontal_accuracy_m: float = 25.0
+    # Seconds: longer transitions cannot establish trust and split GPX segments.
+    max_gap_seconds: float = 60.0
+
+    def __post_init__(self) -> None:
+        for name in ("max_horizontal_accuracy_m", "max_gap_seconds"):
+            value = getattr(self, name)
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError(f"{name} must be finite and greater than zero")
 
 
 @dataclass(frozen=True, slots=True)

@@ -496,6 +496,10 @@ HTML/JSON audit проверен автоматически; ручной browse
    FIT-only и optional ввод старта/финиша либо общей точки кольца на карте или
    координатами. Пока зафиксирован только сценарий, без подробного ТЗ.
    Сценарий: [Task 024](../tasks/024-web-start-finish-input.md).
+7. **Task 025 — Trail Companion GPS Analysis:** отдельный CLI/Python CSV-сценарий,
+   независимый от Task 024. Существующий Integrity Detector, статусы каждой seq и
+   GPX только из trusted исходных точек, без реконструкции и изменений web.
+   Реализован 2026-11-03; [контракт и приёмка](../tasks/025-trail-companion-gps.md).
 
 Прочие будущие epics:
 

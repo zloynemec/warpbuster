@@ -149,6 +149,8 @@ def _source_console(activity: ActivityData) -> str:
     if isinstance(preservation, FitPreservationData):
         crc_valid = "yes" if preservation.crc_valid else "no"
         return f"FIT profile: {preservation.profile_version} (CRC valid: {crc_valid})"
+    if not isinstance(preservation, GpxPreservationData):
+        return "Source: recorder locations.csv"
     return (
         f"GPX version: {_display(preservation.version)}; "
         f"creator: {_display(preservation.creator)}; "

@@ -127,6 +127,73 @@ splits для pace/ascent/descent. Эти значения помечаются 
 помечает данные validated output как `Repaired FIT`; dry-run не выдаёт candidate за
 фактическую performance activity.
 
+## 2.1. `warpbuster analyze-gps`
+
+```bash
+warpbuster analyze-gps locations.csv --json analysis.json --gpx trusted.gpx
+warpbuster analyze-gps locations.csv --json analysis.json --gpx trusted.gpx --profile generic
+```
+
+Отдельный CSV-сценарий CLI/Python API, без web, FIT writer, реконструкции, GPX course,
+OSM и DEM. Здесь `--json` принимает обязательный путь, а не переключает stdout.
+`--gpx` также обязателен. Exit code `0` означает успешный анализ и экспорт, включая
+пустой трек; `2` — ошибка аргументов, входа или записи. Результат анализа показан в
+файле и кратком console summary, а не в exit code corruption.
+
+Вход — UTF-8 CSV, допустим BOM. Обязательны столбцы `seq`, `fix_timestamp_utc`,
+`lat`, `lon`, `horizontal_accuracy_m`, `speed_mps`, `speed_accuracy_mps`, `course_deg`,
+`course_accuracy_deg`. `seq` — уникальное неотрицательное целое. Порядок задаётся
+числовым `seq`, даже если строки перемешаны. Обязательны конечные координаты в
+диапазонах широты/долготы и полный ISO 8601 timestamp с датой, временем до секунд
+и UTC timezone (`Z` / `+00:00` / `-00:00`). Числовой underflow запрещён. Неположительные
+временные переходы сохраняются и оцениваются детектором как UNKNOWN; часы не чинятся.
+Пустые/отрицательные измерения accuracy/speed/course считаются недоступными;
+нечисловые и бесконечные значения запрещены. Доступный `course_deg` лежит в [0,360).
+Дополнительные столбцы допустимы; исходный CSV сохраняется в памяти без изменений.
+`quality_flags` возвращается как источник, но не определяет статус WB.
+
+Политика `GpsAnalysisConfig`:
+
+- Detector вызывается один раз через `analyze_integrity`. CSV не сообщает sport;
+  default `running` является явным допущением и записывается в `profile_assumption`.
+  `--profile generic` сохраняет неопределённость без предела невозможной скорости.
+- Точки внутри доказанных HIGH corrupted intervals получают `rejected/HIGH`.
+  Причины и `interval_indices` ссылаются на исходный detector report. Интервалы
+  меньшей уверенности и uncertain tail recovery дают `uncertain/LOW`.
+- Для `trusted/MEDIUM` нужна известная горизонтальная погрешность не более
+  `max_horizontal_accuracy_m` (25 м) и хотя бы один соседний NORMAL transition с
+  положительным временем не более `max_gap_seconds` (60 с). Не требуется доступная
+  sensor speed или course. Неразрешённые SUSPICIOUS/IMPOSSIBLE/UNKNOWN transitions
+  у точки препятствуют доверию. Переходы к уже доказанно rejected точкам игнорируются
+  при выборе статуса нормальных соседей, но сохраняются в evidence.
+- NORMAL переход через долгий разрыв не является свидетельством доверия. Если есть
+  поддержка с другой стороны, точка может остаться trusted, а GPX разделяет сегменты.
+  Иначе результат uncertain. Плохая/неизвестная погрешность сама не даёт rejected.
+
+JSON `scope=gps_point_acceptance`, `schema_version=0.1`: source, ordering, policy,
+profile_assumption, summary, track_status, points и detector. В points каждая seq
+ровно один раз: исходные GPS-измерения, статус/confidence/reasons, transitions с
+from_seq/to_seq, расстоянием, временем и скоростью, interval_indices. Detector
+сохраняет существующий формат отчёта и его индексы records (с нуля, в порядке seq).
+`track_status=no_trusted_points` явно обозначает отсутствие принятого трека.
+
+GPX 1.1 содержит только trusted точки, исходные координаты и timestamps в порядке
+seq. Каждый пропуск rejected/uncertain и положительный временной разрыв >60 с
+разделяет `trkseg`; интерполяции нет. При отсутствии trusted нет `trkpt`, причина
+записана в `trk/desc`. Это экспорт наблюдений, не восстановленный маршрут.
+
+Оба output paths проверяются до записи, включая совпадения через symlink/hardlink.
+Вход и выходы должны быть различны. Существующие файлы требуют `--overwrite`;
+symlink output запрещён. Каждый файл публикуется атомарно из временного файла,
+оба сначала подготавливаются. Пара файлов не является общей файловой транзакцией:
+при ошибке публикации второго первый уже может быть записан.
+
+Python API: `warpbuster.gps.analyze_gps(path, config=None)` возвращает
+`GpsAnalysisResult` с source, config, integrity и points. `gps_report(result)` /
+`gps_json(result)` / `trusted_gpx(result)` — чистые сериализаторы. Чтение отдельно:
+`read_locations(path)`. Ошибки CSV — `GpsReadError`, файловые ошибки — `OSError`.
+Пороги политики можно менять через Python API; CLI выбирает профиль детектора.
+
 ## 3. `warpbuster repair`
 
 Появляется только после завершения detector milestones.

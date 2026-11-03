@@ -16,6 +16,7 @@ class ActivityFileFormat(StrEnum):
 
     FIT = "fit"
     GPX = "gpx"
+    LOCATIONS_CSV = "locations_csv"
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,7 +122,16 @@ class GpxPreservationData:
     source_format: ActivityFileFormat = field(default=ActivityFileFormat.GPX, init=False)
 
 
-type ActivityPreservationData = FitPreservationData | GpxPreservationData
+@dataclass(frozen=True, slots=True)
+class CsvPreservationData:
+    """Original recorder CSV retained without implying FIT or GPX semantics."""
+
+    source_path: Path
+    raw_bytes: bytes
+    source_format: ActivityFileFormat = field(default=ActivityFileFormat.LOCATIONS_CSV, init=False)
+
+
+type ActivityPreservationData = FitPreservationData | GpxPreservationData | CsvPreservationData
 
 
 @dataclass(frozen=True, slots=True)

@@ -4,19 +4,23 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import tempfile
 from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
 
 from warpbuster import __version__
 from warpbuster.activity_reader import ActivityReadError, read_activity
+from warpbuster.config import GpsAnalysisConfig, IntegrityConfig
 from warpbuster.fit.diff import diff_fit
 from warpbuster.fit.reader import FitReadError
 from warpbuster.fit.validate import validate_fit
 from warpbuster.fit.writer import (
     default_output_path,
 )
+from warpbuster.gps import analyze_gps, gps_json, trusted_gpx
 from warpbuster.gpx.course import GpxCourseReadError, read_gpx_course
 from warpbuster.integrity import analyze_integrity
 from warpbuster.models.integrity import IntegrityConfidence, IntegrityStatus
@@ -97,6 +101,20 @@ def build_parser() -> argparse.ArgumentParser:
         version=f"%(prog)s {__version__}",
     )
     subparsers = parser.add_subparsers(dest="command")
+    gps_parser = subparsers.add_parser(
+        "analyze-gps",
+        help="analyze Trail Companion locations.csv and export trusted points",
+    )
+    gps_parser.add_argument("locations_csv", type=Path)
+    gps_parser.add_argument("--json", type=Path, required=True, metavar="REPORT")
+    gps_parser.add_argument("--gpx", type=Path, required=True, metavar="TRACK")
+    gps_parser.add_argument(
+        "--profile",
+        choices=("running", "generic"),
+        default="running",
+        help="detector profile; default running assumes running/trail",
+    )
+    gps_parser.add_argument("--overwrite", action="store_true")
     inspect_parser = subparsers.add_parser(
         "inspect",
         help="inspect the contents of a FIT or GPX activity",
@@ -345,6 +363,36 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run the WarpBuster command-line interface."""
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.command == "analyze-gps":
+        try:
+            gps_policy = GpsAnalysisConfig(
+                detector=(
+                    IntegrityConfig.running() if args.profile == "running" else IntegrityConfig()
+                )
+            )
+            gps_result = analyze_gps(args.locations_csv, gps_policy)
+            _write_gps_outputs(
+                args.locations_csv,
+                (
+                    (args.json, gps_json(gps_result)),
+                    (args.gpx, trusted_gpx(gps_result)),
+                ),
+                overwrite=args.overwrite,
+            )
+        except (ValueError, OSError) as error:
+            print(f"error: {error}", file=sys.stderr)
+            return 2
+        counts = {
+            status: sum(point.status == status for point in gps_result.points)
+            for status in ("trusted", "rejected", "uncertain")
+        }
+        print(
+            f"GPS: {counts['trusted']} trusted, {counts['rejected']} rejected, "
+            f"{counts['uncertain']} uncertain; profile={args.profile}"
+        )
+        if not counts["trusted"]:
+            print("No trusted points; GPX contains no track points.")
+        return 0
     if args.command == "inspect":
         try:
             activity = read_activity(args.activity_file)
@@ -760,6 +808,50 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     parser.print_help()
     return 0
+
+
+def _write_gps_outputs(
+    source: Path,
+    outputs: tuple[tuple[Path, str], tuple[Path, str]],
+    *,
+    overwrite: bool,
+) -> None:
+    """Stage both artifacts before publishing; protect source aliases and existing files."""
+    destinations = tuple(path for path, _ in outputs)
+    paths = (source, *destinations)
+    for index, path in enumerate(paths):
+        for other in paths[:index]:
+            if path.resolve() == other.resolve() or (
+                path.exists() and other.exists() and path.samefile(other)
+            ):
+                raise ValueError("input and both output paths must be distinct")
+    for path in destinations:
+        if path.is_symlink():
+            raise ValueError(f"output must not be a symlink: {path}")
+        if path.exists() and (not overwrite or not path.is_file()):
+            raise ValueError(f"output already exists (use --overwrite to replace a file): {path}")
+    staged: dict[Path, Path] = {}
+    try:
+        for destination, contents in outputs:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=destination.parent,
+                prefix=f".{destination.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as stream:
+                staged[destination] = Path(stream.name)
+                stream.write(contents)
+        # shortcut: publication is atomic per file; use a transaction if pair-wide atomicity is needed.
+        for destination, temporary in staged.items():
+            if overwrite:
+                os.replace(temporary, destination)
+            else:
+                os.link(temporary, destination)
+    finally:
+        for temporary in staged.values():
+            temporary.unlink(missing_ok=True)
 
 
 def _confidence_argument(value: str) -> IntegrityConfidence:
