@@ -16,7 +16,7 @@ from warpbuster.pipeline import (
     run_repair,
 )
 from warpbuster.pipeline.coverage import CoverageStatus
-from warpbuster.report.gaps import distance_policy, gap_audit
+from warpbuster.report.gaps import coordinate_free_reconstruction, distance_policy, gap_audit
 from warpbuster.report.repair import coverage_report
 
 from .config import WebConfig
@@ -223,6 +223,9 @@ def process_job(
         },
         "fit_diff": None,
     }
+    notice = coordinate_free_reconstruction(written_plan, selection)
+    if notice is not None:
+        report["coordinate_free_reconstruction"] = notice
     if web_config.complete_missing_altitude:
         report["altitude_completion"] = run.dem.altitude.public_summary()
     if web_config.approximate_osm:

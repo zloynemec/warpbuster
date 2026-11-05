@@ -321,6 +321,9 @@ class CourseReconstructionConfig:
     mixed_region_max_clean_gap_records: int = 15
     missing_alignment_min_position_records: int = 30
     missing_alignment_max_distance_ratio_error: float = 0.15
+    # Dimensionless: maximum abs(GPX length - FIT distance delta) / FIT delta
+    # for an assumed full traversal when the original FIT contains no coordinates.
+    coordinate_free_max_distance_ratio_error: float = 0.10
     # Metres: absolute floor for path/signal length comparison on short gaps.
     # This is a reconstruction tolerance, never evidence of coordinate corruption.
     signal_distance_absolute_tolerance_m: float = 3.0
@@ -338,6 +341,12 @@ class CourseReconstructionConfig:
 
     def __post_init__(self) -> None:
         """Reject unsafe or contradictory reconstruction bounds."""
+        if (
+            isinstance(self.coordinate_free_max_distance_ratio_error, bool)
+            or not math.isfinite(self.coordinate_free_max_distance_ratio_error)
+            or not 0 <= self.coordinate_free_max_distance_ratio_error < 1
+        ):
+            raise ValueError("coordinate_free_max_distance_ratio_error must be finite in [0, 1)")
         positive_values = {
             "signal_distance_absolute_tolerance_m": self.signal_distance_absolute_tolerance_m,
             "signal_path_score_penalty_m": self.signal_path_score_penalty_m,

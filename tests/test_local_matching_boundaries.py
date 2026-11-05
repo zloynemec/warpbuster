@@ -11,6 +11,7 @@ from warpbuster.config import CourseReconstructionConfig
 from warpbuster.gpx.course import read_gpx_course
 from warpbuster.integrity import analyze_integrity
 from warpbuster.models.activity import SourceMessage
+from warpbuster.models.integrity import IntegrityConfidence
 from warpbuster.models.reconstruction import CourseDirection, GapRepairPlan
 from warpbuster.reconstruction import build_repair_plan, local
 
@@ -150,13 +151,15 @@ def test_missing_or_non_monotonic_time_never_uses_record_order(
     assert plan.unresolved_gaps[0].reasons[0].value == "timing_unusable"
 
 
-def test_no_observed_anchors_remains_visible_and_unresolved(tmp_path: Path) -> None:
+def test_no_observed_anchors_uses_explicit_whole_course_assumption(tmp_path: Path) -> None:
     activity, course = local_fixture(tmp_path, missing=((0, 599),))
     plan = build_repair_plan(
         activity, analyze_integrity(activity), course, fill_missing_from_course=True
     )
-    assert len(plan.gaps) == len(plan.unresolved_gaps) == 1
-    assert plan.unresolved_gaps[0].reasons[0].value == "no_trusted_local_anchor"
+    assert len(plan.gaps) == len(plan.interval_plans) == 1
+    assert not plan.unresolved_gaps
+    assert plan.interval_plans[0].reasons[0].value == "whole_course_assumption"
+    assert plan.interval_plans[0].confidence is IntegrityConfidence.MEDIUM
 
 
 def test_prefix_cannot_use_an_intermediate_segment_as_course_start(tmp_path: Path) -> None:

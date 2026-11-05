@@ -73,6 +73,45 @@ def gap_candidate_report(
     }
 
 
+def coordinate_free_reconstruction(
+    plan: RepairPlan, selection: RepairSelection
+) -> dict[str, object] | None:
+    """Disclose the assumed whole path without claiming it was observed."""
+    for candidate in plan.interval_plans:
+        if (
+            not isinstance(candidate, GapRepairPlan)
+            or ReconstructionReason.WHOLE_COURSE_ASSUMPTION not in candidate.reasons
+        ):
+            continue
+        provenance = candidate.provenance
+        assert provenance is not None and provenance.recorded_distance_delta_m is not None
+        recorded = provenance.recorded_distance_delta_m
+        course = provenance.course_span_distance_m
+        selected = candidate in selection.selected_interval_plans
+        status = (
+            "applied" if selected and plan.output_written else "planned" if selected else "skipped"
+        )
+        return {
+            "status": status,
+            "confidence": candidate.confidence.value,
+            "recorded_distance_m": recorded,
+            "course_distance_m": course,
+            "distance_ratio_error": abs(course - recorded) / recorded,
+            "direction": provenance.direction.value,
+            "allocation_method": provenance.allocation_method.value,
+            "message": (
+                f"Whole-course reconstruction {status}: original FIT contains no coordinates. "
+                "Assumed the entire GPX was followed from first to last point in stored order; "
+                "actual route and direction are unconfirmed. Positions allocated by recorded "
+                f"distance (FIT {recorded:.2f} m; GPX {course:.2f} m; "
+                f"difference {abs(course - recorded) / recorded:.1%}). "
+                "Timestamps, recorded distance/speed, altitude and sensors preserved. "
+                "Path confidence: MEDIUM."
+            ),
+        }
+    return None
+
+
 def distance_policy(selection: RepairSelection) -> dict[str, object]:
     unresolved_geometry = any(
         isinstance(decision.interval, ReconstructionGap)

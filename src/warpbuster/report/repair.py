@@ -32,7 +32,12 @@ from warpbuster.models.reconstruction import (
 from warpbuster.pipeline.coverage import ObservedGpsCoverage
 from warpbuster.reconstruction.selection import select_repair_intervals
 from warpbuster.report.candidate_ranking import candidate_ranking_console, candidate_ranking_report
-from warpbuster.report.gaps import gap_audit, gap_candidate_report, gap_console
+from warpbuster.report.gaps import (
+    coordinate_free_reconstruction,
+    gap_audit,
+    gap_candidate_report,
+    gap_console,
+)
 from warpbuster.report.osm import osm_reconstruction_console, osm_reconstruction_report
 
 
@@ -121,6 +126,9 @@ def repair_report(
     }
     if osm_result is not None:
         report["osm_reconstruction"] = osm_reconstruction_report(osm_result)
+    notice = coordinate_free_reconstruction(plan, selection)
+    if notice is not None:
+        report["coordinate_free_reconstruction"] = notice
     if ranking_result is not None:
         report["candidate_ranking"] = candidate_ranking_report(ranking_result)
     if plan.automatic_osm_json is not None:
@@ -221,6 +229,9 @@ def repair_console(
         f"Selected coordinate updates: {selected_coordinate_update_count}",
     ]
     decisions = {_decision_key(decision.interval): decision for decision in selection.decisions}
+    notice = coordinate_free_reconstruction(plan, selection)
+    if notice is not None:
+        lines.append(str(notice["message"]))
     lines.extend(
         _interval_console(
             interval,

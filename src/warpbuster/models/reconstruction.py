@@ -108,6 +108,7 @@ class ReconstructionReason(StrEnum):
     INSUFFICIENT_CORRUPTION_PROOF = "insufficient_corruption_proof"
     INVALIDATION_BELOW_THRESHOLD = "invalidation_below_threshold"
     NO_TRUSTED_LOCAL_ANCHOR = "no_trusted_local_anchor"
+    WHOLE_COURSE_ASSUMPTION = "whole_course_assumption"
     LOCAL_COURSE_MATCH_NOT_FOUND = "local_course_match_not_found"
     LOCAL_COURSE_MATCH_AMBIGUOUS = "local_course_match_ambiguous"
     LOCAL_DISTANCE_INCONSISTENT = "local_distance_inconsistent"
@@ -193,6 +194,7 @@ class MissingCourseRunKind(StrEnum):
     PREFIX = "prefix"
     SUFFIX = "suffix"
     INTERNAL = "internal"
+    WHOLE_ACTIVITY = "whole_activity"
 
 
 class RepairIntervalAction(StrEnum):

@@ -62,7 +62,17 @@ export function endpointMessage(report) {
   return "";
 }
 
-const gapKinds = { internal: "Внутренний участок", prefix: "Начало записи", suffix: "Конец записи" };
+export function coordinateFreeMessage(report) {
+  const reconstruction = report.coordinate_free_reconstruction;
+  if (report.mode !== "fit_with_course" || report.outcome !== "repaired" || reconstruction?.status !== "applied") return "";
+  const distances = [reconstruction.recorded_distance_m, reconstruction.course_distance_m, reconstruction.distance_ratio_error].every(Number.isFinite)
+    ? ` Дистанция FIT: ${number.format(reconstruction.recorded_distance_m / 1000)} км; GPX: ${number.format(reconstruction.course_distance_m / 1000)} км; расхождение: ${percent(reconstruction.distance_ratio_error * 100)}.`
+    : "";
+  return "В исходном FIT не было координат. Координаты всей записи восстановлены по GPX от первой до последней точки в порядке их записи. Положение в каждый момент рассчитано по накопленной дистанции FIT."
+    + distances + " Временные метки, записанные дистанция и скорость, высота и показания датчиков сохранены. Это предполагаемый маршрут: фактический путь и направление прохождения не подтверждены.";
+}
+
+const gapKinds = { internal: "Внутренний участок", prefix: "Начало записи", suffix: "Конец записи", whole_activity: "Вся запись" };
 const gapReasons = {
   no_course: "Нет подходящего пути для восстановления",
   insufficient_observed_gps_coverage: "Недостаточно исходных GPS-данных",
@@ -76,5 +86,5 @@ export function gapCells(gap) {
   const reasons = [...new Set((gap.reasons || []).map(reason => gapReasons[reason]).filter(Boolean))];
   return [String(gap.number), gapKinds[gap.kind] || "Участок", applied ? `Восстановлен${provider ? ` по ${provider}` : ""}` : "Не восстановлен",
     String(applied ? gap.filled_points ?? "—" : gap.unresolved_points ?? "—"),
-    applied ? (gap.estimated ? "Распределение по времени" : "Вариант прошёл проверки") : reasons.join(". ") || "Недостаточно данных или уверенности"];
+    applied ? (gap.kind === "whole_activity" && gap.provider === "gpx" ? "Полное восстановление по GPX; фактический путь не подтверждён" : gap.estimated ? "Распределение по времени" : "Вариант прошёл проверки") : reasons.join(". ") || "Недостаточно данных или уверенности"];
 }

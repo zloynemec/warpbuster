@@ -302,7 +302,9 @@ def inventory_gaps(
             default=None,
         )
         kind = (
-            MissingCourseRunKind.PREFIX
+            MissingCourseRunKind.WHOLE_ACTIVITY
+            if start == 0 and end == len(records) - 1
+            else MissingCourseRunKind.PREFIX
             if start == 0
             else MissingCourseRunKind.SUFFIX
             if end == len(records) - 1

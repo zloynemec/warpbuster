@@ -2,7 +2,7 @@ import { requestJson, ApiError } from "./api.mjs";
 import { createResultPoller } from "./polling.mjs";
 import { createTrackMap } from "./result-map.mjs?v=023b";
 import { renderRunSummary } from "./run-summary.mjs";
-import { coverageDetails, coverageMessage, coverageRefused, endpointMessage, gapCells, returnToUpload, finishResultNavigation } from "./fit-only.mjs?v=023b";
+import { coverageDetails, coverageMessage, coverageRefused, coordinateFreeMessage, endpointMessage, gapCells, returnToUpload, finishResultNavigation } from "./fit-only.mjs?v=026";
 
 let trackMap;
 let runSummary;
@@ -31,7 +31,7 @@ function renderReport(data, status) {
   };
   const [title, description] = messages[data.outcome] || messages.unresolved;
   byId("result-title").textContent = coverageRefused(data) ? "Восстановление без GPX не запущено." : title;
-  byId("result-description").textContent = description + (data.partial ? " Часть участков осталась невосстановленной." : "");
+  byId("result-description").textContent = (coordinateFreeMessage(data) || description) + (data.partial ? " Часть участков осталась невосстановленной." : "");
   byId("result-mode").textContent = data.mode === "fit_only" ? "Восстановление без GPX" : data.mode === "fit_with_course" ? "Восстановление с GPX" : "";
   byId("coverage-details").textContent = coverageDetails(data.observed_gps_coverage);
   byId("coverage-status").textContent = { passed: "GPS-данных достаточно для запуска восстановления", below_threshold: "Недостаточно GPS-данных", unavailable: "Покрытие GPS не определено", not_applicable: "" }[data.observed_gps_coverage?.status] || "";

@@ -36,7 +36,7 @@ from warpbuster.pipeline.coverage import ObservedGpsCoverage
 from warpbuster.reconstruction.selection import select_repair_intervals
 from warpbuster.report.analyze import analyze_report
 from warpbuster.report.fit import write_result_report
-from warpbuster.report.gaps import distance_policy
+from warpbuster.report.gaps import coordinate_free_reconstruction, distance_policy
 from warpbuster.report.inspect import inspect_report
 from warpbuster.report.repair import repair_report
 
@@ -194,13 +194,21 @@ def write_repair_html(
     preserves_embedded_distance = all(
         candidate.preserve_recorded_distance for candidate in selection.selected_interval_plans
     )
-    payload["metrics_comparison"] = _metrics_comparison(
+    comparison = _metrics_comparison(
         activity,
         course=course,
         comparison_activity=fixed_activity,
         comparison_coordinate_overrides=(coordinate_overrides if fixed_activity is None else None),
         comparison_preserves_embedded_distance=preserves_embedded_distance,
     )
+    payload["metrics_comparison"] = comparison
+    notice = coordinate_free_reconstruction(
+        replace(plan, output_written=fixed_activity is not None), selection
+    )
+    if notice is not None:
+        notes = comparison["notes"]
+        assert isinstance(notes, list)
+        notes.insert(0, notice["message"])
     payload["missing_position_runs"] = (
         _missing_position_runs(fixed_activity)
         if fixed_activity is not None

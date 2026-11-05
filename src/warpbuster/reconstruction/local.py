@@ -6,7 +6,7 @@ from bisect import bisect_right
 from dataclasses import dataclass, replace
 from hashlib import sha256
 from itertools import pairwise, product
-from math import cos, isfinite, radians
+from math import cos, isclose, isfinite, radians
 
 from warpbuster.config import CourseReconstructionConfig, IntegrityConfig
 from warpbuster.geo import geodesic_distance_m
@@ -200,6 +200,25 @@ def build_repair_plan(
     mask = coordinate_mask(activity, integrity, minimum_invalidation_confidence)
     gaps = inventory_gaps(activity, mask)
     index = _CourseIndex(course, config) if course is not None else None
+    coordinate_free = (
+        len(gaps) == 1
+        and gaps[0].kind is MissingCourseRunKind.WHOLE_ACTIVITY
+        and all(r.latitude is None and r.longitude is None for r in activity.records)
+        and not any(
+            message.fields.get(field) is not None
+            for message in (*activity.sessions, *activity.laps)
+            for field in (
+                "start_position_lat",
+                "start_position_long",
+                "end_position_lat",
+                "end_position_long",
+                "nec_lat",
+                "nec_long",
+                "swc_lat",
+                "swc_long",
+            )
+        )
+    )
     transitions = {
         (item.from_record_index, item.to_record_index): item.classification
         for item in integrity.transitions
@@ -229,6 +248,7 @@ def build_repair_plan(
             if index is None
             else Reason.MISSING_COMPLETION_DISABLED
             if not fill_missing_from_course
+            and not coordinate_free
             and (gap.original_missing_count or gap.kind is not MissingCourseRunKind.INTERNAL)
             else Reason.SEARCH_LIMIT_REACHED
             if gap.record_count > config.missing_completion_max_run_records
@@ -240,8 +260,12 @@ def build_repair_plan(
             unresolved.append(UnresolvedGap(gap, (reason,), timing=clock.audit if clock else None))
             continue
         assert index is not None
-        result = _reconstruct_gap(
-            activity, mask, transitions, gap, index, config, integrity.config, clock=clock
+        result = (
+            _reconstruct_coordinate_free(activity, gap, index, config, integrity.config, clock)
+            if coordinate_free
+            else _reconstruct_gap(
+                activity, mask, transitions, gap, index, config, integrity.config, clock=clock
+            )
         )
         if isinstance(result, GapRepairPlan):
             candidates.append(result)
@@ -292,6 +316,63 @@ def build_repair_plan(
         minimum_invalidation_confidence=minimum_invalidation_confidence,
         maximum_new_transition_speed_mps=config.missing_completion_max_connector_speed_mps,
         distance_spike_repairs=integrity.distance_spike_evidence,
+    )
+
+
+def _reconstruct_coordinate_free(
+    activity: ActivityData,
+    gap: ReconstructionGap,
+    index: _CourseIndex,
+    config: CourseReconstructionConfig,
+    integrity_config: IntegrityConfig,
+    clock: AllocationClock | None,
+) -> GapRepairPlan | UnresolvedGap:
+    """Assume one full forward traversal, without manufacturing observed anchors."""
+    if len(index.course.segments) != 1:
+        return UnresolvedGap(gap, (Reason.LOCAL_COURSE_MATCH_AMBIGUOUS,))
+    if clock is None:
+        return UnresolvedGap(gap, (Reason.TIMING_UNUSABLE,))
+    distance = qualify_distance(activity.records, integrity_config)
+    if distance.status != "plausible":
+        return UnresolvedGap(gap, (Reason.OBSERVED_DISTANCE_INCONSISTENT,))
+    segment = index.course.segments[0]
+    observed = distance.cumulative[-1]
+    error = abs(segment.length_m - observed)
+    ratio = error / observed
+    threshold = config.coordinate_free_max_distance_ratio_error
+    # Decimal FIT distances and geodesic lengths can round across an inclusive boundary.
+    if ratio > threshold and not isclose(ratio, threshold):
+        return UnresolvedGap(gap, (Reason.OBSERVED_DISTANCE_INCONSISTENT,))
+    if segment.length_m < config.minimum_course_span_m:
+        return UnresolvedGap(gap, (Reason.COURSE_TRAVERSAL_IMPLAUSIBLE,))
+    path = _Path(
+        _endpoint(segment, False), _endpoint(segment, True), CourseDirection.FORWARD, 0.0, ()
+    )
+    candidate = _allocate_path(
+        activity,
+        gap,
+        path,
+        index,
+        (),
+        replace(
+            config,
+            signal_distance_absolute_tolerance_m=max(
+                config.signal_distance_absolute_tolerance_m, error
+            ),
+        ),
+        integrity_config,
+        clock=clock,
+    )
+    if isinstance(candidate, Reason):
+        return UnresolvedGap(gap, (candidate,))
+    assert candidate.provenance is not None
+    if candidate.provenance.allocation_method is not AllocationMethod.RECORDED_DISTANCE:
+        return UnresolvedGap(gap, (Reason.ACTIVE_TIME_TRAVERSAL_IMPLAUSIBLE,))
+    return replace(
+        candidate,
+        confidence=IntegrityConfidence.MEDIUM,
+        reasons=(Reason.WHOLE_COURSE_ASSUMPTION, Reason.RECORDED_DISTANCE_PRESERVED),
+        provenance=replace(candidate.provenance, endpoint_source="whole_course_assumption"),
     )
 
 

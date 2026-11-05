@@ -11,6 +11,7 @@ from math import cos, radians
 import pytest
 from starlette.testclient import TestClient
 from tests.fit_factory import write_trajectory_activity
+from tests.local_reconstruction_factory import local_fixture
 from tests.processing_factory import processing_fixture
 from tests.test_repair_cli import _repairable_fixture
 from warpbuster.cli import main as cli_main
@@ -52,6 +53,25 @@ def offline_config(path, **kwargs):
         complete_missing_altitude=False,
         **kwargs,
     )
+
+
+def test_coordinate_free_course_reconstruction_public_report(tmp_path):
+    activity, course = local_fixture(tmp_path, count=100, missing=((0, 99),))
+    (tmp_path / "original.fit").write_bytes(activity.preservation.raw_bytes)
+    (tmp_path / "course.gpx").write_bytes(course.raw_bytes)
+    assert process_job(tmp_path, 100_000, config=offline_config(tmp_path))
+    report = json.loads((tmp_path / "result.json").read_text())
+    assert report["outcome"] == "repaired"
+    assert report["gaps"][0]["kind"] == "whole_activity"
+    assert report["gaps"][0]["reasons"] == [
+        "whole_course_assumption",
+        "recorded_distance_preserved",
+    ]
+    assert report["coordinate_free_reconstruction"]["status"] == "applied"
+    assert "no coordinates" in report["coordinate_free_reconstruction"]["message"]
+    assert str(tmp_path) not in json.dumps(report)
+    assert report["fit_diff"]["timestamps_unchanged"]
+    assert report["fit_diff"]["distance_fields"] == 0
 
 
 def upload(client, files, *, key=None, data=None):

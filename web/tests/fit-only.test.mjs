@@ -1,6 +1,38 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { coverageDetails, coverageMessage, coverageRefused, endpointMessage, gapCells, openSubmittedResult, returnToUpload, finishResultNavigation } from "../dist/assets/fit-only.mjs";
+import { coverageDetails, coverageMessage, coverageRefused, coordinateFreeMessage, endpointMessage, gapCells, openSubmittedResult, returnToUpload, finishResultNavigation } from "../dist/assets/fit-only.mjs";
+
+test("full GPX reconstruction explains the assumption and preserved telemetry", () => {
+  const report = { mode: "fit_with_course", outcome: "repaired", coordinate_free_reconstruction: {
+    status: "applied", recorded_distance_m: 11481.08, course_distance_m: 12343.88,
+    distance_ratio_error: 0.0751496586, message: "SECRET <script>untrusted()</script>",
+  } };
+  const message = coordinateFreeMessage(report);
+  assert.match(message, /В исходном FIT не было координат/);
+  assert.match(message, /всей записи восстановлены по GPX/);
+  assert.match(message, /от первой до последней точки/);
+  assert.match(message, /накопленной дистанции FIT/);
+  assert.match(message, /11,48 км/);
+  assert.match(message, /12,34 км/);
+  assert.match(message, /7,51%/);
+  assert.match(message, /высота и показания датчиков сохранены/);
+  assert.match(message, /путь и направление прохождения не подтверждены/);
+  assert.doesNotMatch(message, /SECRET|<script>/);
+  for (const status of ["planned", "skipped", undefined]) {
+    assert.equal(coordinateFreeMessage({ ...report, coordinate_free_reconstruction: {
+      ...report.coordinate_free_reconstruction, status,
+    } }), "");
+  }
+  assert.equal(coordinateFreeMessage({ ...report, outcome: "unresolved" }), "");
+  assert.equal(coordinateFreeMessage({ ...report, mode: "fit_only" }), "");
+  assert.equal(coordinateFreeMessage({ outcome: "repaired" }), "");
+  const noDistances = coordinateFreeMessage({ ...report, coordinate_free_reconstruction: { status: "applied" } });
+  assert.match(noDistances, /всей записи восстановлены по GPX/);
+  assert.doesNotMatch(noDistances, /NaN|undefined|км|%/);
+  assert.deepEqual(gapCells({ number: 1, kind: "whole_activity", provider: "gpx", action: "applied", filled_points: 100 }), [
+    "1", "Вся запись", "Восстановлен по GPX", "100", "Полное восстановление по GPX; фактический путь не подтверждён",
+  ]);
+});
 
 const uid = "a".repeat(43);
 const refusal = status => ({ mode: "fit_only", observed_gps_coverage: {
