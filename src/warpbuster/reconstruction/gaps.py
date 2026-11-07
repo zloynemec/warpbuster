@@ -5,7 +5,10 @@ from __future__ import annotations
 from dataclasses import replace
 from math import isfinite
 
-from warpbuster.integrity.odometer import validate_distance_spike_evidence
+from warpbuster.integrity.odometer import (
+    distance_spike_island_bounds,
+    validate_distance_spike_evidence,
+)
 from warpbuster.integrity.tail import position_available, reachability_excess
 from warpbuster.models.activity import ActivityData, ActivityRecord, FitPreservationData
 from warpbuster.models.integrity import (
@@ -154,16 +157,9 @@ def _has_scope_proof(
             and interval.trusted_before_record_index == proof.anchor_record_index
             and interval.entry_transition.from_record_index == proof.anchor_record_index
             and interval.entry_transition.to_record_index == start
-            and 0 < start <= end < len(activity.records) - 1
-            and end - start + 1 <= integrity.config.distance_spike_max_position_island_records
-            and not has_position(activity.records[start - 1])
-            and not has_position(activity.records[end + 1])
-            and all(has_position(record) for record in activity.records[start : end + 1])
-            and all(
-                record.continuity_id == activity.records[start].continuity_id
-                for record in activity.records[start : end + 2]
-            )
             and validate_distance_spike_evidence(activity, proof)
+            and distance_spike_island_bounds(activity, proof, integrity.config)
+            == (end, interval.trusted_after_record_index)
         )
     if (
         interval.confidence is IntegrityConfidence.LOW

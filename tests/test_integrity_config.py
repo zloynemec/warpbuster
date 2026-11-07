@@ -51,6 +51,7 @@ def test_integrity_thresholds_are_named_and_serializable() -> None:
         "distance_spike_position_ratio": 3.0,
         "distance_spike_max_gap_records": 2_048,
         "distance_spike_max_position_island_records": 15,
+        "distance_spike_max_unreachable_island_records": 30,
         "distance_spike_max_evidence": 100,
     }
 
@@ -102,6 +103,7 @@ def test_running_profile_has_an_explicit_physical_ceiling() -> None:
         ("distance_spike_position_ratio", 0.0),
         ("distance_spike_max_gap_records", 0),
         ("distance_spike_max_position_island_records", 0),
+        ("distance_spike_max_unreachable_island_records", 0),
     ],
 )
 def test_integrity_thresholds_reject_non_positive_values(name: str, value: float) -> None:

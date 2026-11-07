@@ -571,7 +571,8 @@ def _diagnostics_console(integrity: IntegrityReport) -> list[str]:
             f"position_excess>={config.distance_spike_position_excess_m:.2f} m, "
             f"position_ratio>={config.distance_spike_position_ratio:.2f}, "
             f"gap_records<={config.distance_spike_max_gap_records}, "
-            f"island_records<={config.distance_spike_max_position_island_records}"
+            f"island_records<={config.distance_spike_max_position_island_records}, "
+            f"unreachable_island_records<={config.distance_spike_max_unreachable_island_records}"
         ),
         (
             "  Geometry thresholds: "

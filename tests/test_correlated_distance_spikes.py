@@ -167,6 +167,66 @@ def test_delayed_odometer_catchup_is_not_treated_as_corruption(tmp_path: Path) -
     assert not integrity.corrupted_intervals
 
 
+@pytest.mark.parametrize(
+    ("island_size", "island_offset_m", "recovery_offset_m", "invalidate"),
+    [
+        (30, 10_000.0, 0.0, True),
+        (31, 10_000.0, 0.0, False),
+        (30, 4_000.0, 0.0, False),  # Reachable by the end of the island.
+        (30, 10_000.0, 20_000.0, False),
+    ],
+)
+def test_long_island_requires_physical_exclusion_within_record_limit(
+    tmp_path: Path,
+    island_size: int,
+    island_offset_m: float,
+    recovery_offset_m: float,
+    invalidate: bool,
+) -> None:
+    start = 160
+    end = start + island_size
+    recovery = 1_150
+    observations: list[tuple[int, float | None, float | None]] = []
+    for index in range(1_180):
+        if index < 10:
+            offset = 0.0
+        elif start <= index < end:
+            offset = island_offset_m
+        elif index >= recovery:
+            offset = recovery_offset_m
+        else:
+            observations.append((index, None, None))
+            continue
+        observations.append((index, 55.0 + (index + offset) / 111_195.0, 37.0))
+
+    path = tmp_path / "long-island.fit"
+    write_trajectory_activity(
+        path,
+        observations,
+        retain_invalid_position_fields=True,
+        distances_m=[index + (island_offset_m if index >= start else 0) for index in range(1_180)],
+        speeds_mps=[1.0] * 1_180,
+    )
+    activity = read_fit(path)
+    integrity = analyze_integrity(activity)
+    assert [item.record_index for item in integrity.distance_spike_evidence] == [start]
+    assert [
+        (item.start_record_index, item.end_record_index, item.confidence)
+        for item in integrity.corrupted_intervals
+    ] == ([(start, end - 1, IntegrityConfidence.MEDIUM)] if invalidate else [])
+    assert not select_repair_intervals(build_repair_plan(activity, integrity)).has_changes
+
+    plan = build_repair_plan(
+        activity, integrity, minimum_invalidation_confidence=IntegrityConfidence.MEDIUM
+    )
+    assert [
+        point.record_index
+        for point in plan.coordinate_mask
+        if point.state is CoordinateState.INVALIDATED
+    ] == (list(range(start, end)) if invalidate else [])
+    assert plan.coordinate_mask[recovery].state is CoordinateState.PRESERVED
+
+
 def test_incomplete_speed_stream_blocks_distance_repair(tmp_path: Path) -> None:
     activity = read_fit(_unknown_geometry_fit(tmp_path, missing_speed_index=200))
     integrity = analyze_integrity(activity)

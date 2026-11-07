@@ -128,6 +128,8 @@ class IntegrityConfig:
     distance_spike_position_ratio: float = 3.0
     distance_spike_max_gap_records: int = 2_048
     distance_spike_max_position_island_records: int = 15
+    # Maximum island size in records when physical reachability also excludes every point.
+    distance_spike_max_unreachable_island_records: int = 30
     distance_spike_max_evidence: int = 100
 
     @classmethod
@@ -249,6 +251,8 @@ class IntegrityConfig:
             raise ValueError("distance_spike_max_gap_records must be at least one")
         if self.distance_spike_max_position_island_records < 1:
             raise ValueError("distance_spike_max_position_island_records must be at least one")
+        if self.distance_spike_max_unreachable_island_records < 1:
+            raise ValueError("distance_spike_max_unreachable_island_records must be at least one")
         if self.distance_spike_max_evidence < 0:
             raise ValueError("distance_spike_max_evidence must not be negative")
 

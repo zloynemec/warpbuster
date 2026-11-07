@@ -62,26 +62,13 @@ def detect_correlated_distance_spikes(
     }
     for proof in evidence:
         start = proof.record_index
-        if start == 0 or _has_position(activity.records[start - 1]):
+        bounds = distance_spike_island_bounds(activity, proof, config)
+        if bounds is None:
             continue
-        end = start
-        while end + 1 < len(activity.records) and _has_position(activity.records[end + 1]):
-            if activity.records[end + 1].continuity_id != activity.records[start].continuity_id:
-                break
-            end += 1
-            if end - start + 1 > config.distance_spike_max_position_island_records:
-                break
-        if (
-            end - start + 1 > config.distance_spike_max_position_island_records
-            or end + 1 >= len(activity.records)
-            or _has_position(activity.records[end + 1])
-            or any(index in occupied for index in range(start, end + 1))
-        ):
-            continue
+        end, after = bounds
         entry = transition_by_pair.get((proof.anchor_record_index, proof.record_index))
-        if entry is None:
+        if entry is None or any(index in occupied for index in range(start, end + 1)):
             continue
-        after = _next_position(activity, end + 1, config.distance_spike_max_gap_records)
         intervals.append(
             CorruptedInterval(
                 start_record_index=start,
@@ -106,6 +93,73 @@ def detect_correlated_distance_spikes(
         )
         occupied.update(range(start, end + 1))
     return OdometerDetectionResult(tuple(evidence), tuple(intervals))
+
+
+def distance_spike_island_bounds(
+    activity: ActivityData, proof: DistanceSpikeEvidence, config: IntegrityConfig
+) -> tuple[int, int | None] | None:
+    """Check the full positioned run and return its inclusive end and recovery index."""
+    records = activity.records
+    start = proof.record_index
+    if not 0 <= proof.anchor_record_index < start < len(records) or _has_position(
+        records[start - 1]
+    ):
+        return None
+
+    short_limit = config.distance_spike_max_position_island_records
+    scan_limit = max(short_limit, config.distance_spike_max_unreachable_island_records)
+    end = start
+    while end < min(start + scan_limit, len(records)) and _has_position(records[end]):
+        if records[end].continuity_id != records[start].continuity_id:
+            return None
+        end += 1
+    if (
+        end == start
+        or end >= len(records)
+        or records[end].continuity_id != records[start].continuity_id
+        or _has_position(records[end])
+    ):
+        return None
+
+    after = _next_position(activity, end, config.distance_spike_max_gap_records)
+    if end - start > short_limit and (
+        after is None
+        or not _long_island_is_unreachable(
+            records[proof.anchor_record_index], records[start:end], records[after], config
+        )
+    ):
+        return None
+    return end - 1, after
+
+
+def _long_island_is_unreachable(
+    before: ActivityRecord,
+    island: tuple[ActivityRecord, ...],
+    after: ActivityRecord,
+    config: IntegrityConfig,
+) -> bool:
+    ceiling = config.absolute_impossible_speed_mps
+    bridge_speed = config.bridge_max_speed_mps
+    if (
+        ceiling is None
+        or bridge_speed is None
+        or before.timestamp is None
+        or after.timestamp is None
+    ):
+        return False
+    bridge_seconds = (after.timestamp - before.timestamp).total_seconds()
+    if bridge_seconds <= 0 or _distance(before, after) > bridge_speed * bridge_seconds:
+        return False
+
+    for record in island:
+        if record.timestamp is None or not before.timestamp < record.timestamp < after.timestamp:
+            return False
+        elapsed = (record.timestamp - before.timestamp).total_seconds()
+        if _distance(before, record) < max(
+            config.absolute_impossible_distance_m, ceiling * elapsed
+        ):
+            return False
+    return True
 
 
 def validate_distance_spike_evidence(activity: ActivityData, proof: DistanceSpikeEvidence) -> bool:
@@ -281,6 +335,8 @@ def _has_position(record: ActivityRecord) -> bool:
         and record.longitude is not None
         and isfinite(record.latitude)
         and isfinite(record.longitude)
+        and -90 <= record.latitude <= 90
+        and -180 <= record.longitude <= 180
     )
 
 
