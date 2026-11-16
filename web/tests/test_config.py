@@ -1,6 +1,9 @@
 """Deployment configuration defaults and environment overrides."""
 
+import sys
+
 import pytest
+from warpbuster_web import __main__ as web_cli
 from warpbuster_web.config import DEMMode, OSMMode, WebConfig
 
 LIMIT_ENVIRONMENT = {
@@ -8,6 +11,46 @@ LIMIT_ENVIRONMENT = {
     "WARPBUSTER_WEB_MAX_OWNER_JOBS": "125",
     "WARPBUSTER_WEB_MAX_PENDING_JOBS": "60",
 }
+
+
+@pytest.mark.parametrize(
+    "origin", ["http://[::1]:8000", "https://[2001:db8::1]", "https://[::ffff:127.0.0.1]"]
+)
+def test_ipv6_public_origin_stops_startup(monkeypatch, origin):
+    monkeypatch.setenv("WARPBUSTER_WEB_ORIGIN", origin)
+
+    with pytest.raises(ValueError, match="IPv6 is unsupported"):
+        WebConfig.from_environment()
+
+
+@pytest.mark.parametrize("host", ["::", "::1", "[::1]", "::ffff:127.0.0.1"])
+def test_web_cli_rejects_ipv6_bind(monkeypatch, capsys, host):
+    monkeypatch.setattr(sys, "argv", ["warpbuster_web", "--host", host])
+    monkeypatch.setattr(web_cli.os, "umask", lambda mask: None)
+    monkeypatch.setattr(web_cli, "create_app", lambda: pytest.fail("invalid bind started the app"))
+
+    with pytest.raises(SystemExit) as error:
+        web_cli.main()
+
+    assert error.value.code == 2
+    assert "--host must be an IPv4 address or localhost" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("host", "expected"),
+    [("127.0.0.1", "127.0.0.1"), ("0.0.0.0", "0.0.0.0"), ("localhost", "127.0.0.1")],
+)
+def test_web_cli_binds_only_ipv4(monkeypatch, host, expected):
+    monkeypatch.setattr(sys, "argv", ["warpbuster_web", "--host", host])
+    monkeypatch.setattr(web_cli.os, "umask", lambda mask: None)
+    monkeypatch.setattr(web_cli, "create_app", lambda: None)
+
+    bind_hosts = []
+    monkeypatch.setattr(
+        web_cli.uvicorn, "run", lambda app, *, host, **kwargs: bind_hosts.append(host)
+    )
+    web_cli.main()
+    assert bind_hosts == [expected]
 
 
 def test_capacity_defaults_match_public_deployment_policy(monkeypatch):

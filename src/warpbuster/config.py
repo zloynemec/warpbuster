@@ -175,17 +175,17 @@ class IntegrityConfig:
             "distance_spike_position_ratio": self.distance_spike_position_ratio,
         }
         for name, value in positive_values.items():
-            if value <= 0:
-                raise ValueError(f"{name} must be greater than zero")
-        if (
-            self.absolute_impossible_speed_mps is not None
-            and self.absolute_impossible_speed_mps <= 0
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError(f"{name} must be finite and greater than zero")
+        for name, optional_value in (
+            ("absolute_impossible_speed_mps", self.absolute_impossible_speed_mps),
+            ("bridge_max_speed_mps", self.bridge_max_speed_mps),
+            ("vertical_warning_speed_mps", self.vertical_warning_speed_mps),
         ):
-            raise ValueError("absolute_impossible_speed_mps must be greater than zero")
-        if self.bridge_max_speed_mps is not None and self.bridge_max_speed_mps <= 0:
-            raise ValueError("bridge_max_speed_mps must be greater than zero")
-        if self.vertical_warning_speed_mps is not None and self.vertical_warning_speed_mps <= 0:
-            raise ValueError("vertical_warning_speed_mps must be greater than zero")
+            if optional_value is not None and (
+                not math.isfinite(optional_value) or optional_value <= 0
+            ):
+                raise ValueError(f"{name} must be finite and greater than zero")
         if (
             self.vertical_warning_speed_mps is not None
             and self.vertical_warning_single_transition_speed_mps < self.vertical_warning_speed_mps
@@ -237,8 +237,11 @@ class IntegrityConfig:
             )
         if self.geometry_scan_stride_records < 1:
             raise ValueError("geometry_scan_stride_records must be at least one")
-        if self.geometry_max_path_to_chord_ratio < 1.0:
-            raise ValueError("geometry_max_path_to_chord_ratio must be at least one")
+        if (
+            not math.isfinite(self.geometry_max_path_to_chord_ratio)
+            or self.geometry_max_path_to_chord_ratio < 1.0
+        ):
+            raise ValueError("geometry_max_path_to_chord_ratio must be finite and at least one")
         if self.geometry_max_bearing_change_degrees > 180.0:
             raise ValueError("geometry_max_bearing_change_degrees must not exceed 180")
         if self.geometry_max_warnings < 0:

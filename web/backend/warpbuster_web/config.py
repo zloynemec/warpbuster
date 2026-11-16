@@ -92,7 +92,11 @@ class WebConfig(PipelineConfig):
             or origin.fragment
         ):
             raise ValueError("public_origin must be a bare http(s) origin without a trailing slash")
-        if origin.scheme != "https" and origin.hostname not in {"localhost", "127.0.0.1", "::1"}:
+        if ":" in origin.hostname:
+            raise ValueError(
+                "public_origin must use an IPv4 address or hostname (IPv6 is unsupported)"
+            )
+        if origin.scheme != "https" and origin.hostname not in {"localhost", "127.0.0.1"}:
             raise ValueError("Non-loopback deployments require HTTPS")
         if self.data_dir.resolve().is_relative_to(self.static_dir.resolve()):
             raise ValueError("Private data must be outside the static directory")

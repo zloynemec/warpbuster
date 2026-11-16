@@ -73,6 +73,11 @@ def test_health_checks_database_without_creating_a_session(app):
         assert probe.head("/health").status_code == 200
 
 
+def test_http_rejects_ipv6_host(app):
+    with TestClient(app, base_url=ORIGIN) as probe:
+        assert probe.get("/health", headers={"Host": "[::1]:8000"}).status_code == 400
+
+
 def test_health_reports_database_failure_without_details(app, monkeypatch):
     def unavailable():
         raise sqlite3.OperationalError("private database path")

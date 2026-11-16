@@ -1,6 +1,7 @@
 """Integrity threshold configuration tests."""
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
+from typing import get_type_hints
 
 import pytest
 
@@ -110,6 +111,20 @@ def test_integrity_thresholds_reject_non_positive_values(name: str, value: float
     """Invalid profiles fail at construction instead of changing classifications."""
     with pytest.raises(ValueError):
         IntegrityConfig(**{name: value})  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        name
+        for name, annotation in get_type_hints(IntegrityConfig).items()
+        if annotation in (float, float | None)
+    ],
+)
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_float_thresholds_reject_non_finite_values(name: str, value: float) -> None:
+    with pytest.raises(ValueError, match=name):
+        replace(IntegrityConfig(), **{name: value})
 
 
 def test_bridge_floor_cannot_exceed_bridge_ceiling() -> None:

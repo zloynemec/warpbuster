@@ -23,7 +23,7 @@ def origin():
     value = os.environ.get("WARPBUSTER_ACCEPTANCE_ORIGIN", "").rstrip("/")
     if not value:
         pytest.skip("set WARPBUSTER_ACCEPTANCE_ORIGIN for local live acceptance")
-    assert urlsplit(value).hostname in {"127.0.0.1", "localhost", "::1"}
+    assert urlsplit(value).hostname in {"127.0.0.1", "localhost"}
     assert httpx.get(f"{value}/health", trust_env=False).status_code == 200
     return value
 

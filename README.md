@@ -56,6 +56,21 @@ warpbuster --version
 Команды ниже выполняются в активированном окружении. Вместо активации можно
 вызывать CLI напрямую: `.venv/bin/warpbuster`.
 
+## Тесты
+
+Установите зависимости для разработки в `.venv` и убедитесь, что Node.js доступен
+в `PATH`. Из корня репозитория выполните:
+
+```bash
+.venv/bin/python -m pip install -e '.[dev]' -e './web[dev]' \
+  -e './packages/osm-manager[dev]' -e './packages/osm-routing[dev]'
+sh scripts/test-all.sh
+```
+
+Скрипт запускает тесты Core, Web, OSM Manager, OSM Routing и JS. При первой ошибке
+он завершится с ненулевым кодом. Условия пропуска отдельных тестов описаны в
+[стратегии тестирования](docs/TEST_STRATEGY.md) и [документации Web](web/README.md#проверки).
+
 ## Быстрый старт
 
 ### GPS-запись Trail Companion
