@@ -1,0 +1,92 @@
+# Машиночитаемое описание текущего алгоритма
+
+[algorithm/flow.json](algorithm/flow.json) описывает действующий pipeline, точки входа,
+приоритеты решений, профили, отдельные confidence policies, FIT-only gate, GPX/OSM/DEM,
+запись FIT, отчёты, GPS CSV и варианты отказов. Ключи и идентификаторы — английские,
+объяснения — русские. Это описание реализованного поведения, а не план развития.
+
+[algorithm/implementation.json](algorithm/implementation.json) дополняет его точным
+снимком реализации: все Python-модули Core, OSM Manager, OSM Routing и Web backend,
+локальные JS-модули, публичные конфигурационные примеры, manifests зависимостей,
+Dockerfile и шаблон результата. Каталог большой намеренно: краткий пересказ не
+сохранил бы все ветви, проверки, defaults и причины отказов.
+
+## Как читать JSON
+
+- `flow.json`: `entrypoints` → `pipeline` по `id`/`next`; самостоятельные paths —
+  в `secondary_paths`. `ordered_rules` сохраняют приоритет, `scenario_matrix`
+  показывает семейства исходов. Не всякая стадия вызывается во всех режимах.
+- `implementation` в элементах flow содержит ссылки вида `путь.py::Class.method`.
+  Они разрешаются в `implementation.json → modules[].symbols[].id`.
+- `modules[].program` — структурированные statements Python 3.14 AST. `body`,
+  `orelse`, `handlers`, `finalbody` сохраняют порядок и вложенность. Expression
+  представлен объектом `{"python": "..."}`; это реальное выражение реализации,
+  а не новый язык policy. `decorator_list`, параметры и значения по умолчанию,
+  наследование, assignments, calls, returns и raises также сохранены.
+- `decision_points` индексирует условия, циклы, inline ternaries, Boolean
+  short-circuit, comparisons, comprehensions и explicit exception paths.
+  `line` указывает в исходный файл; `node` — ordinal исходного `ast.walk`.
+  Истинная/ложная ветвь и обработка исключений читаются в `program`.
+- `symbols` содержит docstrings, аргументы, annotations, объявленные поля/defaults,
+  assigned members (включая enum values) и диапазоны строк. `required=true` означает
+  отсутствие default в теле этого класса; наследование/factories смотрите в
+  `program`. Comments на строке поля сохранены в `source_line`; описания единиц
+  также есть в docstrings конфигурационных классов. Docstrings местами исторические:
+  при расхождении приоритет имеет код `program`, затем пояснения flow.
+- `resources[].source` хранит дословные JS/config/template sources. Для JavaScript
+  отдельный AST/branch index не заявляется. Сторонние vendor assets не копируются.
+- Суммы, сортировки, арифметика, включённые границы сравнений и fallback order
+  доступны в точных expressions. Все конфигурационные варианты включены как
+  declarations/factories/profile/env/CLI rules, а не только numeric defaults.
+
+`source_digest_sha256` и `sha256` каждого файла определяют описанный snapshot.
+Для проверки не нужен доступ к Git, сети, пользовательским трекам или `.env`.
+Приватная production-конфигурация, данные активности, cookies и диагностика
+пользователей в артефакт не включаются.
+
+## Проверка и обновление
+
+Из корня проекта:
+
+```sh
+.venv/bin/python scripts/export_algorithm.py --check
+.venv/bin/python -m pytest -q tests/test_algorithm_documentation.py
+```
+
+При изменении алгоритма сначала обновите соответствующие объяснения/ссылки в
+`flow.json`, затем пересоздайте точный каталог и проверьте его:
+
+```sh
+.venv/bin/python scripts/export_algorithm.py
+.venv/bin/python scripts/export_algorithm.py --check
+```
+
+Генератор использует только стандартную библиотеку и разбирает исходники через AST;
+не импортирует и не запускает код приложения. Выход детерминирован и не зависит
+от текущего времени, Git commit, доступности optional native dependencies и сети.
+Тест проверяет drift, ссылки flow и сохранение nested/exception/inline branches.
+Совпадение snapshot с кодом не доказывает истинность каждого ручного пояснения:
+при semantic изменении его необходимо отдельно пересмотреть.
+
+## Граница полноты
+
+Включены все синтаксические ветви перечисленных файлов, в том числе compatibility,
+диагностические и admin paths; само присутствие функции в каталоге не означает её
+вызова из `run_repair`. Исторические Markdown-документы проекта не используются
+как источник действующего алгоритма.
+
+Входных треков, состояний внешних сервисов и последовательностей исключений
+бесконечно много. Каталог не перечисляет каждое исполнение и не доказывает
+достижимость ветвей. Внутренние алгоритмы сторонних библиотек/Valhalla/OS не
+переопределяются: сохранены границы вызова, используемые версии/ограничения,
+проверки ответов и fallbacks собственного кода. Implicit Python/dependency
+exceptions определяются их semantics; explicit `try`/`except`/`finally` сохранены.
+
+Нет обещания, что каждый возможный маршрут найден, что distance/speed независимы
+от GNSS или что восстановленная geometry совпадает с фактическим движением.
+
+## История
+
+- 2026-11-18: добавлены описание текущего алгоритма, полный каталог ветвей и
+  проверка актуальности, чтобы отделить реализованное поведение от исторических
+  описаний и не терять редкие варианты при кратком пересказе.

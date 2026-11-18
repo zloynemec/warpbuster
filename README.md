@@ -468,6 +468,7 @@ Garmin, COROS и Strava нет — работа ведётся с экспорт
 - [CLI](docs/CLI_SPEC.md) — подробный контракт команд.
 - [Архитектура](docs/ARCHITECTURE.md) — устройство Core.
 - [Модель детекции](docs/DETECTION_MODEL.md) — основания для классификации ошибок.
+- [Текущий алгоритм в JSON](docs/ALGORITHM.md) — все этапы, варианты и точный каталог ветвей реализации.
 
 ### Task 012B: подтверждённый OSM fallback в Core
 
