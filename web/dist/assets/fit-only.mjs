@@ -72,6 +72,41 @@ export function coordinateFreeMessage(report) {
     + distances + " Временные метки, записанные дистанция и скорость, высота и показания датчиков сохранены. Это предполагаемый маршрут: фактический путь и направление прохождения не подтверждены.";
 }
 
+export function resultMessage(report) {
+  if (coverageRefused(report)) return ["Восстановление без GPX не запущено.", "Недостаточно пригодных исходных GPS-данных. Исходный FIT не изменён, исправленный файл не создавался."];
+  if (report.outcome === "repaired") return [
+    report.partial ? "Трек восстановлен частично." : "Трек обработан.",
+    coordinateFreeMessage(report) || (report.partial
+      ? "Проверенные изменения сохранены в исправленном FIT. Остальные участки остались невосстановленными. Исходный файл не изменён."
+      : "Повреждённые участки восстановлены по доступным GPX и OSM данным. Временные метки и показания датчиков сохранены."),
+  ];
+  if (report.outcome === "unchanged") return ["Без изменений.", "Ядро не выбрало изменений для записи. Исправленный FIT не создавался."];
+  if (report.osm?.status === "unavailable") return ["Восстановление не выполнено: ошибка OSM.", osmFailureMessage(report) + " Исправленный FIT не создавался."];
+  return ["Нужно больше уверенности.", "Безопасного варианта исправления не найдено. Исходный FIT не изменён, исправленный файл не создавался. На карте показан исходный трек."];
+}
+
+export function osmFailureMessage(report) {
+  if (report.osm?.status !== "unavailable") return "";
+  const stages = {
+    setup: "Не удалось запустить обработку OSM.",
+    coverage: "Не удалось подготовить область OSM для восстановления.",
+    acquisition: "Не удалось получить данные OSM для восстановления.",
+    prepare: "Не удалось подготовить карту OSM для поиска маршрута.",
+    routing: "Не удалось выполнить поиск маршрута по OSM.",
+  };
+  return (stages[report.osm.stage] || "При обработке OSM произошёл технический сбой.") + (report.outcome === "repaired"
+    ? " Проверенные изменения сохранены в исправленном FIT. Остальные участки не восстановлены."
+    : " Изменения не записаны. На карте показан исходный трек.");
+}
+
+export function altitudeMessage(report) {
+  const altitude = report.altitude_completion;
+  if (!altitude || ["disabled", "not_needed"].includes(altitude.status)) return "";
+  return altitude.status === "applied"
+    ? `Из DEM заполнена только отсутствующая высота: ${altitude.completed_records} записей. Существующая высота FIT сохранена.`
+    : "Отсутствующая высота не дополнена. Имеющиеся значения высоты FIT сохранены.";
+}
+
 const gapKinds = { internal: "Внутренний участок", prefix: "Начало записи", suffix: "Конец записи", whole_activity: "Вся запись" };
 const gapReasons = {
   no_course: "Нет подходящего пути для восстановления",

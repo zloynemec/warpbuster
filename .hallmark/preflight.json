@@ -1,0 +1,30 @@
+{
+  "mode": "audit",
+  "target": "WarpBuster web",
+  "genre": "editorial (inferred)",
+  "routes": {
+    "/": "web/dist/index.html (page)",
+    "/fix": "web/dist/fix/index.html (app)",
+    "/faq": "web/dist/faq/index.html (document)",
+    "/res/<uid>": "web/dist/res/index.html (app; source only)"
+  },
+  "evidence": [
+    "web/dist/assets/styles.css:2 palette",
+    "web/dist/assets/styles.css:1 Arial alias Trail",
+    "web/dist/index.html:18 brand logo",
+    "web/dist/index.html:38 trail photograph"
+  ],
+  "preserve": [
+    "logo",
+    "green and orange palette",
+    "honest conservative repair messaging",
+    "routes and handlers"
+  ],
+  "introduce": [],
+  "screenshots": "screens/",
+  "limitations": [
+    "successful result not rendered; no activity uploaded",
+    "sloplint file:// renders with missing styles excluded from visual findings",
+    "automated counts are raw, not confirmed defect totals"
+  ]
+}

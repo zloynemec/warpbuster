@@ -1,5 +1,6 @@
 const number = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 1 });
 export const formatMetric = value => Number.isFinite(value) ? number.format(value) : "—";
+export const formatWholeMetric = value => Number.isFinite(value) ? formatMetric(Math.round(value)) : "—";
 export function formatDuration(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) return "—";
   const whole = Math.round(seconds), hours = Math.floor(whole / 3600);
@@ -83,8 +84,8 @@ export function renderRunSummary(root, data) {
   for (const split of splits) {
     const row = root.createElement("tr");
     const values = [splitLabel(split), `${formatMetric(split.distance_m)} м`, formatDuration(split.elapsed_seconds),
-      formatPace(split.pace_seconds_per_km), `${formatMetric(split.ascent_m)} / ${formatMetric(split.descent_m)} м`,
-      formatMetric(split.average_heart_rate_bpm), formatMetric(split.average_cadence),
+      formatPace(split.pace_seconds_per_km), `${formatWholeMetric(split.ascent_m)} / ${formatWholeMetric(split.descent_m)} м`,
+      formatWholeMetric(split.average_heart_rate_bpm), formatWholeMetric(split.average_cadence),
       Number.isFinite(split.coordinate_coverage_ratio) ? `${Math.round(split.coordinate_coverage_ratio * 100)}%` : "—"];
     for (const value of values) { const cell = root.createElement("td"); cell.textContent = value; row.append(cell); }
     fragment.append(row);

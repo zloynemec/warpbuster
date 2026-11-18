@@ -65,6 +65,49 @@ def test_osm_failure_keeps_gpx_plan_and_exposes_only_safe_code(tmp_path, monkeyp
     assert not (tmp_path / "private-osm-audit.json").exists()
 
 
+def test_acquisition_failure_retains_bounded_private_cause_without_public_leaks(
+    tmp_path, monkeypatch
+):
+    from warpbuster_osm_manager import OsmManager
+    from warpbuster_osm_manager.errors import ErrorCode, OsmManagerError
+
+    _repairable_fixture(tmp_path)
+
+    def unavailable(self, *args, **kwargs):
+        try:
+            raise TimeoutError("SECRET network reason " + "x" * 10_000)
+        except TimeoutError as cause:
+            raise OsmManagerError(
+                ErrorCode.OVERPASS_UNAVAILABLE,
+                "SECRET acquisition failure",
+                {"attempt_count": 3, "last_error": "TimeoutError"},
+            ) from cause
+
+    monkeypatch.setattr(OsmManager, "ensure", unavailable)
+    config = WebConfig(
+        data_dir=tmp_path / "service",
+        osm_mode=OSMMode.AUTO,
+        isolate_osm=False,
+        dem_mode=DEMMode.DISABLED,
+        approximate_osm=False,
+        complete_missing_altitude=False,
+        osm_minimum_free_bytes=1,
+    )
+    assert process_job(tmp_path, 100_000, config=config)
+    public = (tmp_path / "result.json").read_text()
+    assert json.loads(public)["osm"]["error_code"] == "acquisition_failed"
+    assert "SECRET" not in public and "TimeoutError" not in public
+    audit_path = tmp_path / "private-osm-audit.json"
+    assert audit_path.is_file()
+    assert audit_path.stat().st_mode & 0o777 == 0o600
+    failure = json.loads(audit_path.read_text())["failure"]
+    assert failure["code"] == "OVERPASS_UNAVAILABLE"
+    assert failure["message"] == "SECRET acquisition failure"
+    assert "SECRET network reason" in failure["cause"]
+    assert len(failure["cause"]) <= 4096
+    assert "attempt_count" in failure["details"]
+
+
 def test_unexpected_osm_exception_cannot_fail_job_or_leak_text(tmp_path, monkeypatch):
     _repairable_fixture(tmp_path)
 

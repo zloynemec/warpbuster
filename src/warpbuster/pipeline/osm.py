@@ -34,6 +34,8 @@ from warpbuster.report.osm import osm_reconstruction_report
 from .config import DEFAULT_REPAIR_POLICY, OSMMode, PipelineConfig, RepairPolicy
 from .osm_worker import child_main
 
+_PRIVATE_FAILURE_TEXT_LIMIT = 4096  # Characters per field in the bounded private OSM audit.
+
 SAFE_ERROR_CODES = frozenset(
     {
         "coverage_limit",
@@ -196,7 +198,24 @@ def execute_osm_pipeline(
         )
     except OsmManagerError as error:
         return OSMResult(
-            base_plan, "unavailable", "acquisition", _safe_code(error, "acquisition_failed")
+            base_plan,
+            "unavailable",
+            "acquisition",
+            _safe_code(error, "acquisition_failed"),
+            private_audit={
+                "schema_version": 1,
+                "failure": {
+                    "stage": "acquisition",
+                    "code": str(error.code),
+                    "message": str(error)[:_PRIVATE_FAILURE_TEXT_LIMIT],
+                    "cause": repr(error.__cause__)[:_PRIVATE_FAILURE_TEXT_LIMIT]
+                    if error.__cause__ is not None
+                    else None,
+                    "details": json.dumps(error.details, ensure_ascii=False, default=str)[
+                        :_PRIVATE_FAILURE_TEXT_LIMIT
+                    ],
+                },
+            },
         )
     if time.monotonic() - started > config.osm_acquisition_timeout_seconds:
         return OSMResult(base_plan, "unavailable", "acquisition", "osm_timeout")

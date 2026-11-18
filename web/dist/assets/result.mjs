@@ -2,7 +2,7 @@ import { requestJson, ApiError } from "./api.mjs";
 import { createResultPoller } from "./polling.mjs";
 import { createTrackMap } from "./result-map.mjs?v=023b";
 import { renderRunSummary } from "./run-summary.mjs";
-import { coverageDetails, coverageMessage, coverageRefused, coordinateFreeMessage, endpointMessage, gapCells, returnToUpload, finishResultNavigation } from "./fit-only.mjs?v=026";
+import { altitudeMessage, coverageDetails, coverageMessage, coverageRefused, endpointMessage, gapCells, osmFailureMessage, resultMessage, returnToUpload, finishResultNavigation } from "./fit-only.mjs?v=027";
 
 let trackMap;
 let runSummary;
@@ -24,14 +24,9 @@ function showError(message, { retry = false, title = "Не удалось пол
 }
 
 function renderReport(data, status) {
-  const messages = {
-    repaired: ["Трек обработан.", "Повреждённые участки восстановлены по доступным GPX и OSM данным. Временные метки и показания датчиков сохранены."],
-    unchanged: ["Без изменений.", "Ядро не выбрало изменений для записи. Исправленный FIT не создавался."],
-    unresolved: ["Нужно больше уверенности.", "Безопасного варианта исправления не найдено. Исходная запись не изменялась. Исправленный FIT не создавался."],
-  };
-  const [title, description] = messages[data.outcome] || messages.unresolved;
-  byId("result-title").textContent = coverageRefused(data) ? "Восстановление без GPX не запущено." : title;
-  byId("result-description").textContent = (coordinateFreeMessage(data) || description) + (data.partial ? " Часть участков осталась невосстановленной." : "");
+  const [title, description] = resultMessage(data);
+  byId("result-title").textContent = title;
+  byId("result-description").textContent = description;
   byId("result-mode").textContent = data.mode === "fit_only" ? "Восстановление без GPX" : data.mode === "fit_with_course" ? "Восстановление с GPX" : "";
   byId("coverage-details").textContent = coverageDetails(data.observed_gps_coverage);
   byId("coverage-status").textContent = { passed: "GPS-данных достаточно для запуска восстановления", below_threshold: "Недостаточно GPS-данных", unavailable: "Покрытие GPS не определено", not_applicable: "" }[data.observed_gps_coverage?.status] || "";
@@ -59,14 +54,12 @@ function renderReport(data, status) {
     disabled: "OSM отключён оператором",
     complete: "OSM-проверка завершена",
     partial: "OSM-проверка завершена частично",
-    unavailable: "OSM временно недоступен",
+    unavailable: "Сбой при обработке OSM",
   };
   byId("osm-status").textContent = osmLabels[data.osm?.status] || "";
   byId("allocation-note").hidden = !(data.gaps || []).some(gap => gap.estimated);
-  byId("osm-warning").hidden = data.osm?.status !== "unavailable";
-  byId("osm-warning").textContent = data.osm?.status === "unavailable"
-    ? "Карта для дополнительного восстановления была недоступна. Если другие участки прошли проверки, их восстановление сохранено."
-    : "";
+  byId("osm-warning").textContent = osmFailureMessage(data);
+  byId("osm-warning").hidden = !byId("osm-warning").textContent;
   const approximate = (data.approximate_osm?.decisions || []).filter(item => item.approximate && item.selected_route_id);
   byId("approximate-warning").hidden = approximate.length === 0;
   byId("approximate-warning").textContent = approximate.length
@@ -77,11 +70,8 @@ function renderReport(data, status) {
   byId("dem-status").textContent = dem?.status === "complete"
     ? "DEM-профиль проверен для выбора OSM-маршрута."
     : dem?.status === "unavailable" ? "DEM недоступен. Решение по маршруту принято по остальным доступным данным." : "";
-  const altitude = data.altitude_completion;
-  byId("altitude-status").hidden = !altitude;
-  byId("altitude-status").textContent = altitude?.status === "applied"
-    ? `Из DEM заполнена только отсутствующая высота: ${altitude.completed_records} записей. Существующая высота FIT сохранена.`
-    : altitude ? `Высота FIT не дополнялась (${altitude.reason || altitude.status}); восстановление координат сохранено.` : "";
+  byId("altitude-status").textContent = altitudeMessage(data);
+  byId("altitude-status").hidden = !byId("altitude-status").textContent;
   byId("owner-download").hidden = !status.can_download;
   byId("no-file-note").hidden = data.outcome === "repaired";
   byId("share-url").value = `${window.location.origin}/res/${uid}`;
