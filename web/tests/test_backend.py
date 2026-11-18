@@ -73,6 +73,18 @@ def test_health_checks_database_without_creating_a_session(app):
         assert probe.head("/health").status_code == 200
 
 
+def test_assets_revalidate_cached_modules_on_each_visit(app):
+    with TestClient(app, base_url=ORIGIN) as probe:
+        response = probe.get("/assets/run-summary.mjs")
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-cache"
+        cached = probe.get(
+            "/assets/run-summary.mjs", headers={"If-None-Match": response.headers["etag"]}
+        )
+        assert cached.status_code == 304
+        assert cached.headers["cache-control"] == "no-cache"
+
+
 def test_http_rejects_ipv6_host(app):
     with TestClient(app, base_url=ORIGIN) as probe:
         assert probe.get("/health", headers={"Host": "[::1]:8000"}).status_code == 400

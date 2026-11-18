@@ -1,7 +1,7 @@
 import { requestJson, ApiError } from "./api.mjs";
 import { createResultPoller } from "./polling.mjs";
 import { createTrackMap } from "./result-map.mjs?v=023b";
-import { renderRunSummary } from "./run-summary.mjs";
+import { renderRunSummary } from "./run-summary.mjs?v=034";
 import { altitudeMessage, coverageDetails, coverageMessage, coverageRefused, endpointMessage, gapCells, osmFailureMessage, resultMessage, returnToUpload, finishResultNavigation } from "./fit-only.mjs?v=027";
 
 let trackMap;

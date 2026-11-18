@@ -178,6 +178,8 @@ class PrivacyMiddleware:
                             (b"x-robots-tag", b"noindex, nofollow, noarchive"),
                         ]
                     )
+                elif scope["path"].startswith("/assets/"):
+                    headers.append((b"cache-control", b"no-cache"))
                 message = {**message, "headers": headers}
             await send(message)
 
