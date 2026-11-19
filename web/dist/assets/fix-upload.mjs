@@ -4,8 +4,10 @@ import { coverageMessage, openSubmittedResult } from "./fit-only.mjs?v=023b";
 export function validateSelection(files, extension, maxBytes = Infinity) {
   if (files.length !== 1 || !files[0]) return "Добавь один файл в это поле.";
   const file = files[0];
-  if (!file.name.toLowerCase().endsWith(`.${extension}`)) {
-    return `Здесь нужен файл .${extension.toUpperCase()}. Проверь формат экспорта.`;
+  const suffixes = extension === "fit" ? [".fit", ".zip"] : [`.${extension}`];
+  if (!suffixes.some(suffix => file.name.toLowerCase().endsWith(suffix))) {
+    const format = extension === "fit" ? ".FIT или .ZIP с одним FIT" : `.${extension.toUpperCase()}`;
+    return `Здесь нужен файл ${format}. Проверь формат экспорта.`;
   }
   if (file.size === 0) return "Файл пустой. Экспортируй его ещё раз.";
   if (file.size > maxBytes) return `Файл слишком большой. Максимум — ${formatFileSize(maxBytes)}.`;

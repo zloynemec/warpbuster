@@ -32,11 +32,11 @@
             <div class="file-heading"><span class="file-step">01</span><span class="file-type">.FIT</span></div>
             <h3 id="fit-title">Запись с часов</h3>
             <p class="file-requirement">Обязательно</p>
-            <p class="file-explanation" id="fit-help">Оригинальный файл твоей пробежки с GPS-точками, временем и данными датчиков.</p>
+            <p class="file-explanation" id="fit-help">Оригинальный FIT твоей пробежки с GPS-точками, временем и данными датчиков. Можно загрузить ZIP с одним FIT-файлом.</p>
             <p class="file-source">Где взять: экспортируй активность с часов или из приложения производителя в формате FIT.</p>
             <div class="drop-zone" data-drop-zone="fit">
               <label class="file-picker" for="fit-file">
-                <input id="fit-file" type="file" accept=".fit" aria-labelledby="fit-title fit-action" aria-describedby="fit-help fit-error" disabled>
+                <input id="fit-file" type="file" accept=".fit,.zip" aria-labelledby="fit-title fit-action" aria-describedby="fit-help fit-error" disabled>
                 <svg class="upload-icon" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 21V5m-6 6 6-6 6 6M5 21v6h22v-6"/></svg>
                 <span class="picker-action" id="fit-action">Выбрать FIT-файл</span>
                 <span class="picker-hint">или перетащи его сюда</span>

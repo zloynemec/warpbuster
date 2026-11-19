@@ -7,8 +7,15 @@ test("accepts exported FIT and GPX names regardless of extension case or MIME", 
   assert.equal(validateSelection([{ name: "route.GpX", size: 400, type: "text/xml" }], "gpx"), "");
 });
 
-test("rejects switched files, disguised suffixes, and archives", () => {
-  for (const [name, extension] of [["route.gpx", "fit"], ["run.fit", "gpx"], ["run.fit.exe", "fit"], ["run.fit.zip", "fit"]]) {
+test("accepts ZIP activity exports and rejects ZIP in the course field", () => {
+  for (const name of ["run.zip", "run.fit.ZIP"]) {
+    assert.equal(validateSelection([{ name, size: 100, type: "application/zip" }], "fit"), "");
+  }
+  assert.match(validateSelection([{ name: "route.zip", size: 100 }], "gpx"), /Проверь формат/);
+});
+
+test("rejects switched files and disguised suffixes", () => {
+  for (const [name, extension] of [["route.gpx", "fit"], ["run.fit", "gpx"], ["run.fit.exe", "fit"], ["run.zip.exe", "fit"]]) {
     assert.match(validateSelection([{ name, size: 100 }], extension), /Проверь формат/);
   }
 });
@@ -62,6 +69,16 @@ async function page(requestOverride) {
 }
 const fit = () => new File(["synthetic"], "run.fit");
 const gpx = () => new File(["synthetic"], "route.gpx");
+
+test("ZIP selection enables submission and sends the archive as activity", async () => {
+  const p = await page();
+  const zip = new File(["synthetic archive"], "run.zip");
+  p.choose("fit", [zip]);
+  assert.equal(p.get("analyze-button").disabled, false);
+  await p.get("analyze-button").handlers.click();
+  assert.equal(p.jobs[0].body.get("activity").name, "run.zip");
+  assert.deepEqual([...p.jobs[0].body.keys()], ["activity"]);
+});
 
 test("FIT alone enables submission and sends no course part", async () => {
   const p = await page();

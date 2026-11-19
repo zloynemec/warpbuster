@@ -13,6 +13,35 @@ LIMIT_ENVIRONMENT = {
 }
 
 
+def test_zip_limit_defaults_and_environment(monkeypatch):
+    monkeypatch.delenv("WARPBUSTER_WEB_ZIP_MAX_ENTRIES", raising=False)
+    monkeypatch.delenv("WARPBUSTER_WEB_ZIP_MAX_DIRECTORY_BYTES", raising=False)
+    config = WebConfig.from_environment()
+    assert config.zip_max_entries == 128
+    assert config.zip_max_directory_bytes == 256 * 1024
+    monkeypatch.setenv("WARPBUSTER_WEB_ZIP_MAX_ENTRIES", "32")
+    monkeypatch.setenv("WARPBUSTER_WEB_ZIP_MAX_DIRECTORY_BYTES", "8192")
+    config = WebConfig.from_environment()
+    assert config.zip_max_entries == 32
+    assert config.zip_max_directory_bytes == 8192
+    assert "WARPBUSTER_WEB_ZIP_MAX_ENTRIES" not in config.processor_environment()
+
+
+@pytest.mark.parametrize("field", ["zip_max_entries", "zip_max_directory_bytes"])
+@pytest.mark.parametrize("value", [0, -1, True, 1.5, float("inf")])
+def test_invalid_zip_limits_rejected(field, value):
+    with pytest.raises(ValueError, match=field):
+        WebConfig(**{field: value})
+
+
+@pytest.mark.parametrize("name", ["ZIP_MAX_ENTRIES", "ZIP_MAX_DIRECTORY_BYTES"])
+@pytest.mark.parametrize("value", ["", "0", "-1", "1.5", "inf", "invalid"])
+def test_invalid_zip_environment_rejected(monkeypatch, name, value):
+    monkeypatch.setenv("WARPBUSTER_WEB_" + name, value)
+    with pytest.raises(ValueError, match=name):
+        WebConfig.from_environment()
+
+
 @pytest.mark.parametrize(
     "origin", ["http://[::1]:8000", "https://[2001:db8::1]", "https://[::ffff:127.0.0.1]"]
 )

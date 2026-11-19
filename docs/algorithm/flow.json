@@ -210,10 +210,13 @@
       "id": "web_job",
       "implementation": [
         "web/backend/warpbuster_web/app.py::create_app",
+        "web/backend/warpbuster_web/uploads.py::fit_zip_upload",
+        "web/backend/warpbuster_web/uploads.py::check_zip_directory",
         "web/backend/warpbuster_web/worker.py::Worker.process",
         "web/backend/warpbuster_web/processing.py::process_job"
       ],
-      "behavior": "Upload → validation/ownership/quota → queue → isolated processor → shared run_repair → allowlisted result. WebConfig defaults включают OSM auto, approximate OSM, DEM auto, altitude completion и Linux OSM isolation; env overrides проходят validation. Прямой process_job без config явно отключает optional stages.",
+      "behavior": "Upload FIT или ZIP с единственным непустым FIT → validation/ownership/quota → queue → isolated processor → shared run_repair → allowlisted result. ZIP читается без извлечения путей; в original.fit сохраняются исходные байты FIT, его размер и SHA-256 попадают в журнал. file_limit_bytes ограничивает и архив, и распакованный FIT. Вложенные папки допускаются, __MACOSX/._* и посторонние файлы игнорируются; несколько FIT, пароль, неподдерживаемое сжатие и повреждения отклоняются до очереди. WebConfig defaults включают OSM auto, approximate OSM, DEM auto, altitude completion и Linux OSM isolation; env overrides проходят validation. Прямой process_job без config явно отключает optional stages.",
+      "zip_preflight": "До ZipFile проверяются zip_max_entries (по умолчанию 128 всех записей) и zip_max_directory_bytes (256 КиБ каталога). Хвост ZIP читается ограниченным буфером; реальные заголовки каталога пересчитываются без создания ZipInfo, не доверяя счётчикам EOCD. Используется тот же физический диапазон каталога, что у ZipFile, включая prepended bytes. Превышения → HTTP 413, повреждённая структура или ZIP64/multi-disk каталог → HTTP 400; незавершённый upload удаляется. ZIP64 locator отклоняется даже при обычных EOCD-полях; ZIP64 local header небольшого FIT допускается. Отдельных CPU/RAM-квот на процесс распаковки нет.",
       "start": "read_inputs"
     },
     {

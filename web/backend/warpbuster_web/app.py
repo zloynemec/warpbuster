@@ -32,6 +32,7 @@ from starlette.staticfiles import StaticFiles
 from .config import WebConfig
 from .metadata import HOME_DESCRIPTION, HOME_TITLE, render_page, result_metadata
 from .store import CapacityError, Store, valid_token
+from .uploads import fit_zip_upload
 from .worker import Worker
 
 # Yandex's documented collector hosts; no broad wildcard script permissions.
@@ -306,18 +307,18 @@ def create_app(config: WebConfig | None = None, *, start_worker: bool = True):
                             400, "Нужны FIT-запись и, при наличии, один GPX маршрута."
                         )
                     has_course = "course" in keys
-                    for key, filename, extension in (
-                        ("activity", "original.fit", ".fit"),
-                        ("course", "course.gpx", ".gpx"),
+                    for key, filename, extensions in (
+                        ("activity", "original.fit", (".fit", ".zip")),
+                        ("course", "course.gpx", (".gpx",)),
                     ):
                         if key == "course" and not has_course:
                             continue
                         upload = form[key]
                         if not isinstance(upload, UploadFile) or not (
                             upload.filename or ""
-                        ).lower().endswith(extension):
+                        ).lower().endswith(extensions):
                             raise HTTPException(
-                                400, "Проверьте форматы: запись .fit и маршрут .gpx."
+                                400, "Проверьте форматы: запись .fit или .zip с FIT, маршрут .gpx."
                             )
                         if not upload.size:
                             raise HTTPException(400, "Один из файлов пустой.")
@@ -325,9 +326,21 @@ def create_app(config: WebConfig | None = None, *, start_worker: bool = True):
                             raise HTTPException(413, "Файл превышает допустимый размер.")
                         destination = inputs / filename
                         digest = hashlib.sha256()
-                        with destination.open("xb") as stream:
+                        size_bytes = 0
+                        with (
+                            fit_zip_upload(
+                                upload,
+                                config.file_limit_bytes,
+                                max_entries=config.zip_max_entries,
+                                max_directory_bytes=config.zip_max_directory_bytes,
+                            ) as source,
+                            destination.open("xb") as stream,
+                        ):
                             destination.chmod(0o600)
-                            while chunk := await upload.read(64 * 1024):
+                            while chunk := await source.read(64 * 1024):
+                                size_bytes += len(chunk)
+                                if size_bytes > config.file_limit_bytes:
+                                    raise HTTPException(413, "Файл превышает допустимый размер.")
                                 stream.write(chunk)
                                 digest.update(chunk)
                         store.events.write(
@@ -335,7 +348,7 @@ def create_app(config: WebConfig | None = None, *, start_worker: bool = True):
                             uid,
                             role=key,
                             file=filename,
-                            size_bytes=upload.size,
+                            size_bytes=size_bytes,
                             sha256=digest.hexdigest(),
                         )
             store.events.write("upload_completed", uid)

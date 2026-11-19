@@ -2,12 +2,15 @@
 
 import asyncio
 import hashlib
+import io
 import json
 import os
 import sqlite3
+import struct
 import sys
 import time
 import uuid
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from tempfile import SpooledTemporaryFile
@@ -61,6 +64,162 @@ def submit(client, files, key=None):
         headers={**HEADERS, "X-WarpBuster-Upload-ID": key or str(uuid.uuid4())},
         files=files,
     )
+
+
+def zip_bytes(entries, compression=zipfile.ZIP_DEFLATED):
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=compression) as archive:
+        for name, content in entries:
+            archive.writestr(name, content)
+    return buffer.getvalue()
+
+
+@pytest.mark.parametrize("has_course", [False, True])
+def test_zipped_fit_is_preserved_and_processed(app, client, files, has_course):
+    original = files["activity"][1]
+    files["activity"] = (
+        "export.FIT.ZIP",
+        zip_bytes(
+            [
+                ("export/", b""),
+                ("export/run.FIT", original),
+                ("__MACOSX/export/._run.FIT", b"metadata"),
+                ("export/._run.FIT", b"metadata"),
+                ("notes.txt", b"ignored"),
+            ]
+        ),
+    )
+    if not has_course:
+        del files["course"]
+    response = submit(client, files)
+    assert response.status_code == 202, response.text
+    uid = response.json()["uid"]
+    inputs = app.state.store.uploads_dir / uid
+    assert (inputs / "original.fit").read_bytes() == original
+    assert {path.name for path in inputs.iterdir()} == (
+        {"original.fit", "course.gpx"} if has_course else {"original.fit"}
+    )
+    assert bool(app.state.store.get(uid)["has_course"]) == has_course
+    uploaded = [e for e in events(app) if e["event"] == "file_uploaded" and e["role"] == "activity"]
+    assert uploaded[0]["size_bytes"] == len(original)
+    assert uploaded[0]["sha256"] == hashlib.sha256(original).hexdigest()
+    finish(app, uid)
+    if has_course:
+        endpoint = f"/api/results/{uid}"
+        report = client.get(endpoint).json()
+        assert report["outcome"] == "repaired"
+        assert report["fit_diff"]["timestamps_unchanged"]
+        assert report["fit_diff"]["sensors_unchanged"]
+        assert client.get(f"{endpoint}/download").status_code == 200
+
+
+@pytest.mark.parametrize(
+    "entries",
+    [
+        [],
+        [("notes.txt", b"not FIT")],
+        [("empty.fit", b"")],
+        [("one.fit", b"one"), ("two.FIT", b"two")],
+        [("__MACOSX/._run.fit", b"metadata")],
+        [("run.fit/", b"")],
+        [("nested.zip", b"archive")],
+    ],
+)
+def test_invalid_zip_contents_are_rejected_and_cleaned_up(app, client, entries):
+    response = submit(client, {"activity": ("run.zip", zip_bytes(entries))})
+    assert response.status_code == 400
+    assert "ZIP" in response.text
+    with app.state.store.connect() as db:
+        assert db.execute("SELECT count(*) FROM jobs").fetchone()[0] == 0
+    assert not list(app.state.store.uploads_dir.iterdir())
+
+
+def test_zip_member_paths_are_never_extracted(app, client, files, tmp_path):
+    original = files["activity"][1]
+    response = submit(
+        client,
+        {
+            "activity": (
+                "run.zip",
+                zip_bytes(
+                    [
+                        (str(tmp_path / "escaped.fit"), original),
+                        ("../../escaped.txt", b"ignored"),
+                    ],
+                    zipfile.ZIP_STORED,
+                ),
+            )
+        },
+    )
+    assert response.status_code == 202
+    uid = response.json()["uid"]
+    assert (app.state.store.uploads_dir / uid / "original.fit").read_bytes() == original
+    assert not (tmp_path / "escaped.fit").exists()
+    assert not (app.state.config.data_dir / "escaped.txt").exists()
+
+
+@pytest.mark.parametrize("compressed", [False, True])
+def test_zip_and_unpacked_fit_obey_file_limit(tmp_path, compressed):
+    config = WebConfig(data_dir=tmp_path / "limited", file_limit_bytes=1024)
+    app = create_app(config, start_worker=False)
+    content = zip_bytes(
+        [("run.fit", b"x" * 1025)], zipfile.ZIP_DEFLATED if compressed else zipfile.ZIP_STORED
+    )
+    assert (len(content) <= 1024) == compressed
+    with TestClient(app, base_url=ORIGIN) as client:
+        client.get("/api/session", headers=HEADERS)
+        assert submit(client, {"activity": ("run.zip", content)}).status_code == 413
+    assert not list(app.state.store.uploads_dir.iterdir())
+
+
+def test_corrupt_zip_crc_is_rejected_and_partial_fit_removed(app, client):
+    content = zip_bytes(
+        [("run.fit", b"x" * (128 * 1024) + b"unique-fit-content")], zipfile.ZIP_STORED
+    )
+    content = content.replace(b"unique-fit-content", b"broken-fit-content")
+    response = submit(client, {"activity": ("run.zip", content)})
+    assert response.status_code == 400
+    assert "ZIP" in response.text
+    assert not list(app.state.store.uploads_dir.iterdir())
+
+
+@pytest.mark.parametrize(
+    "variant", ["not_zip", "truncated", "encrypted", "compression", "invalid_name"]
+)
+def test_unreadable_zip_is_rejected_without_leaking_details(app, client, variant):
+    content = bytearray(zip_bytes([("private-SECRET.fit", b"activity")]))
+    if variant == "not_zip":
+        content = b"not a ZIP"
+    elif variant == "truncated":
+        content = content[:30]
+    elif variant == "encrypted":
+        struct.pack_into("<H", content, 6, 1)
+        struct.pack_into("<H", content, content.index(b"PK\x01\x02") + 8, 1)
+    elif variant == "compression":
+        struct.pack_into("<H", content, 8, 99)
+        struct.pack_into("<H", content, content.index(b"PK\x01\x02") + 10, 99)
+    else:
+        struct.pack_into("<H", content, 6, 1 << 11)
+        struct.pack_into("<H", content, content.index(b"PK\x01\x02") + 8, 1 << 11)
+        content = content.replace(b"private-SECRET.fit", b"\xffrivate-SECRET.fit")
+    response = submit(client, {"activity": ("run.zip", bytes(content))})
+    assert response.status_code == 400
+    assert "ZIP" in response.text
+    assert "SECRET" not in response.text
+    assert not list(app.state.store.uploads_dir.iterdir())
+
+
+def test_unpacked_fit_at_limit_is_accepted(tmp_path):
+    app = create_app(
+        WebConfig(data_dir=tmp_path / "limited", file_limit_bytes=1024), start_worker=False
+    )
+    content = zip_bytes([("run.fit", b"x" * 1024)])
+    with TestClient(app, base_url=ORIGIN) as client:
+        client.get("/api/session", headers=HEADERS)
+        response = submit(client, {"activity": ("run.zip", content)})
+    assert response.status_code == 202
+    uid = response.json()["uid"]
+    assert (app.state.store.uploads_dir / uid / "original.fit").stat().st_size == 1024
 
 
 def test_health_checks_database_without_creating_a_session(app):
@@ -271,7 +430,7 @@ def test_invalid_form_rejected_without_storing_a_job(app, client, files, variant
     elif variant == "duplicate":
         files = [("activity", files["activity"]), ("activity", files["activity"])]
     elif variant == "wrong_extension":
-        files["activity"] = ("run.fit.zip", files["activity"][1])
+        files["activity"] = ("run.fit.rar", files["activity"][1])
     elif variant == "empty":
         files["course"] = ("route.gpx", b"")
     else:

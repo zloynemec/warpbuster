@@ -92,7 +92,7 @@ def test_fix_has_two_accessible_file_pickers_and_no_enabled_analysis() -> None:
     page = Page(SITE / "fix/index.html")
     inputs = [attrs for tag, attrs in page.nodes if tag == "input"]
     assert len(inputs) == 2
-    assert {attrs["accept"] for attrs in inputs} == {".fit", ".gpx"}
+    assert {attrs["accept"] for attrs in inputs} == {".fit,.zip", ".gpx"}
     ids = {attrs.get("id") for _, attrs in page.nodes}
     for attrs in inputs:
         assert attrs["type"] == "file"

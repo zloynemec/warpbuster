@@ -51,7 +51,9 @@ class WebConfig(PipelineConfig):
     static_dir: Path = Path(__file__).resolve().parents[2] / "dist"
     yandex_metrika_id: str = ""  # Empty disables browser analytics.
     public_origin: str = "http://127.0.0.1:8000"
-    file_limit_bytes: int = 20 * 1024 * 1024  # Maximum bytes per FIT/GPX file.
+    file_limit_bytes: int = 20 * 1024 * 1024  # Per upload and unpacked FIT, in bytes.
+    zip_max_entries: int = 128  # All directory entries, including ignored files and folders.
+    zip_max_directory_bytes: int = 256 * 1024  # Central directory bytes before full ZIP parsing.
     body_limit_bytes: int = 41 * 1024 * 1024  # Both files plus multipart framing.
     upload_timeout_seconds: int = 60  # Total time to receive and persist one upload.
     osm_mode: OSMMode = OSMMode.AUTO
@@ -100,6 +102,10 @@ class WebConfig(PipelineConfig):
             raise ValueError("Non-loopback deployments require HTTPS")
         if self.data_dir.resolve().is_relative_to(self.static_dir.resolve()):
             raise ValueError("Private data must be outside the static directory")
+        for name in ("zip_max_entries", "zip_max_directory_bytes"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(f"{name} must be a positive integer")
         for name in (
             "file_limit_bytes",
             "body_limit_bytes",
@@ -205,6 +211,12 @@ class WebConfig(PipelineConfig):
             data_dir=Path(os.environ.get("WARPBUSTER_WEB_DATA", str(defaults.data_dir))),
             static_dir=Path(os.environ.get("WARPBUSTER_WEB_STATIC", str(defaults.static_dir))),
             public_origin=os.environ.get("WARPBUSTER_WEB_ORIGIN", defaults.public_origin),
+            zip_max_entries=positive_integer_environment(
+                "WARPBUSTER_WEB_ZIP_MAX_ENTRIES", defaults.zip_max_entries
+            ),
+            zip_max_directory_bytes=positive_integer_environment(
+                "WARPBUSTER_WEB_ZIP_MAX_DIRECTORY_BYTES", defaults.zip_max_directory_bytes
+            ),
             minimum_observed_gps_coverage_percent=_environment(
                 "WARPBUSTER_WEB_MINIMUM_OBSERVED_GPS_COVERAGE_PERCENT",
                 defaults.minimum_observed_gps_coverage_percent,
