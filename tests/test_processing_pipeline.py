@@ -132,16 +132,42 @@ def test_optional_osm_failure_keeps_exact_gpx_output(tmp_path, monkeypatch):
     expected = run_repair(fit, course, tmp_path / "gpx.fit")
 
     def fail(*args, **kwargs):
-        raise RuntimeError("companion failure")
+        try:
+            raise ValueError("private chained cause")
+        except ValueError as cause:
+            raise RuntimeError("companion failure") from cause
 
     monkeypatch.setattr(pipeline, "run_osm_pipeline", fail)
     fallback = run_repair(fit, course, tmp_path / "fallback.fit")
     assert fallback.osm.error_code == "routing_failed"
+    diagnostic = fallback.osm.private_audit["failure"]["diagnostic"]
+    assert diagnostic["exception_type"] == "RuntimeError"
+    assert diagnostic["reason"] == "companion failure"
+    assert "private chained cause" in diagnostic["traceback"]
+    assert "fail" in diagnostic["traceback"]
     assert fallback.plan == expected.plan
     assert (
         fallback.write_result.output_path.read_bytes()
         == expected.write_result.output_path.read_bytes()
     )
+
+
+def test_diagnostic_formatting_failure_keeps_safe_gpx_fallback(tmp_path, monkeypatch):
+    fit, course = _repairable_fixture(tmp_path)
+
+    class UnprintableError(RuntimeError):
+        def __str__(self):
+            raise ValueError("broken exception formatter")
+
+    def fail(*args, **kwargs):
+        raise UnprintableError()
+
+    monkeypatch.setattr(pipeline, "run_osm_pipeline", fail)
+    result = run_repair(fit, course, tmp_path / "fallback.fit")
+    assert result.write_result.post_write_verified
+    assert result.osm.private_audit["failure"]["diagnostic"] == {
+        "exception_type": "UnprintableError"
+    }
 
 
 def test_full_cli_defaults_share_policy_and_create_fit_diff(tmp_path, capsys):

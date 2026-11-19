@@ -2,9 +2,13 @@
 
 import json
 import pickle
+import sys
 import time
 from dataclasses import replace
+from multiprocessing import Pipe
+from types import SimpleNamespace
 
+import pytest
 from tests.processing_factory import processing_fixture
 from tests.test_osm_application import fixture as osm_fixture
 from tests.test_repair_cli import _repairable_fixture
@@ -108,18 +112,109 @@ def test_acquisition_failure_retains_bounded_private_cause_without_public_leaks(
     assert "attempt_count" in failure["details"]
 
 
-def test_unexpected_osm_exception_cannot_fail_job_or_leak_text(tmp_path, monkeypatch):
+@pytest.mark.parametrize("error_type", [RuntimeError, TypeError, KeyError])
+def test_unexpected_osm_exception_cannot_fail_job_or_leak_text(tmp_path, monkeypatch, error_type):
     _repairable_fixture(tmp_path)
 
     def explode(*args, **kwargs):
-        raise RuntimeError("SECRET native stderr /private/path")
+        private_local = "PRIVATE_FRAME_LOCAL_MUST_NOT_BE_LOGGED"
+        assert private_local
+        try:
+            raise ValueError("SECRET chained cause")
+        except ValueError as cause:
+            raise error_type("SECRET native stderr /private/path") from cause
 
     monkeypatch.setattr("warpbuster.pipeline.repair.run_osm_pipeline", explode)
     assert process_job(tmp_path, 100_000)
     report_text = (tmp_path / "result.json").read_text()
     report = json.loads(report_text)
     assert report["osm"]["error_code"] == "routing_failed"
+    assert report["outcome"] == "repaired"
     assert "SECRET" not in report_text and "/private/path" not in report_text
+    audit_path = tmp_path / "private-osm-audit.json"
+    assert audit_path.stat().st_mode & 0o777 == 0o600
+    failure = json.loads(audit_path.read_text(encoding="utf-8"))["failure"]
+    assert failure["diagnostic"]["exception_type"] == error_type.__name__
+    assert "SECRET native stderr" in failure["diagnostic"]["reason"]
+    assert "SECRET chained cause" in failure["diagnostic"]["traceback"]
+    assert "explode" in failure["diagnostic"]["traceback"]
+    assert "PRIVATE_FRAME_LOCAL_MUST_NOT_BE_LOGGED" not in failure["diagnostic"]["traceback"]
+
+
+def test_unexpected_coverage_error_retains_private_diagnostic(tmp_path, monkeypatch):
+    activity, _, integrity, plan, _ = osm_fixture(tmp_path)
+
+    def fail(*args, **kwargs):
+        raise KeyError("PRIVATE coverage bug")
+
+    monkeypatch.setattr("warpbuster_osm_manager.coverage.plan_from_geometry", fail)
+    config = replace(WebConfig(), data_dir=tmp_path / "data", osm_minimum_free_bytes=1)
+    result = execute_osm_pipeline(activity, integrity, plan, config)
+    assert result.plan is plan
+    assert (result.stage, result.error_code) == ("coverage", "coverage_limit")
+    assert result.private_audit["failure"]["diagnostic"]["exception_type"] == "KeyError"
+
+
+def test_unexpected_routing_error_retains_private_diagnostic(tmp_path, monkeypatch):
+    activity, integrity, plan, config = processing_fixture(tmp_path, seed_cache=False)
+    snapshot = SimpleNamespace(
+        manifest=SimpleNamespace(snapshot_id="snapshot"), manifest_path=tmp_path / "manifest"
+    )
+    monkeypatch.setattr("warpbuster_osm_manager.OsmManager.ensure", lambda *a, **k: snapshot)
+    monkeypatch.setattr(
+        "warpbuster_osm_routing.GraphCache.prepare",
+        lambda *a, **k: SimpleNamespace(graph_id="graph"),
+    )
+
+    def fail(*args, **kwargs):
+        raise TypeError("PRIVATE routing bug")
+
+    monkeypatch.setattr("warpbuster.pipeline.osm._discover_and_apply", fail)
+    result = execute_osm_pipeline(activity, integrity, plan, config)
+    assert result.plan is plan
+    assert (result.stage, result.error_code) == ("routing", "routing_failed")
+    assert result.private_audit["failure"]["diagnostic"]["exception_type"] == "TypeError"
+
+
+def test_child_failure_serializes_private_diagnostic(monkeypatch):
+    from warpbuster.pipeline.osm_worker import child_main
+
+    def fail(*args, **kwargs):
+        raise TypeError("PRIVATE child serialization failure")
+
+    monkeypatch.setattr("warpbuster.pipeline.osm.execute_osm_pipeline", fail)
+    monkeypatch.setattr("warpbuster.pipeline.osm_worker.os.setsid", lambda: None)
+    monkeypatch.setattr(
+        "warpbuster.pipeline.osm_worker._apply_resource_limits", lambda config: None
+    )
+    receiving, sending = Pipe(duplex=False)
+    try:
+        child_main(sending, None, None, None, WebConfig(), None)
+        assert receiving.poll(1)
+        kind, result = pickle.loads(receiving.recv_bytes())
+        assert kind == "result"
+        assert result.private_audit["failure"]["diagnostic"]["exception_type"] == "TypeError"
+    finally:
+        receiving.close()
+        sending.close()
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="OSM process-group isolation is Linux-only")
+def test_unexpected_child_error_transfers_private_diagnostic(tmp_path, monkeypatch):
+    def fail(*args, **kwargs):
+        raise TypeError("PRIVATE isolated child failure")
+
+    monkeypatch.setattr("warpbuster.pipeline.osm.eligible_gap_count", lambda *args: 1)
+    monkeypatch.setattr("warpbuster.pipeline.osm.execute_osm_pipeline", fail)
+    config = replace(
+        WebConfig(), data_dir=tmp_path, osm_total_timeout_seconds=5, osm_minimum_free_bytes=1
+    )
+    result = run_osm_pipeline_isolated(None, None, None, config)
+    assert (result.stage, result.error_code) == ("setup", "resource_limit")
+    assert result.private_audit["failure"]["diagnostic"]["exception_type"] == "TypeError"
+    assert (
+        "PRIVATE isolated child failure" in result.private_audit["failure"]["diagnostic"]["reason"]
+    )
 
 
 def test_coverage_and_existing_cache_quota_fail_before_network(tmp_path):

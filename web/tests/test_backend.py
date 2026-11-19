@@ -704,6 +704,60 @@ def test_exception_diagnostic_is_bounded_and_omits_frame_locals():
     assert private_local not in diagnostic["traceback"]
 
 
+def test_exception_diagnostic_is_utf8_writable_for_native_surrogate_paths():
+    diagnostic = exception_diagnostic(RuntimeError("native path: \udcff" * 10_000))
+    encoded = json.dumps(diagnostic, ensure_ascii=False).encode("utf-8")
+    assert encoded
+    assert all(len(diagnostic[key]) <= limit for key, limit in DIAGNOSTIC_LIMITS.items())
+
+
+def test_osm_fallback_diagnostic_is_not_served_to_owner_or_guest(app, client, files, monkeypatch):
+    uid = submit(client, files).json()["uid"]
+    directory = app.state.config.data_dir / uid
+    config = replace(
+        app.state.config,
+        osm_mode=OSMMode.DISABLED,
+        approximate_osm=False,
+        dem_mode=DEMMode.DISABLED,
+        complete_missing_altitude=False,
+    )
+
+    def fail(*args, **kwargs):
+        raise TypeError("PRIVATE_OSM_BUG")
+
+    monkeypatch.setattr(pipeline, "run_osm_pipeline", fail)
+
+    def run_processor(command, timeout, environment):
+        assert processing.process_job(
+            directory,
+            config.record_limit,
+            input_directory=app.state.store.uploads_dir / uid,
+            config=config,
+        )
+        return 0, None
+
+    monkeypatch.setattr(app.state.worker, "_run_processor", run_processor)
+    finish(app, uid)
+    audit = directory / "private-osm-audit.json"
+    assert audit.stat().st_mode & 0o777 == 0o600
+    assert "PRIVATE_OSM_BUG" in audit.read_text(encoding="utf-8")
+    with TestClient(app, base_url=ORIGIN) as guest:
+        for browser in (client, guest):
+            public = browser.get(f"/api/results/{uid}")
+            assert public.json()["outcome"] == "repaired"
+            assert public.json()["osm"]["error_code"] == "routing_failed"
+            for route in (f"/api/results/{uid}", f"/api/results/{uid}/status", f"/res/{uid}"):
+                response = browser.get(route)
+                assert "PRIVATE_OSM_BUG" not in response.text
+                assert "Traceback" not in response.text
+            for route in (
+                f"/res/{uid}/private-osm-audit.json",
+                f"/api/results/{uid}/private-osm-audit.json",
+                f"/{uid}/private-osm-audit.json",
+            ):
+                assert browser.get(route).status_code == 404
+
+
 def test_rejected_pair_is_logged_and_partial_inputs_are_removed(app, client, files):
     files["course"] = ("course.gpx", b"")
     assert submit(client, files).status_code == 400

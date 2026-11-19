@@ -108,6 +108,29 @@ exceptions определяются их semantics; explicit `try`/`except`/`fin
 Нет обещания, что каждый возможный маршрут найден, что distance/speed независимы
 от GNSS или что восстановленная geometry совпадает с фактическим движением.
 
+## Приватная диагностика OSM
+
+Неожиданные исключения внешнего OSM boundary, внутренних coverage/routing catches
+и изолированного child сохраняются в `OSMResult.private_audit.failure.diagnostic`.
+Общий форматтер `warpbuster.diagnostics` ограничивает `exception_type` до 256,
+`reason` до 4096 и `traceback` до 32768 символов. Сохраняются stack locations и
+chained exceptions, без frame locals; усечение может удалить раннюю часть цепочки.
+Surrogateescaped native paths экранируются, чтобы audit оставался UTF-8 writable.
+Если форматирование само падает, остаётся ограниченное имя типа исключения.
+
+Существующие public stage/error codes и безопасный base-plan fallback сохранены.
+`failure.stage` обозначает обработавшую ошибку границу; точное место ищите в
+traceback. В частности, child сохраняет прежний public `setup/resource_limit`,
+даже если исходное исключение возникло позднее внутри optional stage.
+Web пишет этот объект в существующий `private-osm-audit.json` с mode 0600;
+файл и диагностические строки не выдаются ни владельцу, ни гостю через HTTP.
+Локальный CLI может включать audit в свой собственный JSON-отчёт.
+
+SIGKILL, segfault и отсутствие IPC-ответа могут не оставить Python exception,
+поэтому существующие timeout/resource/IPC safe outcomes не обещают traceback.
+Новые retries, внешние сервисы диагностики и дополнительные данные активности
+не добавляются.
+
 ## История
 
 - 2026-11-18: добавлены описание текущего алгоритма, полный каталог ветвей и
@@ -117,3 +140,6 @@ exceptions определяются их semantics; explicit `try`/`except`/`fin
   базового плана, duplicate gap candidates и точные исходы CLI, включая NOT_NEEDED
   до coverage refusal и ошибку HTML после записи FIT. Усилена проверка структуры,
   зафиксирована среда генерации и задан явный список JS-ресурсов.
+- 2026-11-19: добавлена bounded private диагностика неожиданных OSM exceptions
+  с сохранением fallback и прежних public codes. Web переиспользует Core formatter;
+  добавлены проверки цепочек, UTF-8, permissions, HTTP privacy и сохранности FIT.

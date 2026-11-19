@@ -156,6 +156,15 @@ Host: [::1]:8000  →  "["  →  нет в allowed_hosts  →  400 Invalid host 
 
 ### P2-2. Широкий `except Exception` вокруг опциональной OSM-стадии
 
+**Статус на 2026-11-19:** исправлена потеря приватной диагностики с сохранением
+безопасного fallback. `osm_failure()` пишет bounded type/reason/traceback в
+`OSMResult.private_audit`; Web сохраняет его локально с mode 0600, без HTTP-выдачи.
+Broad catches намеренно сохранены, включая boundary изолированного child.
+Предложение ниже о пробрасывании неожиданных ошибок остаётся исторической
+альтернативой и не применяется: оно отменило бы безопасный базовый GPX-результат.
+Регрессии проверяют byte-identical GPX fallback, chaining, сломанный formatter,
+UTF-8, permissions и отсутствие диагностических строк в публичных ответах.
+
 **Файл:** `src/warpbuster/pipeline/repair.py:187–189`
 
 ```python

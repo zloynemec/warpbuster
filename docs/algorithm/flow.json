@@ -574,7 +574,8 @@
         "src/warpbuster/pipeline/osm.py::execute_osm_pipeline",
         "src/warpbuster/pipeline/osm.py::run_osm_pipeline_isolated",
         "src/warpbuster/reconstruction/osm.py::OSMReconstructionProvider.discover",
-        "src/warpbuster/reconstruction/osm.py::osm_gap_anchors"
+        "src/warpbuster/reconstruction/osm.py::osm_gap_anchors",
+        "src/warpbuster/pipeline/osm.py::osm_failure"
       ],
       "ordered_rules": [
         {
@@ -603,7 +604,24 @@
         }
       ],
       "isolation": "Linux Web запускает bounded child/process group: IPC bytes, CPU, address-space, disk/temp/cache и wall-clock limits; phase-specific safe failures и cleanup не отменяют уже доступный base plan.",
-      "discovery": "Internal gap требует двух immediate preserved trusted anchors; GPX candidate имеет приоритет. Missing endpoints без пользовательских hints не угадываются. Query count и candidate bounds ограничены конфигом."
+      "discovery": "Internal gap требует двух immediate preserved trusted anchors; GPX candidate имеет приоритет. Missing endpoints без пользовательских hints не угадываются. Query count и candidate bounds ограничены конфигом.",
+      "private_failure_diagnostics": {
+        "storage": "OSMResult.private_audit.failure.diagnostic; Web сохраняет в private-osm-audit.json с mode 0600, вне HTTP-выдачи.",
+        "boundaries": [
+          "Внешний catch shared run_repair: routing/routing_failed.",
+          "Внутренние broad catches coverage/routing: существующие stage и _safe_code сохранены.",
+          "Изолированный child: существующий setup/resource_limit fallback; stack содержит исходное место исключения."
+        ],
+        "fields": {
+          "exception_type_max_characters": 256,
+          "reason_max_characters": 4096,
+          "traceback_max_characters": 32768
+        },
+        "format": "Единый warpbuster.diagnostics formatter, chaining и максимум 20 stack frames на exception; frame locals не включаются. Непредставимые UTF-8 surrogates экранируются до ограничения длины.",
+        "formatter_failure": "Если форматирование само бросает Exception, сохранить только bounded exception_type и продолжить fallback.",
+        "public_contract": "Статус/error_code и base plan остаются прежними. Диагностические строки не копируются в public JSON, HTML или HTTP status.",
+        "limits": "Сильно усечённый traceback может не содержать раннюю часть цепочки. Для SIGKILL, segfault или отсутствующего IPC-ответа Python exception stack может быть недоступен."
+      }
     },
     {
       "id": "manager_and_routing",
@@ -768,7 +786,8 @@
         "src/warpbuster/report/repair.py::repair_report",
         "src/warpbuster/report/gaps.py::gap_audit",
         "web/backend/warpbuster_web/processing.py::process_job",
-        "web/backend/warpbuster_web/performance.py::public_performance"
+        "web/backend/warpbuster_web/performance.py::public_performance",
+        "src/warpbuster/diagnostics.py::exception_diagnostic"
       ],
       "local": "Typed plan/selection/provenance, confidence, reasons, gaps, snapshots, detector evidence и FIT diff доступны в local JSON/HTML. Exact field names и serialization expressions сохранены в report program.",
       "web": "Public result schema_version=5 формируется явным allowlist, без raw preservation, private filenames, exception messages или приватного audit.",
@@ -778,7 +797,7 @@
         "иначе → unresolved"
       ],
       "partial": "selection.is_partial OR unresolved invalidated indices OR unresolved public gap. repaired+partial означает сохранённые проверенные изменения, а не полный успех.",
-      "privacy": "private-processing-audit.json и optional private-osm-audit.json публикуются с mode 0600. Acquisition exception message/cause/details ограничены _PRIVATE_FAILURE_TEXT_LIMIT; public osm.error_code остаётся allowlisted safe code."
+      "privacy": "private-processing-audit.json и optional private-osm-audit.json публикуются с mode 0600. Acquisition exception message/cause/details ограничены _PRIVATE_FAILURE_TEXT_LIMIT; public osm.error_code остаётся allowlisted safe code. Неожиданные exceptions shared OSM boundaries получают bounded diagnostic (type/reason/traceback) без frame locals; public projection остаётся прежним allowlist."
     },
     {
       "id": "performance_and_ui",
@@ -980,6 +999,14 @@
     {
       "case": "FIT успешно опубликован, HTML report после записи не создан",
       "expected": "CLI exit 3 с сообщением о созданном FIT; нельзя трактовать exit 3 как гарантию отсутствия output."
+    },
+    {
+      "case": "Неожиданная TypeError/KeyError/RuntimeError в optional OSM boundary",
+      "expected": "Сохранить base GPX plan и проверенный FIT fallback. В private audit записать ограниченные type/reason/traceback; public error_code остаётся прежним safe code."
+    },
+    {
+      "case": "У исключения сломан __str__ или сообщение содержит surrogateescaped native path",
+      "expected": "Ошибка formatter не отменяет fallback: остаётся хотя бы тип. Диагностические строки нормализуются для UTF-8 записи и ограничиваются по длине."
     }
   ],
   "navigation": {

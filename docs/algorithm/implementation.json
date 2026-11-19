@@ -6,7 +6,7 @@
     "python_implementation": "CPython",
     "python_version": "3.14.7"
   },
-  "source_digest_sha256": "696053e14922be1b23ee38bb9fe5f958613deb6244fbca4e15d747ca1f9c12a6",
+  "source_digest_sha256": "b54d1e8d186c592e1e4383a3df34fda1c02df45edb37bf7261e0695a5282863c",
   "scope": {
     "python_roots": [
       "src/warpbuster",
@@ -47,9 +47,9 @@
     "resources": "Verbatim local JS, configuration and template sources; no JS control-flow analysis is claimed"
   },
   "counts": {
-    "python_modules": 127,
-    "symbols": 1188,
-    "decision_points": 9265,
+    "python_modules": 128,
+    "symbols": 1189,
+    "decision_points": 9267,
     "resources": 17
   },
   "modules": [
@@ -95316,6 +95316,145 @@
       }
     },
     {
+      "path": "src/warpbuster/diagnostics.py",
+      "sha256": "d9b5d14c352e9ede18fc72326582861f02168a06f6a183a429a8b85cd4397aab",
+      "description": "Bounded exception diagnostics for private local audits, never public responses.",
+      "symbols": [
+        {
+          "id": "src/warpbuster/diagnostics.py::bounded_diagnostic",
+          "kind": "FunctionDef",
+          "line": 9,
+          "end_line": 17,
+          "description": null,
+          "decorators": [],
+          "arguments": "value: object",
+          "returns": {
+            "python": "dict[str, str]"
+          }
+        },
+        {
+          "id": "src/warpbuster/diagnostics.py::exception_diagnostic",
+          "kind": "FunctionDef",
+          "line": 20,
+          "end_line": 28,
+          "description": null,
+          "decorators": [],
+          "arguments": "error: BaseException",
+          "returns": {
+            "python": "dict[str, str]"
+          }
+        }
+      ],
+      "decision_points": [
+        {
+          "node": 11,
+          "kind": "If",
+          "line": 10,
+          "python": "not isinstance(value, dict)"
+        },
+        {
+          "node": 42,
+          "kind": "comprehension",
+          "line": 15,
+          "python": " for key, limit in DIAGNOSTIC_LIMITS.items() if isinstance(value.get(key), str)"
+        }
+      ],
+      "program": {
+        "kind": "Module",
+        "body": [
+          {
+            "kind": "Expr",
+            "line": 1,
+            "value": {
+              "python": "'Bounded exception diagnostics for private local audits, never public responses.'"
+            }
+          },
+          {
+            "kind": "Import",
+            "line": 3,
+            "names": [
+              {
+                "python": "traceback"
+              }
+            ]
+          },
+          {
+            "kind": "Assign",
+            "line": 6,
+            "targets": [
+              {
+                "python": "DIAGNOSTIC_LIMITS"
+              }
+            ],
+            "value": {
+              "python": "{'exception_type': 256, 'reason': 4096, 'traceback': 32768}"
+            }
+          },
+          {
+            "kind": "FunctionDef",
+            "line": 9,
+            "name": "bounded_diagnostic",
+            "args": {
+              "python": "value: object"
+            },
+            "body": [
+              {
+                "kind": "If",
+                "line": 10,
+                "test": {
+                  "python": "not isinstance(value, dict)"
+                },
+                "body": [
+                  {
+                    "kind": "Return",
+                    "line": 11,
+                    "value": {
+                      "python": "{}"
+                    }
+                  }
+                ],
+                "orelse": []
+              },
+              {
+                "kind": "Return",
+                "line": 12,
+                "value": {
+                  "python": "{key: value[key].encode('utf-8', errors='backslashreplace').decode('utf-8')[-limit:] for key, limit in DIAGNOSTIC_LIMITS.items() if isinstance(value.get(key), str)}"
+                }
+              }
+            ],
+            "decorator_list": [],
+            "returns": {
+              "python": "dict[str, str]"
+            },
+            "type_params": []
+          },
+          {
+            "kind": "FunctionDef",
+            "line": 20,
+            "name": "exception_diagnostic",
+            "args": {
+              "python": "error: BaseException"
+            },
+            "body": [
+              {
+                "kind": "Return",
+                "line": 21,
+                "value": {
+                  "python": "bounded_diagnostic({'exception_type': type(error).__name__, 'reason': str(error), 'traceback': ''.join(traceback.format_exception(error, limit=20))})"
+                }
+              }
+            ],
+            "decorator_list": [],
+            "returns": {
+              "python": "dict[str, str]"
+            },
+            "type_params": []
+          }
+        ]
+      }
+    },
+    {
       "path": "src/warpbuster/fit/__init__.py",
       "sha256": "398ab6bc36ff8a23e5cb296a2077809ca15dfb0506615984f721c09612e03665",
       "description": "FIT input, byte-preserving output, validation, and diff adapters.",
@@ -159067,14 +159206,14 @@
     },
     {
       "path": "src/warpbuster/pipeline/osm.py",
-      "sha256": "c13163aac8b9d6976a5eef6408ef887b27950c042a50eb4054794b9d4b8c8421",
+      "sha256": "e719f634a92c7c50204d35dbc6caef29d7ace7ab7829c09172d84e4648c80a66",
       "description": "Shared OSM acquisition and application through the companion package APIs.",
       "symbols": [
         {
           "id": "src/warpbuster/pipeline/osm.py::OSMMetrics",
           "kind": "ClassDef",
-          "line": 59,
-          "end_line": 73,
+          "line": 60,
+          "end_line": 74,
           "description": "Coordinate-free operational counters safe to copy into the event journal.",
           "decorators": [
             "dataclass(frozen=True, slots=True)"
@@ -159171,8 +159310,8 @@
         {
           "id": "src/warpbuster/pipeline/osm.py::OSMResult",
           "kind": "ClassDef",
-          "line": 77,
-          "end_line": 93,
+          "line": 78,
+          "end_line": 94,
           "description": null,
           "decorators": [
             "dataclass(frozen=True, slots=True)"
@@ -159253,8 +159392,8 @@
         {
           "id": "src/warpbuster/pipeline/osm.py::OSMResult.__post_init__",
           "kind": "FunctionDef",
-          "line": 87,
-          "end_line": 93,
+          "line": 88,
+          "end_line": 94,
           "description": null,
           "decorators": [],
           "arguments": "self",
@@ -159263,10 +159402,22 @@
           }
         },
         {
+          "id": "src/warpbuster/pipeline/osm.py::osm_failure",
+          "kind": "FunctionDef",
+          "line": 97,
+          "end_line": 113,
+          "description": "Keep a bounded private cause without changing the safe fallback contract.",
+          "decorators": [],
+          "arguments": "base_plan: RepairPlan, stage: str, code: str, error: BaseException",
+          "returns": {
+            "python": "OSMResult"
+          }
+        },
+        {
           "id": "src/warpbuster/pipeline/osm.py::eligible_gap_count",
           "kind": "FunctionDef",
-          "line": 96,
-          "end_line": 108,
+          "line": 116,
+          "end_line": 128,
           "description": "Count gaps using the Core provider's exact anchor contract.",
           "decorators": [],
           "arguments": "activity: ActivityData, plan: RepairPlan, integrity: IntegrityReport | None=None, endpoint_hints: EndpointHints | None=None",
@@ -159277,8 +159428,8 @@
         {
           "id": "src/warpbuster/pipeline/osm.py::execute_osm_pipeline",
           "kind": "FunctionDef",
-          "line": 111,
-          "end_line": 305,
+          "line": 131,
+          "end_line": 325,
           "description": "Acquire one bounded snapshot, prepare an exact graph and apply Core 012E.",
           "decorators": [],
           "arguments": "activity: ActivityData, integrity: IntegrityReport, base_plan: RepairPlan, config: PipelineConfig, *, policy: RepairPolicy=DEFAULT_REPAIR_POLICY, stage_callback: Callable[[str], None] | None=None, endpoint_hints: EndpointHints | None=None",
@@ -159289,8 +159440,8 @@
         {
           "id": "src/warpbuster/pipeline/osm.py::_discover_and_apply",
           "kind": "FunctionDef",
-          "line": 308,
-          "end_line": 347,
+          "line": 328,
+          "end_line": 367,
           "description": "One discovery/application contract for acquired and explicitly prepared graphs.",
           "decorators": [],
           "arguments": "activity: ActivityData, integrity: IntegrityReport, base_plan: RepairPlan, graph_id: str, policy: RepairPolicy, *, routing_config: Path | None=None, cache_directory: Path | None=None, approximate_osm: bool=False, endpoint_hints: EndpointHints | None=None",
@@ -159301,8 +159452,8 @@
         {
           "id": "src/warpbuster/pipeline/osm.py::run_osm_pipeline",
           "kind": "FunctionDef",
-          "line": 350,
-          "end_line": 415,
+          "line": 370,
+          "end_line": 435,
           "description": "Resolve either a supplied graph or the full Manager → Routing workflow.",
           "decorators": [],
           "arguments": "activity: ActivityData, integrity: IntegrityReport, base_plan: RepairPlan, config: PipelineConfig, *, policy: RepairPolicy=DEFAULT_REPAIR_POLICY, endpoint_hints: EndpointHints | None=None",
@@ -159313,8 +159464,8 @@
         {
           "id": "src/warpbuster/pipeline/osm.py::run_osm_pipeline_isolated",
           "kind": "FunctionDef",
-          "line": 418,
-          "end_line": 510,
+          "line": 438,
+          "end_line": 530,
           "description": "Run native OSM work in a killable process group with bounded trusted IPC.",
           "decorators": [],
           "arguments": "activity: ActivityData, integrity: IntegrityReport, base_plan: RepairPlan, config: PipelineConfig, *, policy: RepairPolicy=DEFAULT_REPAIR_POLICY, endpoint_hints: EndpointHints | None=None",
@@ -159325,8 +159476,8 @@
         {
           "id": "src/warpbuster/pipeline/osm.py::run_osm_pipeline_isolated.terminate_from_parent",
           "kind": "FunctionDef",
-          "line": 447,
-          "end_line": 449,
+          "line": 467,
+          "end_line": 469,
           "description": null,
           "decorators": [],
           "arguments": "signum, frame",
@@ -159335,8 +159486,8 @@
         {
           "id": "src/warpbuster/pipeline/osm.py::_terminate_group",
           "kind": "FunctionDef",
-          "line": 513,
-          "end_line": 516,
+          "line": 533,
+          "end_line": 536,
           "description": null,
           "decorators": [],
           "arguments": "pid: int | None",
@@ -159347,8 +159498,8 @@
         {
           "id": "src/warpbuster/pipeline/osm.py::_safe_code",
           "kind": "FunctionDef",
-          "line": 519,
-          "end_line": 534,
+          "line": 539,
+          "end_line": 554,
           "description": null,
           "decorators": [],
           "arguments": "error: BaseException, fallback: str",
@@ -159359,8 +159510,8 @@
         {
           "id": "src/warpbuster/pipeline/osm.py::_automatic_decisions",
           "kind": "FunctionDef",
-          "line": 537,
-          "end_line": 544,
+          "line": 557,
+          "end_line": 564,
           "description": null,
           "decorators": [],
           "arguments": "plan: RepairPlan",
@@ -159371,8 +159522,8 @@
         {
           "id": "src/warpbuster/pipeline/osm.py::_tree_size",
           "kind": "FunctionDef",
-          "line": 547,
-          "end_line": 559,
+          "line": 567,
+          "end_line": 579,
           "description": null,
           "decorators": [],
           "arguments": "root: Path, stop_after: int",
@@ -159383,8 +159534,8 @@
         {
           "id": "src/warpbuster/pipeline/osm.py::_ensure_cache_quota",
           "kind": "FunctionDef",
-          "line": 562,
-          "end_line": 602,
+          "line": 582,
+          "end_line": 622,
           "description": "Evict only complete old graphs while no pipeline cache lease is active.",
           "decorators": [],
           "arguments": "cache_root: Path, quota_bytes: int",
@@ -159395,8 +159546,8 @@
         {
           "id": "src/warpbuster/pipeline/osm.py::_osm_temporary_size",
           "kind": "FunctionDef",
-          "line": 605,
-          "end_line": 615,
+          "line": 625,
+          "end_line": 635,
           "description": null,
           "decorators": [],
           "arguments": "cache_root: Path, stop_after: int",
@@ -159407,8 +159558,8 @@
         {
           "id": "src/warpbuster/pipeline/osm.py::_cleanup_job_temporary",
           "kind": "FunctionDef",
-          "line": 618,
-          "end_line": 631,
+          "line": 638,
+          "end_line": 651,
           "description": null,
           "decorators": [],
           "arguments": "config: PipelineConfig",
@@ -159419,8 +159570,8 @@
         {
           "id": "src/warpbuster/pipeline/osm.py::_group_resources_exceeded",
           "kind": "FunctionDef",
-          "line": 634,
-          "end_line": 658,
+          "line": 654,
+          "end_line": 678,
           "description": "Account aggregate Linux RSS and CPU for the isolated OSM process group.",
           "decorators": [],
           "arguments": "pgid: int | None, config: PipelineConfig",
@@ -159431,8 +159582,8 @@
         {
           "id": "src/warpbuster/pipeline/osm.py::_lease",
           "kind": "FunctionDef",
-          "line": 662,
-          "end_line": 682,
+          "line": 682,
+          "end_line": 702,
           "description": "Hold a process-backed shared lease while a verified cache entry is in use.",
           "decorators": [
             "contextmanager"
@@ -159445,1041 +159596,1053 @@
       ],
       "decision_points": [
         {
-          "node": 298,
+          "node": 307,
           "kind": "If",
-          "line": 88,
-          "python": "self.status not in {'not_needed', 'disabled', 'complete', 'partial', 'unavailable'}"
-        },
-        {
-          "node": 673,
-          "kind": "Compare",
-          "line": 88,
-          "python": "self.status not in {'not_needed', 'disabled', 'complete', 'partial', 'unavailable'}"
-        },
-        {
-          "node": 674,
-          "kind": "Raise",
           "line": 89,
-          "python": "raise ValueError('invalid OSM pipeline status')"
-        },
-        {
-          "node": 299,
-          "kind": "If",
-          "line": 90,
-          "python": "self.stage not in {None, 'setup', 'coverage', 'acquisition', 'prepare', 'routing'}"
-        },
-        {
-          "node": 675,
-          "kind": "Compare",
-          "line": 90,
-          "python": "self.stage not in {None, 'setup', 'coverage', 'acquisition', 'prepare', 'routing'}"
-        },
-        {
-          "node": 676,
-          "kind": "Raise",
-          "line": 91,
-          "python": "raise ValueError('invalid OSM pipeline stage')"
-        },
-        {
-          "node": 300,
-          "kind": "If",
-          "line": 92,
-          "python": "self.error_code is not None and self.error_code not in SAFE_ERROR_CODES"
-        },
-        {
-          "node": 677,
-          "kind": "BoolOp",
-          "line": 92,
-          "python": "self.error_code is not None and self.error_code not in SAFE_ERROR_CODES"
-        },
-        {
-          "node": 1201,
-          "kind": "Compare",
-          "line": 92,
-          "python": "self.error_code is not None"
-        },
-        {
-          "node": 1202,
-          "kind": "Compare",
-          "line": 92,
-          "python": "self.error_code not in SAFE_ERROR_CODES"
-        },
-        {
-          "node": 678,
-          "kind": "Raise",
-          "line": 93,
-          "python": "raise ValueError('invalid public OSM error code')"
-        },
-        {
-          "node": 1213,
-          "kind": "Compare",
-          "line": 103,
-          "python": "osm_gap_anchors(activity, plan, gap)[0] is not None"
-        },
-        {
-          "node": 1214,
-          "kind": "comprehension",
-          "line": 103,
-          "python": " for gap in plan.gaps"
+          "python": "self.status not in {'not_needed', 'disabled', 'complete', 'partial', 'unavailable'}"
         },
         {
           "node": 691,
-          "kind": "IfExp",
-          "line": 105,
-          "python": "integrity is not None and endpoint_hints is not None"
+          "kind": "Compare",
+          "line": 89,
+          "python": "self.status not in {'not_needed', 'disabled', 'complete', 'partial', 'unavailable'}"
         },
         {
-          "node": 1216,
+          "node": 692,
+          "kind": "Raise",
+          "line": 90,
+          "python": "raise ValueError('invalid OSM pipeline status')"
+        },
+        {
+          "node": 308,
+          "kind": "If",
+          "line": 91,
+          "python": "self.stage not in {None, 'setup', 'coverage', 'acquisition', 'prepare', 'routing'}"
+        },
+        {
+          "node": 693,
+          "kind": "Compare",
+          "line": 91,
+          "python": "self.stage not in {None, 'setup', 'coverage', 'acquisition', 'prepare', 'routing'}"
+        },
+        {
+          "node": 694,
+          "kind": "Raise",
+          "line": 92,
+          "python": "raise ValueError('invalid OSM pipeline stage')"
+        },
+        {
+          "node": 309,
+          "kind": "If",
+          "line": 93,
+          "python": "self.error_code is not None and self.error_code not in SAFE_ERROR_CODES"
+        },
+        {
+          "node": 695,
           "kind": "BoolOp",
-          "line": 106,
-          "python": "integrity is not None and endpoint_hints is not None"
+          "line": 93,
+          "python": "self.error_code is not None and self.error_code not in SAFE_ERROR_CODES"
         },
         {
-          "node": 1856,
+          "node": 1233,
           "kind": "Compare",
-          "line": 106,
-          "python": "integrity is not None"
+          "line": 93,
+          "python": "self.error_code is not None"
         },
         {
-          "node": 1857,
+          "node": 1234,
           "kind": "Compare",
-          "line": 106,
-          "python": "endpoint_hints is not None"
+          "line": 93,
+          "python": "self.error_code not in SAFE_ERROR_CODES"
         },
         {
-          "node": 119,
-          "kind": "If",
-          "line": 122,
-          "python": "config.osm_mode is OSMMode.DISABLED"
+          "node": 696,
+          "kind": "Raise",
+          "line": 94,
+          "python": "raise ValueError('invalid public OSM error code')"
         },
         {
-          "node": 327,
-          "kind": "Compare",
-          "line": 122,
-          "python": "config.osm_mode is OSMMode.DISABLED"
-        },
-        {
-          "node": 121,
-          "kind": "For",
-          "line": 125,
-          "python": "gap in base_plan.gaps"
-        },
-        {
-          "node": 334,
-          "kind": "If",
-          "line": 127,
-          "python": "anchors is not None"
-        },
-        {
-          "node": 711,
-          "kind": "Compare",
-          "line": 127,
-          "python": "anchors is not None"
-        },
-        {
-          "node": 122,
-          "kind": "If",
-          "line": 130,
-          "python": "endpoint_hints is not None"
-        },
-        {
-          "node": 335,
-          "kind": "Compare",
-          "line": 130,
-          "python": "endpoint_hints is not None"
-        },
-        {
-          "node": 336,
-          "kind": "For",
-          "line": 131,
-          "python": "(gap, point, fit_point) in endpoint_pairs(activity, integrity, base_plan, endpoint_hints)"
-        },
-        {
-          "node": 1898,
-          "kind": "IfExp",
-          "line": 134,
-          "python": "gap.kind.value == 'prefix'"
-        },
-        {
-          "node": 2488,
-          "kind": "Compare",
-          "line": 134,
-          "python": "gap.kind.value == 'prefix'"
-        },
-        {
-          "node": 123,
-          "kind": "If",
-          "line": 135,
-          "python": "not lines"
-        },
-        {
-          "node": 125,
+          "node": 118,
           "kind": "Try",
-          "line": 138,
+          "line": 99,
           "python": "handlers, orelse and finalbody are recorded in program"
         },
         {
-          "node": 347,
+          "node": 320,
           "kind": "ExceptHandler",
-          "line": 145,
-          "python": "ImportError"
+          "line": 101,
+          "python": "Exception"
+        },
+        {
+          "node": 1260,
+          "kind": "Compare",
+          "line": 123,
+          "python": "osm_gap_anchors(activity, plan, gap)[0] is not None"
+        },
+        {
+          "node": 1261,
+          "kind": "comprehension",
+          "line": 123,
+          "python": " for gap in plan.gaps"
+        },
+        {
+          "node": 723,
+          "kind": "IfExp",
+          "line": 125,
+          "python": "integrity is not None and endpoint_hints is not None"
+        },
+        {
+          "node": 1263,
+          "kind": "BoolOp",
+          "line": 126,
+          "python": "integrity is not None and endpoint_hints is not None"
+        },
+        {
+          "node": 1912,
+          "kind": "Compare",
+          "line": 126,
+          "python": "integrity is not None"
+        },
+        {
+          "node": 1913,
+          "kind": "Compare",
+          "line": 126,
+          "python": "endpoint_hints is not None"
+        },
+        {
+          "node": 128,
+          "kind": "If",
+          "line": 142,
+          "python": "config.osm_mode is OSMMode.DISABLED"
+        },
+        {
+          "node": 345,
+          "kind": "Compare",
+          "line": 142,
+          "python": "config.osm_mode is OSMMode.DISABLED"
         },
         {
           "node": 130,
           "kind": "For",
-          "line": 152,
-          "python": "directory in (manager_cache, routing_cache, temporary)"
+          "line": 145,
+          "python": "gap in base_plan.gaps"
+        },
+        {
+          "node": 352,
+          "kind": "If",
+          "line": 147,
+          "python": "anchors is not None"
+        },
+        {
+          "node": 743,
+          "kind": "Compare",
+          "line": 147,
+          "python": "anchors is not None"
         },
         {
           "node": 131,
           "kind": "If",
-          "line": 155,
-          "python": "shutil.disk_usage(config.data_dir).free < config.osm_minimum_free_bytes"
+          "line": 150,
+          "python": "endpoint_hints is not None"
         },
         {
-          "node": 360,
+          "node": 353,
           "kind": "Compare",
-          "line": 155,
-          "python": "shutil.disk_usage(config.data_dir).free < config.osm_minimum_free_bytes"
+          "line": 150,
+          "python": "endpoint_hints is not None"
+        },
+        {
+          "node": 354,
+          "kind": "For",
+          "line": 151,
+          "python": "(gap, point, fit_point) in endpoint_pairs(activity, integrity, base_plan, endpoint_hints)"
+        },
+        {
+          "node": 1954,
+          "kind": "IfExp",
+          "line": 154,
+          "python": "gap.kind.value == 'prefix'"
+        },
+        {
+          "node": 2553,
+          "kind": "Compare",
+          "line": 154,
+          "python": "gap.kind.value == 'prefix'"
         },
         {
           "node": 132,
           "kind": "If",
-          "line": 157,
-          "python": "not _ensure_cache_quota(cache_root, config.osm_cache_quota_bytes)"
+          "line": 155,
+          "python": "not lines"
         },
         {
-          "node": 133,
+          "node": 134,
           "kind": "Try",
-          "line": 160,
+          "line": 158,
           "python": "handlers, orelse and finalbody are recorded in program"
         },
         {
-          "node": 1929,
-          "kind": "BoolOp",
-          "line": 164,
-          "python": "config.osm_overpass_url or OsmManagerConfig.defaults().overpass_url"
-        },
-        {
-          "node": 3329,
-          "kind": "comprehension",
-          "line": 178,
-          "python": " for longitude, latitude in line"
-        },
-        {
-          "node": 2525,
-          "kind": "comprehension",
-          "line": 179,
-          "python": " for line in lines"
-        },
-        {
-          "node": 367,
+          "node": 365,
           "kind": "ExceptHandler",
-          "line": 188,
-          "python": "Exception"
-        },
-        {
-          "node": 136,
-          "kind": "If",
-          "line": 193,
-          "python": "stage_callback"
-        },
-        {
-          "node": 137,
-          "kind": "Try",
-          "line": 195,
-          "python": "handlers, orelse and finalbody are recorded in program"
-        },
-        {
-          "node": 1958,
-          "kind": "Compare",
-          "line": 197,
-          "python": "config.osm_mode is OSMMode.OFFLINE"
-        },
-        {
-          "node": 375,
-          "kind": "ExceptHandler",
-          "line": 199,
-          "python": "OsmManagerError"
-        },
-        {
-          "node": 3342,
-          "kind": "IfExp",
-          "line": 211,
-          "python": "error.__cause__ is not None"
-        },
-        {
-          "node": 3518,
-          "kind": "Compare",
-          "line": 212,
-          "python": "error.__cause__ is not None"
-        },
-        {
-          "node": 138,
-          "kind": "If",
-          "line": 220,
-          "python": "time.monotonic() - started > config.osm_acquisition_timeout_seconds"
-        },
-        {
-          "node": 376,
-          "kind": "Compare",
-          "line": 220,
-          "python": "time.monotonic() - started > config.osm_acquisition_timeout_seconds"
+          "line": 165,
+          "python": "ImportError"
         },
         {
           "node": 139,
+          "kind": "For",
+          "line": 172,
+          "python": "directory in (manager_cache, routing_cache, temporary)"
+        },
+        {
+          "node": 140,
           "kind": "If",
-          "line": 222,
-          "python": "_tree_size(cache_root, config.osm_cache_quota_bytes) > config.osm_cache_quota_bytes"
+          "line": 175,
+          "python": "shutil.disk_usage(config.data_dir).free < config.osm_minimum_free_bytes"
         },
         {
           "node": 378,
           "kind": "Compare",
-          "line": 222,
-          "python": "_tree_size(cache_root, config.osm_cache_quota_bytes) > config.osm_cache_quota_bytes"
+          "line": 175,
+          "python": "shutil.disk_usage(config.data_dir).free < config.osm_minimum_free_bytes"
+        },
+        {
+          "node": 141,
+          "kind": "If",
+          "line": 177,
+          "python": "not _ensure_cache_quota(cache_root, config.osm_cache_quota_bytes)"
         },
         {
           "node": 142,
           "kind": "Try",
-          "line": 227,
+          "line": 180,
           "python": "handlers, orelse and finalbody are recorded in program"
         },
         {
-          "node": 384,
-          "kind": "If",
-          "line": 228,
-          "python": "stage_callback"
+          "node": 1985,
+          "kind": "BoolOp",
+          "line": 184,
+          "python": "config.osm_overpass_url or OsmManagerConfig.defaults().overpass_url"
         },
         {
-          "node": 387,
+          "node": 3403,
+          "kind": "comprehension",
+          "line": 198,
+          "python": " for longitude, latitude in line"
+        },
+        {
+          "node": 2590,
+          "kind": "comprehension",
+          "line": 199,
+          "python": " for line in lines"
+        },
+        {
+          "node": 385,
           "kind": "ExceptHandler",
-          "line": 237,
-          "python": "RoutingError"
-        },
-        {
-          "node": 145,
-          "kind": "Try",
-          "line": 242,
-          "python": "handlers, orelse and finalbody are recorded in program"
-        },
-        {
-          "node": 392,
-          "kind": "If",
-          "line": 243,
-          "python": "stage_callback"
-        },
-        {
-          "node": 393,
-          "kind": "If",
-          "line": 245,
-          "python": "_tree_size(cache_root, config.osm_cache_quota_bytes) > config.osm_cache_quota_bytes"
-        },
-        {
-          "node": 818,
-          "kind": "Compare",
-          "line": 245,
-          "python": "_tree_size(cache_root, config.osm_cache_quota_bytes) > config.osm_cache_quota_bytes"
-        },
-        {
-          "node": 395,
-          "kind": "ExceptHandler",
-          "line": 261,
+          "line": 208,
           "python": "Exception"
         },
         {
-          "node": 834,
-          "kind": "BoolOp",
-          "line": 265,
-          "python": "final_plan.endpoint_audit_json or '[]'"
-        },
-        {
-          "node": 403,
-          "kind": "IfExp",
-          "line": 267,
-          "python": "endpoint_hints is not None"
-        },
-        {
-          "node": 836,
-          "kind": "Compare",
-          "line": 268,
-          "python": "endpoint_hints is not None"
-        },
-        {
-          "node": 2043,
-          "kind": "Compare",
-          "line": 269,
-          "python": "item.get('status') == 'unresolved'"
-        },
-        {
-          "node": 2044,
-          "kind": "comprehension",
-          "line": 269,
-          "python": " for item in decisions"
-        },
-        {
-          "node": 1415,
-          "kind": "Compare",
-          "line": 280,
-          "python": "graph.status == 'CACHED'"
-        },
-        {
-          "node": 3048,
-          "kind": "Compare",
-          "line": 282,
-          "python": "item.get('queried') is True"
-        },
-        {
-          "node": 3049,
-          "kind": "comprehension",
-          "line": 282,
-          "python": " for item in endpoint_decisions"
-        },
-        {
-          "node": 3052,
-          "kind": "Compare",
-          "line": 284,
-          "python": "item.get('status') == 'osm_selected'"
-        },
-        {
-          "node": 3053,
-          "kind": "comprehension",
-          "line": 284,
-          "python": " for item in endpoint_decisions"
-        },
-        {
-          "node": 855,
-          "kind": "IfExp",
-          "line": 289,
-          "python": "unresolved"
-        },
-        {
-          "node": 2082,
-          "kind": "IfExp",
-          "line": 298,
-          "python": "final_plan.endpoint_audit_json is not None"
-        },
-        {
-          "node": 2640,
-          "kind": "Compare",
-          "line": 299,
-          "python": "final_plan.endpoint_audit_json is not None"
-        },
-        {
-          "node": 1456,
-          "kind": "IfExp",
-          "line": 331,
-          "python": "approximate_osm"
-        },
-        {
-          "node": 159,
+          "node": 145,
           "kind": "If",
-          "line": 333,
-          "python": "endpoint_hints is not None"
+          "line": 213,
+          "python": "stage_callback"
         },
         {
-          "node": 429,
-          "kind": "Compare",
-          "line": 333,
-          "python": "endpoint_hints is not None"
-        },
-        {
-          "node": 164,
-          "kind": "If",
-          "line": 360,
-          "python": "config.osm_graph_id is not None"
-        },
-        {
-          "node": 444,
-          "kind": "Compare",
-          "line": 360,
-          "python": "config.osm_graph_id is not None"
-        },
-        {
-          "node": 446,
+          "node": 146,
           "kind": "Try",
-          "line": 363,
+          "line": 215,
           "python": "handlers, orelse and finalbody are recorded in program"
         },
         {
-          "node": 909,
+          "node": 2014,
+          "kind": "Compare",
+          "line": 217,
+          "python": "config.osm_mode is OSMMode.OFFLINE"
+        },
+        {
+          "node": 393,
           "kind": "ExceptHandler",
-          "line": 375,
-          "python": "OSMReconstructionError"
+          "line": 219,
+          "python": "OsmManagerError"
         },
         {
-          "node": 3557,
+          "node": 3416,
           "kind": "IfExp",
-          "line": 382,
-          "python": "config.approximate_osm"
+          "line": 231,
+          "python": "error.__cause__ is not None"
         },
         {
-          "node": 913,
+          "node": 3594,
+          "kind": "Compare",
+          "line": 232,
+          "python": "error.__cause__ is not None"
+        },
+        {
+          "node": 147,
+          "kind": "If",
+          "line": 240,
+          "python": "time.monotonic() - started > config.osm_acquisition_timeout_seconds"
+        },
+        {
+          "node": 394,
+          "kind": "Compare",
+          "line": 240,
+          "python": "time.monotonic() - started > config.osm_acquisition_timeout_seconds"
+        },
+        {
+          "node": 148,
+          "kind": "If",
+          "line": 242,
+          "python": "_tree_size(cache_root, config.osm_cache_quota_bytes) > config.osm_cache_quota_bytes"
+        },
+        {
+          "node": 396,
+          "kind": "Compare",
+          "line": 242,
+          "python": "_tree_size(cache_root, config.osm_cache_quota_bytes) > config.osm_cache_quota_bytes"
+        },
+        {
+          "node": 151,
+          "kind": "Try",
+          "line": 247,
+          "python": "handlers, orelse and finalbody are recorded in program"
+        },
+        {
+          "node": 402,
+          "kind": "If",
+          "line": 248,
+          "python": "stage_callback"
+        },
+        {
+          "node": 405,
+          "kind": "ExceptHandler",
+          "line": 257,
+          "python": "RoutingError"
+        },
+        {
+          "node": 154,
+          "kind": "Try",
+          "line": 262,
+          "python": "handlers, orelse and finalbody are recorded in program"
+        },
+        {
+          "node": 410,
+          "kind": "If",
+          "line": 263,
+          "python": "stage_callback"
+        },
+        {
+          "node": 411,
+          "kind": "If",
+          "line": 265,
+          "python": "_tree_size(cache_root, config.osm_cache_quota_bytes) > config.osm_cache_quota_bytes"
+        },
+        {
+          "node": 850,
+          "kind": "Compare",
+          "line": 265,
+          "python": "_tree_size(cache_root, config.osm_cache_quota_bytes) > config.osm_cache_quota_bytes"
+        },
+        {
+          "node": 413,
+          "kind": "ExceptHandler",
+          "line": 281,
+          "python": "Exception"
+        },
+        {
+          "node": 866,
+          "kind": "BoolOp",
+          "line": 285,
+          "python": "final_plan.endpoint_audit_json or '[]'"
+        },
+        {
+          "node": 421,
           "kind": "IfExp",
-          "line": 405,
+          "line": 287,
           "python": "endpoint_hints is not None"
         },
         {
-          "node": 1491,
+          "node": 868,
           "kind": "Compare",
-          "line": 406,
+          "line": 288,
           "python": "endpoint_hints is not None"
         },
         {
-          "node": 2681,
+          "node": 2099,
           "kind": "Compare",
-          "line": 407,
-          "python": "d.get('status') == 'unresolved'"
+          "line": 289,
+          "python": "item.get('status') == 'unresolved'"
         },
         {
-          "node": 2682,
+          "node": 2100,
           "kind": "comprehension",
-          "line": 407,
-          "python": " for d in decisions"
+          "line": 289,
+          "python": " for item in decisions"
         },
         {
-          "node": 1496,
+          "node": 1462,
+          "kind": "Compare",
+          "line": 300,
+          "python": "graph.status == 'CACHED'"
+        },
+        {
+          "node": 3120,
+          "kind": "Compare",
+          "line": 302,
+          "python": "item.get('queried') is True"
+        },
+        {
+          "node": 3121,
+          "kind": "comprehension",
+          "line": 302,
+          "python": " for item in endpoint_decisions"
+        },
+        {
+          "node": 3124,
+          "kind": "Compare",
+          "line": 304,
+          "python": "item.get('status') == 'osm_selected'"
+        },
+        {
+          "node": 3125,
+          "kind": "comprehension",
+          "line": 304,
+          "python": " for item in endpoint_decisions"
+        },
+        {
+          "node": 887,
           "kind": "IfExp",
-          "line": 409,
+          "line": 309,
           "python": "unresolved"
         },
         {
-          "node": 451,
+          "node": 2138,
           "kind": "IfExp",
-          "line": 410,
-          "python": "config.isolate_osm"
+          "line": 318,
+          "python": "final_plan.endpoint_audit_json is not None"
         },
         {
-          "node": 166,
-          "kind": "If",
-          "line": 411,
-          "python": "endpoint_hints is None"
-        },
-        {
-          "node": 452,
+          "node": 2707,
           "kind": "Compare",
-          "line": 411,
-          "python": "endpoint_hints is None"
+          "line": 319,
+          "python": "final_plan.endpoint_audit_json is not None"
         },
         {
-          "node": 171,
+          "node": 1503,
+          "kind": "IfExp",
+          "line": 351,
+          "python": "approximate_osm"
+        },
+        {
+          "node": 168,
           "kind": "If",
-          "line": 428,
-          "python": "config.osm_mode is OSMMode.DISABLED"
+          "line": 353,
+          "python": "endpoint_hints is not None"
         },
         {
-          "node": 465,
+          "node": 447,
           "kind": "Compare",
-          "line": 428,
-          "python": "config.osm_mode is OSMMode.DISABLED"
-        },
-        {
-          "node": 172,
-          "kind": "If",
-          "line": 430,
-          "python": "eligible_gap_count(activity, base_plan, integrity, endpoint_hints) == 0"
-        },
-        {
-          "node": 467,
-          "kind": "Compare",
-          "line": 430,
-          "python": "eligible_gap_count(activity, base_plan, integrity, endpoint_hints) == 0"
+          "line": 353,
+          "python": "endpoint_hints is not None"
         },
         {
           "node": 173,
           "kind": "If",
-          "line": 432,
-          "python": "sys.platform != 'linux' or not hasattr(os, 'setsid')"
+          "line": 380,
+          "python": "config.osm_graph_id is not None"
+        },
+        {
+          "node": 462,
+          "kind": "Compare",
+          "line": 380,
+          "python": "config.osm_graph_id is not None"
+        },
+        {
+          "node": 464,
+          "kind": "Try",
+          "line": 383,
+          "python": "handlers, orelse and finalbody are recorded in program"
+        },
+        {
+          "node": 941,
+          "kind": "ExceptHandler",
+          "line": 395,
+          "python": "OSMReconstructionError"
+        },
+        {
+          "node": 3633,
+          "kind": "IfExp",
+          "line": 402,
+          "python": "config.approximate_osm"
+        },
+        {
+          "node": 945,
+          "kind": "IfExp",
+          "line": 425,
+          "python": "endpoint_hints is not None"
+        },
+        {
+          "node": 1538,
+          "kind": "Compare",
+          "line": 426,
+          "python": "endpoint_hints is not None"
+        },
+        {
+          "node": 2748,
+          "kind": "Compare",
+          "line": 427,
+          "python": "d.get('status') == 'unresolved'"
+        },
+        {
+          "node": 2749,
+          "kind": "comprehension",
+          "line": 427,
+          "python": " for d in decisions"
+        },
+        {
+          "node": 1543,
+          "kind": "IfExp",
+          "line": 429,
+          "python": "unresolved"
         },
         {
           "node": 469,
-          "kind": "BoolOp",
-          "line": 432,
-          "python": "sys.platform != 'linux' or not hasattr(os, 'setsid')"
-        },
-        {
-          "node": 946,
-          "kind": "Compare",
-          "line": 432,
-          "python": "sys.platform != 'linux'"
-        },
-        {
-          "node": 1558,
           "kind": "IfExp",
-          "line": 438,
+          "line": 430,
+          "python": "config.isolate_osm"
+        },
+        {
+          "node": 175,
+          "kind": "If",
+          "line": 431,
           "python": "endpoint_hints is None"
         },
         {
-          "node": 2169,
+          "node": 470,
           "kind": "Compare",
-          "line": 439,
+          "line": 431,
           "python": "endpoint_hints is None"
+        },
+        {
+          "node": 180,
+          "kind": "If",
+          "line": 448,
+          "python": "config.osm_mode is OSMMode.DISABLED"
         },
         {
           "node": 483,
-          "kind": "Raise",
-          "line": 449,
-          "python": "raise SystemExit(128 + signum)"
+          "kind": "Compare",
+          "line": 448,
+          "python": "config.osm_mode is OSMMode.DISABLED"
+        },
+        {
+          "node": 181,
+          "kind": "If",
+          "line": 450,
+          "python": "eligible_gap_count(activity, base_plan, integrity, endpoint_hints) == 0"
+        },
+        {
+          "node": 485,
+          "kind": "Compare",
+          "line": 450,
+          "python": "eligible_gap_count(activity, base_plan, integrity, endpoint_hints) == 0"
         },
         {
           "node": 182,
-          "kind": "Try",
+          "kind": "If",
           "line": 452,
+          "python": "sys.platform != 'linux' or not hasattr(os, 'setsid')"
+        },
+        {
+          "node": 487,
+          "kind": "BoolOp",
+          "line": 452,
+          "python": "sys.platform != 'linux' or not hasattr(os, 'setsid')"
+        },
+        {
+          "node": 978,
+          "kind": "Compare",
+          "line": 452,
+          "python": "sys.platform != 'linux'"
+        },
+        {
+          "node": 1605,
+          "kind": "IfExp",
+          "line": 458,
+          "python": "endpoint_hints is None"
+        },
+        {
+          "node": 2225,
+          "kind": "Compare",
+          "line": 459,
+          "python": "endpoint_hints is None"
+        },
+        {
+          "node": 501,
+          "kind": "Raise",
+          "line": 469,
+          "python": "raise SystemExit(128 + signum)"
+        },
+        {
+          "node": 191,
+          "kind": "Try",
+          "line": 472,
           "python": "handlers, orelse and finalbody are recorded in program"
         },
         {
-          "node": 489,
+          "node": 507,
           "kind": "While",
-          "line": 457,
+          "line": 477,
           "python": "True"
         },
         {
-          "node": 985,
+          "node": 1017,
           "kind": "If",
-          "line": 460,
+          "line": 480,
           "python": "remaining <= 0"
         },
         {
-          "node": 1589,
+          "node": 1636,
           "kind": "Compare",
-          "line": 460,
+          "line": 480,
           "python": "remaining <= 0"
         },
         {
-          "node": 986,
+          "node": 1018,
           "kind": "If",
-          "line": 465,
+          "line": 485,
           "python": "not receiving.poll(min(0.25, remaining))"
         },
         {
-          "node": 1596,
+          "node": 1643,
           "kind": "If",
-          "line": 467,
+          "line": 487,
           "python": "_osm_temporary_size(cache_root, config.osm_job_temp_quota_bytes) > config.osm_job_temp_quota_bytes or _tree_size(cache_root, config.osm_cache_quota_bytes) > config.osm_cache_quota_bytes or shutil.disk_usage(config.data_dir).free < config.osm_minimum_free_bytes"
         },
         {
-          "node": 2207,
+          "node": 2263,
           "kind": "BoolOp",
-          "line": 468,
+          "line": 488,
           "python": "_osm_temporary_size(cache_root, config.osm_job_temp_quota_bytes) > config.osm_job_temp_quota_bytes or _tree_size(cache_root, config.osm_cache_quota_bytes) > config.osm_cache_quota_bytes or shutil.disk_usage(config.data_dir).free < config.osm_minimum_free_bytes"
         },
         {
-          "node": 2736,
+          "node": 2803,
           "kind": "Compare",
-          "line": 468,
+          "line": 488,
           "python": "_osm_temporary_size(cache_root, config.osm_job_temp_quota_bytes) > config.osm_job_temp_quota_bytes"
         },
         {
-          "node": 2737,
+          "node": 2804,
           "kind": "Compare",
-          "line": 470,
+          "line": 490,
           "python": "_tree_size(cache_root, config.osm_cache_quota_bytes) > config.osm_cache_quota_bytes"
         },
         {
-          "node": 2738,
+          "node": 2805,
           "kind": "Compare",
-          "line": 472,
+          "line": 492,
           "python": "shutil.disk_usage(config.data_dir).free < config.osm_minimum_free_bytes"
         },
         {
-          "node": 1597,
+          "node": 1644,
           "kind": "If",
-          "line": 478,
+          "line": 498,
           "python": "_group_resources_exceeded(process.pid, config)"
         },
         {
-          "node": 1598,
+          "node": 1645,
           "kind": "Continue",
-          "line": 483,
+          "line": 503,
           "python": "continue"
         },
         {
-          "node": 987,
+          "node": 1019,
           "kind": "Try",
-          "line": 484,
+          "line": 504,
           "python": "handlers, orelse and finalbody are recorded in program"
         },
         {
-          "node": 1601,
+          "node": 1648,
           "kind": "If",
-          "line": 487,
+          "line": 507,
           "python": "received_bytes > config.osm_ipc_maximum_bytes"
         },
         {
-          "node": 2222,
+          "node": 2278,
           "kind": "Compare",
-          "line": 487,
+          "line": 507,
           "python": "received_bytes > config.osm_ipc_maximum_bytes"
         },
         {
-          "node": 2223,
+          "node": 2279,
           "kind": "Raise",
-          "line": 488,
+          "line": 508,
           "python": "raise ValueError('cumulative IPC limit exceeded')"
         },
         {
-          "node": 1603,
+          "node": 1650,
           "kind": "ExceptHandler",
-          "line": 491,
+          "line": 511,
           "python": "(EOFError, OSError, pickle.PickleError, ValueError, TypeError)"
         },
         {
-          "node": 988,
+          "node": 1020,
           "kind": "If",
-          "line": 493,
+          "line": 513,
           "python": "kind == 'stage' and value in {'acquisition', 'prepare', 'routing'}"
         },
         {
-          "node": 1604,
+          "node": 1651,
           "kind": "BoolOp",
-          "line": 493,
+          "line": 513,
           "python": "kind == 'stage' and value in {'acquisition', 'prepare', 'routing'}"
         },
         {
-          "node": 2229,
+          "node": 2285,
           "kind": "Compare",
-          "line": 493,
+          "line": 513,
           "python": "kind == 'stage'"
         },
         {
-          "node": 2230,
+          "node": 2286,
           "kind": "Compare",
-          "line": 493,
+          "line": 513,
           "python": "value in {'acquisition', 'prepare', 'routing'}"
         },
         {
-          "node": 1608,
+          "node": 1655,
           "kind": "Continue",
-          "line": 501,
+          "line": 521,
           "python": "continue"
         },
         {
-          "node": 989,
+          "node": 1021,
           "kind": "If",
-          "line": 502,
+          "line": 522,
           "python": "kind == 'result' and isinstance(value, OSMResult)"
         },
         {
-          "node": 1609,
+          "node": 1656,
           "kind": "BoolOp",
-          "line": 502,
+          "line": 522,
           "python": "kind == 'result' and isinstance(value, OSMResult)"
         },
         {
-          "node": 2238,
+          "node": 2294,
           "kind": "Compare",
-          "line": 502,
+          "line": 522,
           "python": "kind == 'result'"
         },
         {
-          "node": 492,
+          "node": 510,
           "kind": "If",
-          "line": 508,
+          "line": 528,
           "python": "process.is_alive()"
-        },
-        {
-          "node": 185,
-          "kind": "If",
-          "line": 514,
-          "python": "pid"
         },
         {
           "node": 194,
           "kind": "If",
-          "line": 538,
-          "python": "plan.automatic_osm_json is None"
-        },
-        {
-          "node": 509,
-          "kind": "Compare",
-          "line": 538,
-          "python": "plan.automatic_osm_json is None"
-        },
-        {
-          "node": 516,
-          "kind": "IfExp",
-          "line": 544,
-          "python": "isinstance(decisions, list)"
-        },
-        {
-          "node": 202,
-          "kind": "If",
-          "line": 549,
-          "python": "not root.exists()"
+          "line": 534,
+          "python": "pid"
         },
         {
           "node": 203,
-          "kind": "For",
-          "line": 551,
-          "python": "(directory, _, filenames) in os.walk(root, followlinks=False)"
-        },
-        {
-          "node": 528,
-          "kind": "For",
-          "line": 552,
-          "python": "filename in filenames"
-        },
-        {
-          "node": 1070,
-          "kind": "Try",
-          "line": 553,
-          "python": "handlers, orelse and finalbody are recorded in program"
-        },
-        {
-          "node": 1670,
-          "kind": "ExceptHandler",
-          "line": 555,
-          "python": "OSError"
-        },
-        {
-          "node": 2285,
-          "kind": "Continue",
-          "line": 556,
-          "python": "continue"
-        },
-        {
-          "node": 1071,
           "kind": "If",
-          "line": 557,
-          "python": "total > stop_after"
+          "line": 558,
+          "python": "plan.automatic_osm_json is None"
         },
         {
-          "node": 1671,
+          "node": 527,
           "kind": "Compare",
-          "line": 557,
-          "python": "total > stop_after"
-        },
-        {
-          "node": 208,
-          "kind": "If",
-          "line": 564,
-          "python": "_tree_size(cache_root, quota_bytes) <= quota_bytes"
+          "line": 558,
+          "python": "plan.automatic_osm_json is None"
         },
         {
           "node": 534,
-          "kind": "Compare",
-          "line": 564,
-          "python": "_tree_size(cache_root, quota_bytes) <= quota_bytes"
-        },
-        {
-          "node": 542,
-          "kind": "Try",
-          "line": 572,
-          "python": "handlers, orelse and finalbody are recorded in program"
-        },
-        {
-          "node": 1091,
-          "kind": "ExceptHandler",
-          "line": 574,
-          "python": "BlockingIOError"
-        },
-        {
-          "node": 543,
-          "kind": "Try",
-          "line": 576,
-          "python": "handlers, orelse and finalbody are recorded in program"
-        },
-        {
-          "node": 1697,
           "kind": "IfExp",
-          "line": 579,
-          "python": "graphs.is_dir()"
+          "line": 564,
+          "python": "isinstance(decisions, list)"
         },
         {
-          "node": 3232,
-          "kind": "comprehension",
-          "line": 582,
-          "python": " for item in graphs.iterdir() if item.is_dir() and re.fullmatch('[0-9a-f]{64}', item.name)"
-        },
-        {
-          "node": 3469,
-          "kind": "BoolOp",
-          "line": 583,
-          "python": "item.is_dir() and re.fullmatch('[0-9a-f]{64}', item.name)"
-        },
-        {
-          "node": 1096,
-          "kind": "For",
-          "line": 592,
-          "python": "candidate in candidates"
-        },
-        {
-          "node": 1706,
+          "node": 211,
           "kind": "If",
-          "line": 596,
-          "python": "_tree_size(cache_root, quota_bytes) <= quota_bytes"
+          "line": 569,
+          "python": "not root.exists()"
         },
         {
-          "node": 2326,
-          "kind": "Compare",
-          "line": 596,
-          "python": "_tree_size(cache_root, quota_bytes) <= quota_bytes"
+          "node": 212,
+          "kind": "For",
+          "line": 571,
+          "python": "(directory, _, filenames) in os.walk(root, followlinks=False)"
         },
         {
-          "node": 1707,
-          "kind": "Compare",
-          "line": 598,
-          "python": "_tree_size(cache_root, quota_bytes) <= quota_bytes"
+          "node": 546,
+          "kind": "For",
+          "line": 572,
+          "python": "filename in filenames"
         },
         {
-          "node": 1098,
+          "node": 1102,
+          "kind": "Try",
+          "line": 573,
+          "python": "handlers, orelse and finalbody are recorded in program"
+        },
+        {
+          "node": 1717,
           "kind": "ExceptHandler",
-          "line": 599,
+          "line": 575,
           "python": "OSError"
         },
         {
-          "node": 216,
-          "kind": "For",
-          "line": 607,
-          "python": "root in (cache_root / 'tmp', cache_root / 'datasets' / 'tmp', cache_root / 'routing' / 'staging')"
-        },
-        {
-          "node": 552,
-          "kind": "If",
-          "line": 613,
-          "python": "total > stop_after"
-        },
-        {
-          "node": 1111,
-          "kind": "Compare",
-          "line": 613,
-          "python": "total > stop_after"
-        },
-        {
-          "node": 1112,
-          "kind": "Break",
-          "line": 614,
-          "python": "break"
-        },
-        {
-          "node": 221,
-          "kind": "For",
-          "line": 620,
-          "python": "root in (cache_root / 'tmp', cache_root / 'datasets' / 'tmp', cache_root / 'routing' / 'staging')"
-        },
-        {
-          "node": 560,
-          "kind": "If",
-          "line": 625,
-          "python": "not root.is_dir()"
-        },
-        {
-          "node": 1125,
+          "node": 2341,
           "kind": "Continue",
-          "line": 626,
+          "line": 576,
           "python": "continue"
         },
         {
+          "node": 1103,
+          "kind": "If",
+          "line": 577,
+          "python": "total > stop_after"
+        },
+        {
+          "node": 1718,
+          "kind": "Compare",
+          "line": 577,
+          "python": "total > stop_after"
+        },
+        {
+          "node": 217,
+          "kind": "If",
+          "line": 584,
+          "python": "_tree_size(cache_root, quota_bytes) <= quota_bytes"
+        },
+        {
+          "node": 552,
+          "kind": "Compare",
+          "line": 584,
+          "python": "_tree_size(cache_root, quota_bytes) <= quota_bytes"
+        },
+        {
+          "node": 560,
+          "kind": "Try",
+          "line": 592,
+          "python": "handlers, orelse and finalbody are recorded in program"
+        },
+        {
+          "node": 1123,
+          "kind": "ExceptHandler",
+          "line": 594,
+          "python": "BlockingIOError"
+        },
+        {
           "node": 561,
-          "kind": "For",
-          "line": 627,
-          "python": "child in root.iterdir()"
+          "kind": "Try",
+          "line": 596,
+          "python": "handlers, orelse and finalbody are recorded in program"
+        },
+        {
+          "node": 1744,
+          "kind": "IfExp",
+          "line": 599,
+          "python": "graphs.is_dir()"
+        },
+        {
+          "node": 3304,
+          "kind": "comprehension",
+          "line": 602,
+          "python": " for item in graphs.iterdir() if item.is_dir() and re.fullmatch('[0-9a-f]{64}', item.name)"
+        },
+        {
+          "node": 3543,
+          "kind": "BoolOp",
+          "line": 603,
+          "python": "item.is_dir() and re.fullmatch('[0-9a-f]{64}', item.name)"
         },
         {
           "node": 1128,
-          "kind": "If",
-          "line": 628,
-          "python": "child.is_symlink() or child.is_file()"
+          "kind": "For",
+          "line": 612,
+          "python": "candidate in candidates"
         },
         {
-          "node": 1745,
-          "kind": "BoolOp",
-          "line": 628,
-          "python": "child.is_symlink() or child.is_file()"
+          "node": 1753,
+          "kind": "If",
+          "line": 616,
+          "python": "_tree_size(cache_root, quota_bytes) <= quota_bytes"
         },
         {
-          "node": 1747,
-          "kind": "If",
-          "line": 630,
-          "python": "child.is_dir()"
+          "node": 2382,
+          "kind": "Compare",
+          "line": 616,
+          "python": "_tree_size(cache_root, quota_bytes) <= quota_bytes"
+        },
+        {
+          "node": 1754,
+          "kind": "Compare",
+          "line": 618,
+          "python": "_tree_size(cache_root, quota_bytes) <= quota_bytes"
+        },
+        {
+          "node": 1130,
+          "kind": "ExceptHandler",
+          "line": 619,
+          "python": "OSError"
         },
         {
           "node": 225,
-          "kind": "If",
-          "line": 636,
-          "python": "not pgid or not Path('/proc').is_dir()"
+          "kind": "For",
+          "line": 627,
+          "python": "root in (cache_root / 'tmp', cache_root / 'datasets' / 'tmp', cache_root / 'routing' / 'staging')"
         },
         {
-          "node": 565,
-          "kind": "BoolOp",
-          "line": 636,
-          "python": "not pgid or not Path('/proc').is_dir()"
+          "node": 570,
+          "kind": "If",
+          "line": 633,
+          "python": "total > stop_after"
+        },
+        {
+          "node": 1143,
+          "kind": "Compare",
+          "line": 633,
+          "python": "total > stop_after"
+        },
+        {
+          "node": 1144,
+          "kind": "Break",
+          "line": 634,
+          "python": "break"
         },
         {
           "node": 230,
           "kind": "For",
-          "line": 642,
-          "python": "entry in Path('/proc').iterdir()"
+          "line": 640,
+          "python": "root in (cache_root / 'tmp', cache_root / 'datasets' / 'tmp', cache_root / 'routing' / 'staging')"
         },
         {
-          "node": 577,
+          "node": 578,
           "kind": "If",
-          "line": 643,
-          "python": "not entry.name.isdigit()"
+          "line": 645,
+          "python": "not root.is_dir()"
         },
         {
-          "node": 1146,
+          "node": 1157,
           "kind": "Continue",
-          "line": 644,
+          "line": 646,
           "python": "continue"
         },
         {
           "node": 579,
+          "kind": "For",
+          "line": 647,
+          "python": "child in root.iterdir()"
+        },
+        {
+          "node": 1160,
+          "kind": "If",
+          "line": 648,
+          "python": "child.is_symlink() or child.is_file()"
+        },
+        {
+          "node": 1792,
+          "kind": "BoolOp",
+          "line": 648,
+          "python": "child.is_symlink() or child.is_file()"
+        },
+        {
+          "node": 1794,
+          "kind": "If",
+          "line": 650,
+          "python": "child.is_dir()"
+        },
+        {
+          "node": 234,
+          "kind": "If",
+          "line": 656,
+          "python": "not pgid or not Path('/proc').is_dir()"
+        },
+        {
+          "node": 583,
+          "kind": "BoolOp",
+          "line": 656,
+          "python": "not pgid or not Path('/proc').is_dir()"
+        },
+        {
+          "node": 239,
+          "kind": "For",
+          "line": 662,
+          "python": "entry in Path('/proc').iterdir()"
+        },
+        {
+          "node": 595,
+          "kind": "If",
+          "line": 663,
+          "python": "not entry.name.isdigit()"
+        },
+        {
+          "node": 1178,
+          "kind": "Continue",
+          "line": 664,
+          "python": "continue"
+        },
+        {
+          "node": 597,
           "kind": "Try",
-          "line": 646,
+          "line": 666,
           "python": "handlers, orelse and finalbody are recorded in program"
         },
         {
-          "node": 1149,
+          "node": 1181,
           "kind": "If",
-          "line": 647,
+          "line": 667,
           "python": "os.getpgid(pid) != pgid"
         },
         {
-          "node": 1767,
+          "node": 1814,
           "kind": "Compare",
-          "line": 647,
+          "line": 667,
           "python": "os.getpgid(pid) != pgid"
         },
         {
-          "node": 1768,
+          "node": 1815,
           "kind": "Continue",
-          "line": 648,
+          "line": 668,
           "python": "continue"
         },
         {
-          "node": 1154,
+          "node": 1186,
           "kind": "ExceptHandler",
-          "line": 653,
+          "line": 673,
           "python": "(OSError, ProcessLookupError, ValueError, IndexError)"
         },
         {
-          "node": 1780,
+          "node": 1827,
           "kind": "Continue",
-          "line": 654,
+          "line": 674,
           "python": "continue"
         },
         {
-          "node": 580,
+          "node": 598,
           "kind": "BoolOp",
-          "line": 656,
+          "line": 676,
           "python": "total_rss > config.osm_child_memory_limit_bytes or total_ticks / clock_ticks > config.osm_child_cpu_seconds"
         },
         {
-          "node": 1156,
+          "node": 1188,
           "kind": "Compare",
-          "line": 656,
+          "line": 676,
           "python": "total_rss > config.osm_child_memory_limit_bytes"
         },
         {
-          "node": 1157,
+          "node": 1189,
           "kind": "Compare",
-          "line": 657,
+          "line": 677,
           "python": "total_ticks / clock_ticks > config.osm_child_cpu_seconds"
         },
         {
-          "node": 598,
+          "node": 616,
           "kind": "Try",
-          "line": 678,
+          "line": 698,
           "python": "handlers, orelse and finalbody are recorded in program"
         }
       ],
@@ -160665,6 +160828,20 @@
           {
             "kind": "ImportFrom",
             "line": 21,
+            "module": "warpbuster.diagnostics",
+            "names": [
+              {
+                "python": "bounded_diagnostic"
+              },
+              {
+                "python": "exception_diagnostic"
+              }
+            ],
+            "level": 0
+          },
+          {
+            "kind": "ImportFrom",
+            "line": 22,
             "module": "warpbuster.models.activity",
             "names": [
               {
@@ -160675,7 +160852,7 @@
           },
           {
             "kind": "ImportFrom",
-            "line": 22,
+            "line": 23,
             "module": "warpbuster.models.integrity",
             "names": [
               {
@@ -160686,7 +160863,7 @@
           },
           {
             "kind": "ImportFrom",
-            "line": 23,
+            "line": 24,
             "module": "warpbuster.models.reconstruction",
             "names": [
               {
@@ -160700,7 +160877,7 @@
           },
           {
             "kind": "ImportFrom",
-            "line": 24,
+            "line": 25,
             "module": "warpbuster.reconstruction.approximate_contract",
             "names": [
               {
@@ -160714,7 +160891,7 @@
           },
           {
             "kind": "ImportFrom",
-            "line": 25,
+            "line": 26,
             "module": "warpbuster.reconstruction.automatic_osm",
             "names": [
               {
@@ -160725,7 +160902,7 @@
           },
           {
             "kind": "ImportFrom",
-            "line": 26,
+            "line": 27,
             "module": "warpbuster.reconstruction.endpoints",
             "names": [
               {
@@ -160742,7 +160919,7 @@
           },
           {
             "kind": "ImportFrom",
-            "line": 31,
+            "line": 32,
             "module": "warpbuster.reconstruction.osm",
             "names": [
               {
@@ -160756,7 +160933,7 @@
           },
           {
             "kind": "ImportFrom",
-            "line": 32,
+            "line": 33,
             "module": "warpbuster.report.osm",
             "names": [
               {
@@ -160767,7 +160944,7 @@
           },
           {
             "kind": "ImportFrom",
-            "line": 34,
+            "line": 35,
             "module": "config",
             "names": [
               {
@@ -160787,7 +160964,7 @@
           },
           {
             "kind": "ImportFrom",
-            "line": 35,
+            "line": 36,
             "module": "osm_worker",
             "names": [
               {
@@ -160798,7 +160975,7 @@
           },
           {
             "kind": "Assign",
-            "line": 37,
+            "line": 38,
             "targets": [
               {
                 "python": "_PRIVATE_FAILURE_TEXT_LIMIT"
@@ -160810,7 +160987,7 @@
           },
           {
             "kind": "Assign",
-            "line": 39,
+            "line": 40,
             "targets": [
               {
                 "python": "SAFE_ERROR_CODES"
@@ -160822,21 +160999,21 @@
           },
           {
             "kind": "ClassDef",
-            "line": 59,
+            "line": 60,
             "name": "OSMMetrics",
             "bases": [],
             "keywords": [],
             "body": [
               {
                 "kind": "Expr",
-                "line": 60,
+                "line": 61,
                 "value": {
                   "python": "'Coordinate-free operational counters safe to copy into the event journal.'"
                 }
               },
               {
                 "kind": "AnnAssign",
-                "line": 62,
+                "line": 63,
                 "target": {
                   "python": "coverage_cells"
                 },
@@ -160848,7 +161025,7 @@
               },
               {
                 "kind": "AnnAssign",
-                "line": 63,
+                "line": 64,
                 "target": {
                   "python": "coverage_area_km2"
                 },
@@ -160860,7 +161037,7 @@
               },
               {
                 "kind": "AnnAssign",
-                "line": 64,
+                "line": 65,
                 "target": {
                   "python": "coverage_seconds"
                 },
@@ -160872,7 +161049,7 @@
               },
               {
                 "kind": "AnnAssign",
-                "line": 65,
+                "line": 66,
                 "target": {
                   "python": "acquisition_seconds"
                 },
@@ -160884,7 +161061,7 @@
               },
               {
                 "kind": "AnnAssign",
-                "line": 66,
+                "line": 67,
                 "target": {
                   "python": "prepare_seconds"
                 },
@@ -160896,7 +161073,7 @@
               },
               {
                 "kind": "AnnAssign",
-                "line": 67,
+                "line": 68,
                 "target": {
                   "python": "routing_seconds"
                 },
@@ -160908,7 +161085,7 @@
               },
               {
                 "kind": "AnnAssign",
-                "line": 68,
+                "line": 69,
                 "target": {
                   "python": "snapshot_cache_hit"
                 },
@@ -160920,7 +161097,7 @@
               },
               {
                 "kind": "AnnAssign",
-                "line": 69,
+                "line": 70,
                 "target": {
                   "python": "snapshot_stale"
                 },
@@ -160932,7 +161109,7 @@
               },
               {
                 "kind": "AnnAssign",
-                "line": 70,
+                "line": 71,
                 "target": {
                   "python": "graph_cache_hit"
                 },
@@ -160944,7 +161121,7 @@
               },
               {
                 "kind": "AnnAssign",
-                "line": 71,
+                "line": 72,
                 "target": {
                   "python": "routing_queries"
                 },
@@ -160956,7 +161133,7 @@
               },
               {
                 "kind": "AnnAssign",
-                "line": 72,
+                "line": 73,
                 "target": {
                   "python": "candidate_gaps"
                 },
@@ -160968,7 +161145,7 @@
               },
               {
                 "kind": "AnnAssign",
-                "line": 73,
+                "line": 74,
                 "target": {
                   "python": "candidates"
                 },
@@ -160988,14 +161165,14 @@
           },
           {
             "kind": "ClassDef",
-            "line": 77,
+            "line": 78,
             "name": "OSMResult",
             "bases": [],
             "keywords": [],
             "body": [
               {
                 "kind": "AnnAssign",
-                "line": 78,
+                "line": 79,
                 "target": {
                   "python": "plan"
                 },
@@ -161007,7 +161184,7 @@
               },
               {
                 "kind": "AnnAssign",
-                "line": 79,
+                "line": 80,
                 "target": {
                   "python": "status"
                 },
@@ -161019,7 +161196,7 @@
               },
               {
                 "kind": "AnnAssign",
-                "line": 80,
+                "line": 81,
                 "target": {
                   "python": "stage"
                 },
@@ -161033,7 +161210,7 @@
               },
               {
                 "kind": "AnnAssign",
-                "line": 81,
+                "line": 82,
                 "target": {
                   "python": "error_code"
                 },
@@ -161047,7 +161224,7 @@
               },
               {
                 "kind": "AnnAssign",
-                "line": 82,
+                "line": 83,
                 "target": {
                   "python": "private_audit"
                 },
@@ -161061,7 +161238,7 @@
               },
               {
                 "kind": "AnnAssign",
-                "line": 83,
+                "line": 84,
                 "target": {
                   "python": "metrics"
                 },
@@ -161075,7 +161252,7 @@
               },
               {
                 "kind": "AnnAssign",
-                "line": 84,
+                "line": 85,
                 "target": {
                   "python": "discovery"
                 },
@@ -161089,7 +161266,7 @@
               },
               {
                 "kind": "AnnAssign",
-                "line": 85,
+                "line": 86,
                 "target": {
                   "python": "warning"
                 },
@@ -161103,7 +161280,7 @@
               },
               {
                 "kind": "FunctionDef",
-                "line": 87,
+                "line": 88,
                 "name": "__post_init__",
                 "args": {
                   "python": "self"
@@ -161111,14 +161288,14 @@
                 "body": [
                   {
                     "kind": "If",
-                    "line": 88,
+                    "line": 89,
                     "test": {
                       "python": "self.status not in {'not_needed', 'disabled', 'complete', 'partial', 'unavailable'}"
                     },
                     "body": [
                       {
                         "kind": "Raise",
-                        "line": 89,
+                        "line": 90,
                         "exc": {
                           "python": "ValueError('invalid OSM pipeline status')"
                         },
@@ -161129,14 +161306,14 @@
                   },
                   {
                     "kind": "If",
-                    "line": 90,
+                    "line": 91,
                     "test": {
                       "python": "self.stage not in {None, 'setup', 'coverage', 'acquisition', 'prepare', 'routing'}"
                     },
                     "body": [
                       {
                         "kind": "Raise",
-                        "line": 91,
+                        "line": 92,
                         "exc": {
                           "python": "ValueError('invalid OSM pipeline stage')"
                         },
@@ -161147,14 +161324,14 @@
                   },
                   {
                     "kind": "If",
-                    "line": 92,
+                    "line": 93,
                     "test": {
                       "python": "self.error_code is not None and self.error_code not in SAFE_ERROR_CODES"
                     },
                     "body": [
                       {
                         "kind": "Raise",
-                        "line": 93,
+                        "line": 94,
                         "exc": {
                           "python": "ValueError('invalid public OSM error code')"
                         },
@@ -161180,7 +161357,80 @@
           },
           {
             "kind": "FunctionDef",
-            "line": 96,
+            "line": 97,
+            "name": "osm_failure",
+            "args": {
+              "python": "base_plan: RepairPlan, stage: str, code: str, error: BaseException"
+            },
+            "body": [
+              {
+                "kind": "Expr",
+                "line": 98,
+                "value": {
+                  "python": "'Keep a bounded private cause without changing the safe fallback contract.'"
+                }
+              },
+              {
+                "kind": "Try",
+                "line": 99,
+                "body": [
+                  {
+                    "kind": "Assign",
+                    "line": 100,
+                    "targets": [
+                      {
+                        "python": "diagnostic"
+                      }
+                    ],
+                    "value": {
+                      "python": "exception_diagnostic(error)"
+                    }
+                  }
+                ],
+                "handlers": [
+                  {
+                    "kind": "ExceptHandler",
+                    "line": 101,
+                    "type": {
+                      "python": "Exception"
+                    },
+                    "name": null,
+                    "body": [
+                      {
+                        "kind": "Assign",
+                        "line": 103,
+                        "targets": [
+                          {
+                            "python": "diagnostic"
+                          }
+                        ],
+                        "value": {
+                          "python": "bounded_diagnostic({'exception_type': type(error).__name__})"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "orelse": [],
+                "finalbody": []
+              },
+              {
+                "kind": "Return",
+                "line": 104,
+                "value": {
+                  "python": "OSMResult(base_plan, 'unavailable', stage, code, private_audit={'schema_version': 1, 'failure': {'stage': stage, 'code': code, 'diagnostic': diagnostic}})"
+                }
+              }
+            ],
+            "decorator_list": [],
+            "returns": {
+              "python": "OSMResult"
+            },
+            "type_params": []
+          },
+          {
+            "kind": "FunctionDef",
+            "line": 116,
             "name": "eligible_gap_count",
             "args": {
               "python": "activity: ActivityData, plan: RepairPlan, integrity: IntegrityReport | None=None, endpoint_hints: EndpointHints | None=None"
@@ -161188,14 +161438,14 @@
             "body": [
               {
                 "kind": "Expr",
-                "line": 102,
+                "line": 122,
                 "value": {
                   "python": "\"Count gaps using the Core provider's exact anchor contract.\""
                 }
               },
               {
                 "kind": "Assign",
-                "line": 103,
+                "line": 123,
                 "targets": [
                   {
                     "python": "internal"
@@ -161207,7 +161457,7 @@
               },
               {
                 "kind": "Return",
-                "line": 104,
+                "line": 124,
                 "value": {
                   "python": "internal + (len(endpoint_pairs(activity, integrity, plan, endpoint_hints)) if integrity is not None and endpoint_hints is not None else 0)"
                 }
@@ -161221,7 +161471,7 @@
           },
           {
             "kind": "FunctionDef",
-            "line": 111,
+            "line": 131,
             "name": "execute_osm_pipeline",
             "args": {
               "python": "activity: ActivityData, integrity: IntegrityReport, base_plan: RepairPlan, config: PipelineConfig, *, policy: RepairPolicy=DEFAULT_REPAIR_POLICY, stage_callback: Callable[[str], None] | None=None, endpoint_hints: EndpointHints | None=None"
@@ -161229,21 +161479,21 @@
             "body": [
               {
                 "kind": "Expr",
-                "line": 121,
+                "line": 141,
                 "value": {
                   "python": "'Acquire one bounded snapshot, prepare an exact graph and apply Core 012E.'"
                 }
               },
               {
                 "kind": "If",
-                "line": 122,
+                "line": 142,
                 "test": {
                   "python": "config.osm_mode is OSMMode.DISABLED"
                 },
                 "body": [
                   {
                     "kind": "Return",
-                    "line": 123,
+                    "line": 143,
                     "value": {
                       "python": "OSMResult(base_plan, 'disabled')"
                     }
@@ -161253,7 +161503,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 124,
+                "line": 144,
                 "targets": [
                   {
                     "python": "lines"
@@ -161265,7 +161515,7 @@
               },
               {
                 "kind": "For",
-                "line": 125,
+                "line": 145,
                 "target": {
                   "python": "gap"
                 },
@@ -161275,7 +161525,7 @@
                 "body": [
                   {
                     "kind": "Assign",
-                    "line": 126,
+                    "line": 146,
                     "targets": [
                       {
                         "python": "(anchors, _)"
@@ -161287,14 +161537,14 @@
                   },
                   {
                     "kind": "If",
-                    "line": 127,
+                    "line": 147,
                     "test": {
                       "python": "anchors is not None"
                     },
                     "body": [
                       {
                         "kind": "Assign",
-                        "line": 128,
+                        "line": 148,
                         "targets": [
                           {
                             "python": "(before, after)"
@@ -161306,7 +161556,7 @@
                       },
                       {
                         "kind": "Expr",
-                        "line": 129,
+                        "line": 149,
                         "value": {
                           "python": "lines.append(((before.longitude, before.latitude), (after.longitude, after.latitude)))"
                         }
@@ -161319,14 +161569,14 @@
               },
               {
                 "kind": "If",
-                "line": 130,
+                "line": 150,
                 "test": {
                   "python": "endpoint_hints is not None"
                 },
                 "body": [
                   {
                     "kind": "For",
-                    "line": 131,
+                    "line": 151,
                     "target": {
                       "python": "(gap, point, fit_point)"
                     },
@@ -161336,7 +161586,7 @@
                     "body": [
                       {
                         "kind": "Assign",
-                        "line": 132,
+                        "line": 152,
                         "targets": [
                           {
                             "python": "first"
@@ -161348,7 +161598,7 @@
                       },
                       {
                         "kind": "Assign",
-                        "line": 133,
+                        "line": 153,
                         "targets": [
                           {
                             "python": "second"
@@ -161360,7 +161610,7 @@
                       },
                       {
                         "kind": "Expr",
-                        "line": 134,
+                        "line": 154,
                         "value": {
                           "python": "lines.append((first, second) if gap.kind.value == 'prefix' else (second, first))"
                         }
@@ -161373,14 +161623,14 @@
               },
               {
                 "kind": "If",
-                "line": 135,
+                "line": 155,
                 "test": {
                   "python": "not lines"
                 },
                 "body": [
                   {
                     "kind": "Return",
-                    "line": 136,
+                    "line": 156,
                     "value": {
                       "python": "OSMResult(base_plan, 'not_needed')"
                     }
@@ -161390,7 +161640,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 137,
+                "line": 157,
                 "targets": [
                   {
                     "python": "coverage_started"
@@ -161402,11 +161652,11 @@
               },
               {
                 "kind": "Try",
-                "line": 138,
+                "line": 158,
                 "body": [
                   {
                     "kind": "ImportFrom",
-                    "line": 139,
+                    "line": 159,
                     "module": "warpbuster_osm_manager",
                     "names": [
                       {
@@ -161420,7 +161670,7 @@
                   },
                   {
                     "kind": "ImportFrom",
-                    "line": 140,
+                    "line": 160,
                     "module": "warpbuster_osm_manager.coverage",
                     "names": [
                       {
@@ -161434,7 +161684,7 @@
                   },
                   {
                     "kind": "ImportFrom",
-                    "line": 141,
+                    "line": 161,
                     "module": "warpbuster_osm_manager.errors",
                     "names": [
                       {
@@ -161445,7 +161695,7 @@
                   },
                   {
                     "kind": "ImportFrom",
-                    "line": 142,
+                    "line": 162,
                     "module": "warpbuster_osm_manager.models",
                     "names": [
                       {
@@ -161456,7 +161706,7 @@
                   },
                   {
                     "kind": "ImportFrom",
-                    "line": 143,
+                    "line": 163,
                     "module": "warpbuster_osm_routing",
                     "names": [
                       {
@@ -161470,7 +161720,7 @@
                   },
                   {
                     "kind": "ImportFrom",
-                    "line": 144,
+                    "line": 164,
                     "module": "warpbuster_osm_routing.errors",
                     "names": [
                       {
@@ -161483,7 +161733,7 @@
                 "handlers": [
                   {
                     "kind": "ExceptHandler",
-                    "line": 145,
+                    "line": 165,
                     "type": {
                       "python": "ImportError"
                     },
@@ -161491,7 +161741,7 @@
                     "body": [
                       {
                         "kind": "Return",
-                        "line": 146,
+                        "line": 166,
                         "value": {
                           "python": "OSMResult(base_plan, 'unavailable', 'setup', 'dependency_unavailable')"
                         }
@@ -161504,7 +161754,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 148,
+                "line": 168,
                 "targets": [
                   {
                     "python": "cache_root"
@@ -161516,7 +161766,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 149,
+                "line": 169,
                 "targets": [
                   {
                     "python": "manager_cache"
@@ -161528,7 +161778,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 150,
+                "line": 170,
                 "targets": [
                   {
                     "python": "routing_cache"
@@ -161540,7 +161790,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 151,
+                "line": 171,
                 "targets": [
                   {
                     "python": "temporary"
@@ -161552,7 +161802,7 @@
               },
               {
                 "kind": "For",
-                "line": 152,
+                "line": 172,
                 "target": {
                   "python": "directory"
                 },
@@ -161562,14 +161812,14 @@
                 "body": [
                   {
                     "kind": "Expr",
-                    "line": 153,
+                    "line": 173,
                     "value": {
                       "python": "directory.mkdir(parents=True, exist_ok=True, mode=448)"
                     }
                   },
                   {
                     "kind": "Expr",
-                    "line": 154,
+                    "line": 174,
                     "value": {
                       "python": "directory.chmod(448)"
                     }
@@ -161579,14 +161829,14 @@
               },
               {
                 "kind": "If",
-                "line": 155,
+                "line": 175,
                 "test": {
                   "python": "shutil.disk_usage(config.data_dir).free < config.osm_minimum_free_bytes"
                 },
                 "body": [
                   {
                     "kind": "Return",
-                    "line": 156,
+                    "line": 176,
                     "value": {
                       "python": "OSMResult(base_plan, 'unavailable', 'coverage', 'cache_quota')"
                     }
@@ -161596,14 +161846,14 @@
               },
               {
                 "kind": "If",
-                "line": 157,
+                "line": 177,
                 "test": {
                   "python": "not _ensure_cache_quota(cache_root, config.osm_cache_quota_bytes)"
                 },
                 "body": [
                   {
                     "kind": "Return",
-                    "line": 158,
+                    "line": 178,
                     "value": {
                       "python": "OSMResult(base_plan, 'unavailable', 'coverage', 'cache_quota')"
                     }
@@ -161613,11 +161863,11 @@
               },
               {
                 "kind": "Try",
-                "line": 160,
+                "line": 180,
                 "body": [
                   {
                     "kind": "Assign",
-                    "line": 161,
+                    "line": 181,
                     "targets": [
                       {
                         "python": "manager_config"
@@ -161629,7 +161879,7 @@
                   },
                   {
                     "kind": "Assign",
-                    "line": 176,
+                    "line": 196,
                     "targets": [
                       {
                         "python": "geometry"
@@ -161641,7 +161891,7 @@
                   },
                   {
                     "kind": "Assign",
-                    "line": 182,
+                    "line": 202,
                     "targets": [
                       {
                         "python": "coverage"
@@ -161655,7 +161905,7 @@
                 "handlers": [
                   {
                     "kind": "ExceptHandler",
-                    "line": 188,
+                    "line": 208,
                     "type": {
                       "python": "Exception"
                     },
@@ -161663,9 +161913,9 @@
                     "body": [
                       {
                         "kind": "Return",
-                        "line": 189,
+                        "line": 209,
                         "value": {
-                          "python": "OSMResult(base_plan, 'unavailable', 'coverage', _safe_code(error, 'coverage_limit'))"
+                          "python": "osm_failure(base_plan, 'coverage', _safe_code(error, 'coverage_limit'), error)"
                         }
                       }
                     ]
@@ -161676,7 +161926,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 191,
+                "line": 211,
                 "targets": [
                   {
                     "python": "coverage_seconds"
@@ -161688,7 +161938,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 192,
+                "line": 212,
                 "targets": [
                   {
                     "python": "started"
@@ -161700,14 +161950,14 @@
               },
               {
                 "kind": "If",
-                "line": 193,
+                "line": 213,
                 "test": {
                   "python": "stage_callback"
                 },
                 "body": [
                   {
                     "kind": "Expr",
-                    "line": 194,
+                    "line": 214,
                     "value": {
                       "python": "stage_callback('acquisition')"
                     }
@@ -161717,11 +161967,11 @@
               },
               {
                 "kind": "Try",
-                "line": 195,
+                "line": 215,
                 "body": [
                   {
                     "kind": "Assign",
-                    "line": 196,
+                    "line": 216,
                     "targets": [
                       {
                         "python": "snapshot"
@@ -161735,7 +161985,7 @@
                 "handlers": [
                   {
                     "kind": "ExceptHandler",
-                    "line": 199,
+                    "line": 219,
                     "type": {
                       "python": "OsmManagerError"
                     },
@@ -161743,7 +161993,7 @@
                     "body": [
                       {
                         "kind": "Return",
-                        "line": 200,
+                        "line": 220,
                         "value": {
                           "python": "OSMResult(base_plan, 'unavailable', 'acquisition', _safe_code(error, 'acquisition_failed'), private_audit={'schema_version': 1, 'failure': {'stage': 'acquisition', 'code': str(error.code), 'message': str(error)[:_PRIVATE_FAILURE_TEXT_LIMIT], 'cause': repr(error.__cause__)[:_PRIVATE_FAILURE_TEXT_LIMIT] if error.__cause__ is not None else None, 'details': json.dumps(error.details, ensure_ascii=False, default=str)[:_PRIVATE_FAILURE_TEXT_LIMIT]}})"
                         }
@@ -161756,14 +162006,14 @@
               },
               {
                 "kind": "If",
-                "line": 220,
+                "line": 240,
                 "test": {
                   "python": "time.monotonic() - started > config.osm_acquisition_timeout_seconds"
                 },
                 "body": [
                   {
                     "kind": "Return",
-                    "line": 221,
+                    "line": 241,
                     "value": {
                       "python": "OSMResult(base_plan, 'unavailable', 'acquisition', 'osm_timeout')"
                     }
@@ -161773,14 +162023,14 @@
               },
               {
                 "kind": "If",
-                "line": 222,
+                "line": 242,
                 "test": {
                   "python": "_tree_size(cache_root, config.osm_cache_quota_bytes) > config.osm_cache_quota_bytes"
                 },
                 "body": [
                   {
                     "kind": "Return",
-                    "line": 223,
+                    "line": 243,
                     "value": {
                       "python": "OSMResult(base_plan, 'unavailable', 'acquisition', 'cache_quota')"
                     }
@@ -161790,7 +162040,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 224,
+                "line": 244,
                 "targets": [
                   {
                     "python": "acquisition_seconds"
@@ -161802,7 +162052,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 226,
+                "line": 246,
                 "targets": [
                   {
                     "python": "started"
@@ -161814,18 +162064,18 @@
               },
               {
                 "kind": "Try",
-                "line": 227,
+                "line": 247,
                 "body": [
                   {
                     "kind": "If",
-                    "line": 228,
+                    "line": 248,
                     "test": {
                       "python": "stage_callback"
                     },
                     "body": [
                       {
                         "kind": "Expr",
-                        "line": 229,
+                        "line": 249,
                         "value": {
                           "python": "stage_callback('prepare')"
                         }
@@ -161835,7 +162085,7 @@
                   },
                   {
                     "kind": "Assign",
-                    "line": 230,
+                    "line": 250,
                     "targets": [
                       {
                         "python": "routing_config"
@@ -161847,7 +162097,7 @@
                   },
                   {
                     "kind": "With",
-                    "line": 235,
+                    "line": 255,
                     "items": [
                       {
                         "python": "_lease(cache_root, f'snapshot-{snapshot.manifest.snapshot_id}')"
@@ -161856,7 +162106,7 @@
                     "body": [
                       {
                         "kind": "Assign",
-                        "line": 236,
+                        "line": 256,
                         "targets": [
                           {
                             "python": "graph"
@@ -161872,7 +162122,7 @@
                 "handlers": [
                   {
                     "kind": "ExceptHandler",
-                    "line": 237,
+                    "line": 257,
                     "type": {
                       "python": "RoutingError"
                     },
@@ -161880,7 +162130,7 @@
                     "body": [
                       {
                         "kind": "Return",
-                        "line": 238,
+                        "line": 258,
                         "value": {
                           "python": "OSMResult(base_plan, 'unavailable', 'prepare', _safe_code(error, 'prepare_failed'))"
                         }
@@ -161893,7 +162143,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 239,
+                "line": 259,
                 "targets": [
                   {
                     "python": "prepare_seconds"
@@ -161905,7 +162155,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 241,
+                "line": 261,
                 "targets": [
                   {
                     "python": "started"
@@ -161917,18 +162167,18 @@
               },
               {
                 "kind": "Try",
-                "line": 242,
+                "line": 262,
                 "body": [
                   {
                     "kind": "If",
-                    "line": 243,
+                    "line": 263,
                     "test": {
                       "python": "stage_callback"
                     },
                     "body": [
                       {
                         "kind": "Expr",
-                        "line": 244,
+                        "line": 264,
                         "value": {
                           "python": "stage_callback('routing')"
                         }
@@ -161938,14 +162188,14 @@
                   },
                   {
                     "kind": "If",
-                    "line": 245,
+                    "line": 265,
                     "test": {
                       "python": "_tree_size(cache_root, config.osm_cache_quota_bytes) > config.osm_cache_quota_bytes"
                     },
                     "body": [
                       {
                         "kind": "Return",
-                        "line": 246,
+                        "line": 266,
                         "value": {
                           "python": "OSMResult(base_plan, 'unavailable', 'prepare', 'cache_quota')"
                         }
@@ -161955,7 +162205,7 @@
                   },
                   {
                     "kind": "With",
-                    "line": 247,
+                    "line": 267,
                     "items": [
                       {
                         "python": "_lease(cache_root, f'snapshot-{snapshot.manifest.snapshot_id}')"
@@ -161967,7 +162217,7 @@
                     "body": [
                       {
                         "kind": "Assign",
-                        "line": 251,
+                        "line": 271,
                         "targets": [
                           {
                             "python": "(final_plan, discovery)"
@@ -161983,7 +162233,7 @@
                 "handlers": [
                   {
                     "kind": "ExceptHandler",
-                    "line": 261,
+                    "line": 281,
                     "type": {
                       "python": "Exception"
                     },
@@ -161991,9 +162241,9 @@
                     "body": [
                       {
                         "kind": "Return",
-                        "line": 262,
+                        "line": 282,
                         "value": {
-                          "python": "OSMResult(base_plan, 'unavailable', 'routing', _safe_code(error, 'routing_failed'))"
+                          "python": "osm_failure(base_plan, 'routing', _safe_code(error, 'routing_failed'), error)"
                         }
                       }
                     ]
@@ -162004,7 +162254,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 263,
+                "line": 283,
                 "targets": [
                   {
                     "python": "routing_seconds"
@@ -162016,7 +162266,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 264,
+                "line": 284,
                 "targets": [
                   {
                     "python": "decisions"
@@ -162028,7 +162278,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 265,
+                "line": 285,
                 "targets": [
                   {
                     "python": "endpoint_decisions"
@@ -162040,7 +162290,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 266,
+                "line": 286,
                 "targets": [
                   {
                     "python": "unresolved"
@@ -162052,7 +162302,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 271,
+                "line": 291,
                 "targets": [
                   {
                     "python": "metrics"
@@ -162064,7 +162314,7 @@
               },
               {
                 "kind": "Return",
-                "line": 287,
+                "line": 307,
                 "value": {
                   "python": "OSMResult(final_plan, 'partial' if unresolved else 'complete', private_audit={'schema_version': 1, 'coverage': {'cell_count': len(coverage.cells), 'area_km2': coverage.area_km2}, 'snapshot': snapshot.as_dict(), 'graph': graph.as_dict(), 'discovery': osm_reconstruction_report(discovery), 'application': {'decisions': decisions}, **({'endpoints': json.loads(final_plan.endpoint_audit_json)} if final_plan.endpoint_audit_json is not None else {})}, metrics=metrics, discovery=discovery)"
                 }
@@ -162078,7 +162328,7 @@
           },
           {
             "kind": "FunctionDef",
-            "line": 308,
+            "line": 328,
             "name": "_discover_and_apply",
             "args": {
               "python": "activity: ActivityData, integrity: IntegrityReport, base_plan: RepairPlan, graph_id: str, policy: RepairPolicy, *, routing_config: Path | None=None, cache_directory: Path | None=None, approximate_osm: bool=False, endpoint_hints: EndpointHints | None=None"
@@ -162086,14 +162336,14 @@
             "body": [
               {
                 "kind": "Expr",
-                "line": 320,
+                "line": 340,
                 "value": {
                   "python": "'One discovery/application contract for acquired and explicitly prepared graphs.'"
                 }
               },
               {
                 "kind": "ImportFrom",
-                "line": 321,
+                "line": 341,
                 "module": "warpbuster.reconstruction.osm",
                 "names": [
                   {
@@ -162104,7 +162354,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 323,
+                "line": 343,
                 "targets": [
                   {
                     "python": "client"
@@ -162116,7 +162366,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 324,
+                "line": 344,
                 "targets": [
                   {
                     "python": "discovery"
@@ -162128,7 +162378,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 325,
+                "line": 345,
                 "targets": [
                   {
                     "python": "plan"
@@ -162140,14 +162390,14 @@
               },
               {
                 "kind": "If",
-                "line": 333,
+                "line": 353,
                 "test": {
                   "python": "endpoint_hints is not None"
                 },
                 "body": [
                   {
                     "kind": "Assign",
-                    "line": 334,
+                    "line": 354,
                     "targets": [
                       {
                         "python": "plan"
@@ -162162,7 +162412,7 @@
               },
               {
                 "kind": "Return",
-                "line": 347,
+                "line": 367,
                 "value": {
                   "python": "(plan, discovery)"
                 }
@@ -162176,7 +162426,7 @@
           },
           {
             "kind": "FunctionDef",
-            "line": 350,
+            "line": 370,
             "name": "run_osm_pipeline",
             "args": {
               "python": "activity: ActivityData, integrity: IntegrityReport, base_plan: RepairPlan, config: PipelineConfig, *, policy: RepairPolicy=DEFAULT_REPAIR_POLICY, endpoint_hints: EndpointHints | None=None"
@@ -162184,21 +162434,21 @@
             "body": [
               {
                 "kind": "Expr",
-                "line": 359,
+                "line": 379,
                 "value": {
                   "python": "'Resolve either a supplied graph or the full Manager → Routing workflow.'"
                 }
               },
               {
                 "kind": "If",
-                "line": 360,
+                "line": 380,
                 "test": {
                   "python": "config.osm_graph_id is not None"
                 },
                 "body": [
                   {
                     "kind": "ImportFrom",
-                    "line": 361,
+                    "line": 381,
                     "module": "warpbuster.reconstruction.osm",
                     "names": [
                       {
@@ -162209,11 +162459,11 @@
                   },
                   {
                     "kind": "Try",
-                    "line": 363,
+                    "line": 383,
                     "body": [
                       {
                         "kind": "Assign",
-                        "line": 364,
+                        "line": 384,
                         "targets": [
                           {
                             "python": "(plan, discovery)"
@@ -162227,7 +162477,7 @@
                     "handlers": [
                       {
                         "kind": "ExceptHandler",
-                        "line": 375,
+                        "line": 395,
                         "type": {
                           "python": "OSMReconstructionError"
                         },
@@ -162235,7 +162485,7 @@
                         "body": [
                           {
                             "kind": "Assign",
-                            "line": 378,
+                            "line": 398,
                             "targets": [
                               {
                                 "python": "failed"
@@ -162247,7 +162497,7 @@
                           },
                           {
                             "kind": "Return",
-                            "line": 396,
+                            "line": 416,
                             "value": {
                               "python": "OSMResult(failed, 'unavailable', 'routing', 'routing_failed', warning=f'OSM [{error.code}]: {error.message}; retaining GPX and cleaning')"
                             }
@@ -162260,7 +162510,7 @@
                   },
                   {
                     "kind": "Assign",
-                    "line": 403,
+                    "line": 423,
                     "targets": [
                       {
                         "python": "decisions"
@@ -162272,7 +162522,7 @@
                   },
                   {
                     "kind": "Assign",
-                    "line": 404,
+                    "line": 424,
                     "targets": [
                       {
                         "python": "unresolved"
@@ -162284,7 +162534,7 @@
                   },
                   {
                     "kind": "Return",
-                    "line": 409,
+                    "line": 429,
                     "value": {
                       "python": "OSMResult(plan, 'partial' if unresolved else 'complete', discovery=discovery)"
                     }
@@ -162294,7 +162544,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 410,
+                "line": 430,
                 "targets": [
                   {
                     "python": "runner"
@@ -162306,14 +162556,14 @@
               },
               {
                 "kind": "If",
-                "line": 411,
+                "line": 431,
                 "test": {
                   "python": "endpoint_hints is None"
                 },
                 "body": [
                   {
                     "kind": "Return",
-                    "line": 412,
+                    "line": 432,
                     "value": {
                       "python": "runner(activity, integrity, base_plan, config, policy=policy)"
                     }
@@ -162323,7 +162573,7 @@
               },
               {
                 "kind": "Return",
-                "line": 413,
+                "line": 433,
                 "value": {
                   "python": "runner(activity, integrity, base_plan, config, policy=policy, endpoint_hints=endpoint_hints)"
                 }
@@ -162337,7 +162587,7 @@
           },
           {
             "kind": "FunctionDef",
-            "line": 418,
+            "line": 438,
             "name": "run_osm_pipeline_isolated",
             "args": {
               "python": "activity: ActivityData, integrity: IntegrityReport, base_plan: RepairPlan, config: PipelineConfig, *, policy: RepairPolicy=DEFAULT_REPAIR_POLICY, endpoint_hints: EndpointHints | None=None"
@@ -162345,21 +162595,21 @@
             "body": [
               {
                 "kind": "Expr",
-                "line": 427,
+                "line": 447,
                 "value": {
                   "python": "'Run native OSM work in a killable process group with bounded trusted IPC.'"
                 }
               },
               {
                 "kind": "If",
-                "line": 428,
+                "line": 448,
                 "test": {
                   "python": "config.osm_mode is OSMMode.DISABLED"
                 },
                 "body": [
                   {
                     "kind": "Return",
-                    "line": 429,
+                    "line": 449,
                     "value": {
                       "python": "OSMResult(base_plan, 'disabled')"
                     }
@@ -162369,14 +162619,14 @@
               },
               {
                 "kind": "If",
-                "line": 430,
+                "line": 450,
                 "test": {
                   "python": "eligible_gap_count(activity, base_plan, integrity, endpoint_hints) == 0"
                 },
                 "body": [
                   {
                     "kind": "Return",
-                    "line": 431,
+                    "line": 451,
                     "value": {
                       "python": "OSMResult(base_plan, 'not_needed')"
                     }
@@ -162386,14 +162636,14 @@
               },
               {
                 "kind": "If",
-                "line": 432,
+                "line": 452,
                 "test": {
                   "python": "sys.platform != 'linux' or not hasattr(os, 'setsid')"
                 },
                 "body": [
                   {
                     "kind": "Return",
-                    "line": 433,
+                    "line": 453,
                     "value": {
                       "python": "OSMResult(base_plan, 'unavailable', 'setup', 'isolation_unavailable')"
                     }
@@ -162403,7 +162653,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 434,
+                "line": 454,
                 "targets": [
                   {
                     "python": "context"
@@ -162415,7 +162665,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 435,
+                "line": 455,
                 "targets": [
                   {
                     "python": "(receiving, sending)"
@@ -162427,7 +162677,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 436,
+                "line": 456,
                 "targets": [
                   {
                     "python": "process"
@@ -162439,21 +162689,21 @@
               },
               {
                 "kind": "Expr",
-                "line": 443,
+                "line": 463,
                 "value": {
                   "python": "process.start()"
                 }
               },
               {
                 "kind": "Expr",
-                "line": 444,
+                "line": 464,
                 "value": {
                   "python": "sending.close()"
                 }
               },
               {
                 "kind": "Assign",
-                "line": 445,
+                "line": 465,
                 "targets": [
                   {
                     "python": "previous_handler"
@@ -162465,7 +162715,7 @@
               },
               {
                 "kind": "FunctionDef",
-                "line": 447,
+                "line": 467,
                 "name": "terminate_from_parent",
                 "args": {
                   "python": "signum, frame"
@@ -162473,14 +162723,14 @@
                 "body": [
                   {
                     "kind": "Expr",
-                    "line": 448,
+                    "line": 468,
                     "value": {
                       "python": "_terminate_group(process.pid)"
                     }
                   },
                   {
                     "kind": "Raise",
-                    "line": 449,
+                    "line": 469,
                     "exc": {
                       "python": "SystemExit(128 + signum)"
                     },
@@ -162493,18 +162743,18 @@
               },
               {
                 "kind": "Expr",
-                "line": 451,
+                "line": 471,
                 "value": {
                   "python": "signal.signal(signal.SIGTERM, terminate_from_parent)"
                 }
               },
               {
                 "kind": "Try",
-                "line": 452,
+                "line": 472,
                 "body": [
                   {
                     "kind": "Assign",
-                    "line": 453,
+                    "line": 473,
                     "targets": [
                       {
                         "python": "total_deadline"
@@ -162516,7 +162766,7 @@
                   },
                   {
                     "kind": "Assign",
-                    "line": 454,
+                    "line": 474,
                     "targets": [
                       {
                         "python": "stage"
@@ -162528,7 +162778,7 @@
                   },
                   {
                     "kind": "Assign",
-                    "line": 455,
+                    "line": 475,
                     "targets": [
                       {
                         "python": "stage_deadline"
@@ -162540,7 +162790,7 @@
                   },
                   {
                     "kind": "Assign",
-                    "line": 456,
+                    "line": 476,
                     "targets": [
                       {
                         "python": "received_bytes"
@@ -162552,14 +162802,14 @@
                   },
                   {
                     "kind": "While",
-                    "line": 457,
+                    "line": 477,
                     "test": {
                       "python": "True"
                     },
                     "body": [
                       {
                         "kind": "Assign",
-                        "line": 458,
+                        "line": 478,
                         "targets": [
                           {
                             "python": "deadline"
@@ -162571,7 +162821,7 @@
                       },
                       {
                         "kind": "Assign",
-                        "line": 459,
+                        "line": 479,
                         "targets": [
                           {
                             "python": "remaining"
@@ -162583,35 +162833,35 @@
                       },
                       {
                         "kind": "If",
-                        "line": 460,
+                        "line": 480,
                         "test": {
                           "python": "remaining <= 0"
                         },
                         "body": [
                           {
                             "kind": "Expr",
-                            "line": 461,
+                            "line": 481,
                             "value": {
                               "python": "_terminate_group(process.pid)"
                             }
                           },
                           {
                             "kind": "Expr",
-                            "line": 462,
+                            "line": 482,
                             "value": {
                               "python": "process.join(timeout=5)"
                             }
                           },
                           {
                             "kind": "Expr",
-                            "line": 463,
+                            "line": 483,
                             "value": {
                               "python": "_cleanup_job_temporary(config)"
                             }
                           },
                           {
                             "kind": "Return",
-                            "line": 464,
+                            "line": 484,
                             "value": {
                               "python": "OSMResult(base_plan, 'unavailable', stage, 'osm_timeout')"
                             }
@@ -162621,14 +162871,14 @@
                       },
                       {
                         "kind": "If",
-                        "line": 465,
+                        "line": 485,
                         "test": {
                           "python": "not receiving.poll(min(0.25, remaining))"
                         },
                         "body": [
                           {
                             "kind": "Assign",
-                            "line": 466,
+                            "line": 486,
                             "targets": [
                               {
                                 "python": "cache_root"
@@ -162640,35 +162890,35 @@
                           },
                           {
                             "kind": "If",
-                            "line": 467,
+                            "line": 487,
                             "test": {
                               "python": "_osm_temporary_size(cache_root, config.osm_job_temp_quota_bytes) > config.osm_job_temp_quota_bytes or _tree_size(cache_root, config.osm_cache_quota_bytes) > config.osm_cache_quota_bytes or shutil.disk_usage(config.data_dir).free < config.osm_minimum_free_bytes"
                             },
                             "body": [
                               {
                                 "kind": "Expr",
-                                "line": 474,
+                                "line": 494,
                                 "value": {
                                   "python": "_terminate_group(process.pid)"
                                 }
                               },
                               {
                                 "kind": "Expr",
-                                "line": 475,
+                                "line": 495,
                                 "value": {
                                   "python": "process.join(timeout=5)"
                                 }
                               },
                               {
                                 "kind": "Expr",
-                                "line": 476,
+                                "line": 496,
                                 "value": {
                                   "python": "_cleanup_job_temporary(config)"
                                 }
                               },
                               {
                                 "kind": "Return",
-                                "line": 477,
+                                "line": 497,
                                 "value": {
                                   "python": "OSMResult(base_plan, 'unavailable', stage, 'cache_quota')"
                                 }
@@ -162678,35 +162928,35 @@
                           },
                           {
                             "kind": "If",
-                            "line": 478,
+                            "line": 498,
                             "test": {
                               "python": "_group_resources_exceeded(process.pid, config)"
                             },
                             "body": [
                               {
                                 "kind": "Expr",
-                                "line": 479,
+                                "line": 499,
                                 "value": {
                                   "python": "_terminate_group(process.pid)"
                                 }
                               },
                               {
                                 "kind": "Expr",
-                                "line": 480,
+                                "line": 500,
                                 "value": {
                                   "python": "process.join(timeout=5)"
                                 }
                               },
                               {
                                 "kind": "Expr",
-                                "line": 481,
+                                "line": 501,
                                 "value": {
                                   "python": "_cleanup_job_temporary(config)"
                                 }
                               },
                               {
                                 "kind": "Return",
-                                "line": 482,
+                                "line": 502,
                                 "value": {
                                   "python": "OSMResult(base_plan, 'unavailable', stage, 'resource_limit')"
                                 }
@@ -162716,18 +162966,18 @@
                           },
                           {
                             "kind": "Continue",
-                            "line": 483
+                            "line": 503
                           }
                         ],
                         "orelse": []
                       },
                       {
                         "kind": "Try",
-                        "line": 484,
+                        "line": 504,
                         "body": [
                           {
                             "kind": "Assign",
-                            "line": 485,
+                            "line": 505,
                             "targets": [
                               {
                                 "python": "payload"
@@ -162739,7 +162989,7 @@
                           },
                           {
                             "kind": "AugAssign",
-                            "line": 486,
+                            "line": 506,
                             "target": {
                               "python": "received_bytes"
                             },
@@ -162752,14 +163002,14 @@
                           },
                           {
                             "kind": "If",
-                            "line": 487,
+                            "line": 507,
                             "test": {
                               "python": "received_bytes > config.osm_ipc_maximum_bytes"
                             },
                             "body": [
                               {
                                 "kind": "Raise",
-                                "line": 488,
+                                "line": 508,
                                 "exc": {
                                   "python": "ValueError('cumulative IPC limit exceeded')"
                                 },
@@ -162770,7 +163020,7 @@
                           },
                           {
                             "kind": "Assign",
-                            "line": 490,
+                            "line": 510,
                             "targets": [
                               {
                                 "python": "(kind, value)"
@@ -162784,7 +163034,7 @@
                         "handlers": [
                           {
                             "kind": "ExceptHandler",
-                            "line": 491,
+                            "line": 511,
                             "type": {
                               "python": "(EOFError, OSError, pickle.PickleError, ValueError, TypeError)"
                             },
@@ -162792,7 +163042,7 @@
                             "body": [
                               {
                                 "kind": "Return",
-                                "line": 492,
+                                "line": 512,
                                 "value": {
                                   "python": "OSMResult(base_plan, 'unavailable', stage, 'ipc_invalid')"
                                 }
@@ -162805,14 +163055,14 @@
                       },
                       {
                         "kind": "If",
-                        "line": 493,
+                        "line": 513,
                         "test": {
                           "python": "kind == 'stage' and value in {'acquisition', 'prepare', 'routing'}"
                         },
                         "body": [
                           {
                             "kind": "Assign",
-                            "line": 494,
+                            "line": 514,
                             "targets": [
                               {
                                 "python": "stage"
@@ -162824,7 +163074,7 @@
                           },
                           {
                             "kind": "Assign",
-                            "line": 495,
+                            "line": 515,
                             "targets": [
                               {
                                 "python": "seconds"
@@ -162836,7 +163086,7 @@
                           },
                           {
                             "kind": "Assign",
-                            "line": 500,
+                            "line": 520,
                             "targets": [
                               {
                                 "python": "stage_deadline"
@@ -162848,21 +163098,21 @@
                           },
                           {
                             "kind": "Continue",
-                            "line": 501
+                            "line": 521
                           }
                         ],
                         "orelse": []
                       },
                       {
                         "kind": "If",
-                        "line": 502,
+                        "line": 522,
                         "test": {
                           "python": "kind == 'result' and isinstance(value, OSMResult)"
                         },
                         "body": [
                           {
                             "kind": "Return",
-                            "line": 503,
+                            "line": 523,
                             "value": {
                               "python": "value"
                             }
@@ -162872,7 +163122,7 @@
                       },
                       {
                         "kind": "Return",
-                        "line": 504,
+                        "line": 524,
                         "value": {
                           "python": "OSMResult(base_plan, 'unavailable', stage, 'ipc_invalid')"
                         }
@@ -162886,28 +163136,28 @@
                 "finalbody": [
                   {
                     "kind": "Expr",
-                    "line": 506,
+                    "line": 526,
                     "value": {
                       "python": "signal.signal(signal.SIGTERM, previous_handler)"
                     }
                   },
                   {
                     "kind": "Expr",
-                    "line": 507,
+                    "line": 527,
                     "value": {
                       "python": "receiving.close()"
                     }
                   },
                   {
                     "kind": "If",
-                    "line": 508,
+                    "line": 528,
                     "test": {
                       "python": "process.is_alive()"
                     },
                     "body": [
                       {
                         "kind": "Expr",
-                        "line": 509,
+                        "line": 529,
                         "value": {
                           "python": "_terminate_group(process.pid)"
                         }
@@ -162917,7 +163167,7 @@
                   },
                   {
                     "kind": "Expr",
-                    "line": 510,
+                    "line": 530,
                     "value": {
                       "python": "process.join(timeout=5)"
                     }
@@ -162933,7 +163183,7 @@
           },
           {
             "kind": "FunctionDef",
-            "line": 513,
+            "line": 533,
             "name": "_terminate_group",
             "args": {
               "python": "pid: int | None"
@@ -162941,14 +163191,14 @@
             "body": [
               {
                 "kind": "If",
-                "line": 514,
+                "line": 534,
                 "test": {
                   "python": "pid"
                 },
                 "body": [
                   {
                     "kind": "With",
-                    "line": 515,
+                    "line": 535,
                     "items": [
                       {
                         "python": "suppress(ProcessLookupError)"
@@ -162957,7 +163207,7 @@
                     "body": [
                       {
                         "kind": "Expr",
-                        "line": 516,
+                        "line": 536,
                         "value": {
                           "python": "os.killpg(pid, signal.SIGKILL)"
                         }
@@ -162976,7 +163226,7 @@
           },
           {
             "kind": "FunctionDef",
-            "line": 519,
+            "line": 539,
             "name": "_safe_code",
             "args": {
               "python": "error: BaseException, fallback: str"
@@ -162984,7 +163234,7 @@
             "body": [
               {
                 "kind": "Assign",
-                "line": 520,
+                "line": 540,
                 "targets": [
                   {
                     "python": "raw"
@@ -162996,7 +163246,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 521,
+                "line": 541,
                 "targets": [
                   {
                     "python": "value"
@@ -163008,7 +163258,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 522,
+                "line": 542,
                 "targets": [
                   {
                     "python": "aliases"
@@ -163020,7 +163270,7 @@
               },
               {
                 "kind": "Return",
-                "line": 534,
+                "line": 554,
                 "value": {
                   "python": "aliases.get(str(value), fallback)"
                 }
@@ -163034,7 +163284,7 @@
           },
           {
             "kind": "FunctionDef",
-            "line": 537,
+            "line": 557,
             "name": "_automatic_decisions",
             "args": {
               "python": "plan: RepairPlan"
@@ -163042,14 +163292,14 @@
             "body": [
               {
                 "kind": "If",
-                "line": 538,
+                "line": 558,
                 "test": {
                   "python": "plan.automatic_osm_json is None"
                 },
                 "body": [
                   {
                     "kind": "Return",
-                    "line": 539,
+                    "line": 559,
                     "value": {
                       "python": "[]"
                     }
@@ -163059,7 +163309,7 @@
               },
               {
                 "kind": "Import",
-                "line": 540,
+                "line": 560,
                 "names": [
                   {
                     "python": "json"
@@ -163068,7 +163318,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 542,
+                "line": 562,
                 "targets": [
                   {
                     "python": "value"
@@ -163080,7 +163330,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 543,
+                "line": 563,
                 "targets": [
                   {
                     "python": "decisions"
@@ -163092,7 +163342,7 @@
               },
               {
                 "kind": "Return",
-                "line": 544,
+                "line": 564,
                 "value": {
                   "python": "decisions if isinstance(decisions, list) else []"
                 }
@@ -163106,7 +163356,7 @@
           },
           {
             "kind": "FunctionDef",
-            "line": 547,
+            "line": 567,
             "name": "_tree_size",
             "args": {
               "python": "root: Path, stop_after: int"
@@ -163114,7 +163364,7 @@
             "body": [
               {
                 "kind": "Assign",
-                "line": 548,
+                "line": 568,
                 "targets": [
                   {
                     "python": "total"
@@ -163126,14 +163376,14 @@
               },
               {
                 "kind": "If",
-                "line": 549,
+                "line": 569,
                 "test": {
                   "python": "not root.exists()"
                 },
                 "body": [
                   {
                     "kind": "Return",
-                    "line": 550,
+                    "line": 570,
                     "value": {
                       "python": "0"
                     }
@@ -163143,7 +163393,7 @@
               },
               {
                 "kind": "For",
-                "line": 551,
+                "line": 571,
                 "target": {
                   "python": "(directory, _, filenames)"
                 },
@@ -163153,7 +163403,7 @@
                 "body": [
                   {
                     "kind": "For",
-                    "line": 552,
+                    "line": 572,
                     "target": {
                       "python": "filename"
                     },
@@ -163163,11 +163413,11 @@
                     "body": [
                       {
                         "kind": "Try",
-                        "line": 553,
+                        "line": 573,
                         "body": [
                           {
                             "kind": "AugAssign",
-                            "line": 554,
+                            "line": 574,
                             "target": {
                               "python": "total"
                             },
@@ -163182,7 +163432,7 @@
                         "handlers": [
                           {
                             "kind": "ExceptHandler",
-                            "line": 555,
+                            "line": 575,
                             "type": {
                               "python": "OSError"
                             },
@@ -163190,7 +163440,7 @@
                             "body": [
                               {
                                 "kind": "Continue",
-                                "line": 556
+                                "line": 576
                               }
                             ]
                           }
@@ -163200,14 +163450,14 @@
                       },
                       {
                         "kind": "If",
-                        "line": 557,
+                        "line": 577,
                         "test": {
                           "python": "total > stop_after"
                         },
                         "body": [
                           {
                             "kind": "Return",
-                            "line": 558,
+                            "line": 578,
                             "value": {
                               "python": "total"
                             }
@@ -163223,7 +163473,7 @@
               },
               {
                 "kind": "Return",
-                "line": 559,
+                "line": 579,
                 "value": {
                   "python": "total"
                 }
@@ -163237,7 +163487,7 @@
           },
           {
             "kind": "FunctionDef",
-            "line": 562,
+            "line": 582,
             "name": "_ensure_cache_quota",
             "args": {
               "python": "cache_root: Path, quota_bytes: int"
@@ -163245,21 +163495,21 @@
             "body": [
               {
                 "kind": "Expr",
-                "line": 563,
+                "line": 583,
                 "value": {
                   "python": "'Evict only complete old graphs while no pipeline cache lease is active.'"
                 }
               },
               {
                 "kind": "If",
-                "line": 564,
+                "line": 584,
                 "test": {
                   "python": "_tree_size(cache_root, quota_bytes) <= quota_bytes"
                 },
                 "body": [
                   {
                     "kind": "Return",
-                    "line": 565,
+                    "line": 585,
                     "value": {
                       "python": "True"
                     }
@@ -163269,7 +163519,7 @@
               },
               {
                 "kind": "Import",
-                "line": 566,
+                "line": 586,
                 "names": [
                   {
                     "python": "fcntl"
@@ -163278,7 +163528,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 568,
+                "line": 588,
                 "targets": [
                   {
                     "python": "lock_directory"
@@ -163290,14 +163540,14 @@
               },
               {
                 "kind": "Expr",
-                "line": 569,
+                "line": 589,
                 "value": {
                   "python": "lock_directory.mkdir(parents=True, exist_ok=True, mode=448)"
                 }
               },
               {
                 "kind": "With",
-                "line": 570,
+                "line": 590,
                 "items": [
                   {
                     "python": "(lock_directory / 'eviction.lock').open('a+b') as eviction_lock"
@@ -163306,18 +163556,18 @@
                 "body": [
                   {
                     "kind": "Expr",
-                    "line": 571,
+                    "line": 591,
                     "value": {
                       "python": "os.fchmod(eviction_lock.fileno(), 384)"
                     }
                   },
                   {
                     "kind": "Try",
-                    "line": 572,
+                    "line": 592,
                     "body": [
                       {
                         "kind": "Expr",
-                        "line": 573,
+                        "line": 593,
                         "value": {
                           "python": "fcntl.flock(eviction_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)"
                         }
@@ -163326,7 +163576,7 @@
                     "handlers": [
                       {
                         "kind": "ExceptHandler",
-                        "line": 574,
+                        "line": 594,
                         "type": {
                           "python": "BlockingIOError"
                         },
@@ -163334,7 +163584,7 @@
                         "body": [
                           {
                             "kind": "Return",
-                            "line": 575,
+                            "line": 595,
                             "value": {
                               "python": "False"
                             }
@@ -163347,11 +163597,11 @@
                   },
                   {
                     "kind": "Try",
-                    "line": 576,
+                    "line": 596,
                     "body": [
                       {
                         "kind": "Assign",
-                        "line": 577,
+                        "line": 597,
                         "targets": [
                           {
                             "python": "graphs"
@@ -163363,7 +163613,7 @@
                       },
                       {
                         "kind": "Assign",
-                        "line": 578,
+                        "line": 598,
                         "targets": [
                           {
                             "python": "candidates"
@@ -163375,7 +163625,7 @@
                       },
                       {
                         "kind": "Assign",
-                        "line": 590,
+                        "line": 610,
                         "targets": [
                           {
                             "python": "trash"
@@ -163387,14 +163637,14 @@
                       },
                       {
                         "kind": "Expr",
-                        "line": 591,
+                        "line": 611,
                         "value": {
                           "python": "trash.mkdir(parents=True, exist_ok=True, mode=448)"
                         }
                       },
                       {
                         "kind": "For",
-                        "line": 592,
+                        "line": 612,
                         "target": {
                           "python": "candidate"
                         },
@@ -163404,7 +163654,7 @@
                         "body": [
                           {
                             "kind": "Assign",
-                            "line": 593,
+                            "line": 613,
                             "targets": [
                               {
                                 "python": "target"
@@ -163416,28 +163666,28 @@
                           },
                           {
                             "kind": "Expr",
-                            "line": 594,
+                            "line": 614,
                             "value": {
                               "python": "candidate.replace(target)"
                             }
                           },
                           {
                             "kind": "Expr",
-                            "line": 595,
+                            "line": 615,
                             "value": {
                               "python": "shutil.rmtree(target)"
                             }
                           },
                           {
                             "kind": "If",
-                            "line": 596,
+                            "line": 616,
                             "test": {
                               "python": "_tree_size(cache_root, quota_bytes) <= quota_bytes"
                             },
                             "body": [
                               {
                                 "kind": "Return",
-                                "line": 597,
+                                "line": 617,
                                 "value": {
                                   "python": "True"
                                 }
@@ -163450,7 +163700,7 @@
                       },
                       {
                         "kind": "Return",
-                        "line": 598,
+                        "line": 618,
                         "value": {
                           "python": "_tree_size(cache_root, quota_bytes) <= quota_bytes"
                         }
@@ -163459,7 +163709,7 @@
                     "handlers": [
                       {
                         "kind": "ExceptHandler",
-                        "line": 599,
+                        "line": 619,
                         "type": {
                           "python": "OSError"
                         },
@@ -163467,7 +163717,7 @@
                         "body": [
                           {
                             "kind": "Return",
-                            "line": 600,
+                            "line": 620,
                             "value": {
                               "python": "False"
                             }
@@ -163479,7 +163729,7 @@
                     "finalbody": [
                       {
                         "kind": "Expr",
-                        "line": 602,
+                        "line": 622,
                         "value": {
                           "python": "fcntl.flock(eviction_lock, fcntl.LOCK_UN)"
                         }
@@ -163497,7 +163747,7 @@
           },
           {
             "kind": "FunctionDef",
-            "line": 605,
+            "line": 625,
             "name": "_osm_temporary_size",
             "args": {
               "python": "cache_root: Path, stop_after: int"
@@ -163505,7 +163755,7 @@
             "body": [
               {
                 "kind": "Assign",
-                "line": 606,
+                "line": 626,
                 "targets": [
                   {
                     "python": "total"
@@ -163517,7 +163767,7 @@
               },
               {
                 "kind": "For",
-                "line": 607,
+                "line": 627,
                 "target": {
                   "python": "root"
                 },
@@ -163527,7 +163777,7 @@
                 "body": [
                   {
                     "kind": "AugAssign",
-                    "line": 612,
+                    "line": 632,
                     "target": {
                       "python": "total"
                     },
@@ -163540,14 +163790,14 @@
                   },
                   {
                     "kind": "If",
-                    "line": 613,
+                    "line": 633,
                     "test": {
                       "python": "total > stop_after"
                     },
                     "body": [
                       {
                         "kind": "Break",
-                        "line": 614
+                        "line": 634
                       }
                     ],
                     "orelse": []
@@ -163557,7 +163807,7 @@
               },
               {
                 "kind": "Return",
-                "line": 615,
+                "line": 635,
                 "value": {
                   "python": "total"
                 }
@@ -163571,7 +163821,7 @@
           },
           {
             "kind": "FunctionDef",
-            "line": 618,
+            "line": 638,
             "name": "_cleanup_job_temporary",
             "args": {
               "python": "config: PipelineConfig"
@@ -163579,7 +163829,7 @@
             "body": [
               {
                 "kind": "Assign",
-                "line": 619,
+                "line": 639,
                 "targets": [
                   {
                     "python": "cache_root"
@@ -163591,7 +163841,7 @@
               },
               {
                 "kind": "For",
-                "line": 620,
+                "line": 640,
                 "target": {
                   "python": "root"
                 },
@@ -163601,21 +163851,21 @@
                 "body": [
                   {
                     "kind": "If",
-                    "line": 625,
+                    "line": 645,
                     "test": {
                       "python": "not root.is_dir()"
                     },
                     "body": [
                       {
                         "kind": "Continue",
-                        "line": 626
+                        "line": 646
                       }
                     ],
                     "orelse": []
                   },
                   {
                     "kind": "For",
-                    "line": 627,
+                    "line": 647,
                     "target": {
                       "python": "child"
                     },
@@ -163625,14 +163875,14 @@
                     "body": [
                       {
                         "kind": "If",
-                        "line": 628,
+                        "line": 648,
                         "test": {
                           "python": "child.is_symlink() or child.is_file()"
                         },
                         "body": [
                           {
                             "kind": "Expr",
-                            "line": 629,
+                            "line": 649,
                             "value": {
                               "python": "child.unlink(missing_ok=True)"
                             }
@@ -163641,14 +163891,14 @@
                         "orelse": [
                           {
                             "kind": "If",
-                            "line": 630,
+                            "line": 650,
                             "test": {
                               "python": "child.is_dir()"
                             },
                             "body": [
                               {
                                 "kind": "Expr",
-                                "line": 631,
+                                "line": 651,
                                 "value": {
                                   "python": "shutil.rmtree(child, ignore_errors=True)"
                                 }
@@ -163673,7 +163923,7 @@
           },
           {
             "kind": "FunctionDef",
-            "line": 634,
+            "line": 654,
             "name": "_group_resources_exceeded",
             "args": {
               "python": "pgid: int | None, config: PipelineConfig"
@@ -163681,21 +163931,21 @@
             "body": [
               {
                 "kind": "Expr",
-                "line": 635,
+                "line": 655,
                 "value": {
                   "python": "'Account aggregate Linux RSS and CPU for the isolated OSM process group.'"
                 }
               },
               {
                 "kind": "If",
-                "line": 636,
+                "line": 656,
                 "test": {
                   "python": "not pgid or not Path('/proc').is_dir()"
                 },
                 "body": [
                   {
                     "kind": "Return",
-                    "line": 637,
+                    "line": 657,
                     "value": {
                       "python": "False"
                     }
@@ -163705,7 +163955,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 638,
+                "line": 658,
                 "targets": [
                   {
                     "python": "total_rss"
@@ -163717,7 +163967,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 639,
+                "line": 659,
                 "targets": [
                   {
                     "python": "total_ticks"
@@ -163729,7 +163979,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 640,
+                "line": 660,
                 "targets": [
                   {
                     "python": "page_size"
@@ -163741,7 +163991,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 641,
+                "line": 661,
                 "targets": [
                   {
                     "python": "clock_ticks"
@@ -163753,7 +164003,7 @@
               },
               {
                 "kind": "For",
-                "line": 642,
+                "line": 662,
                 "target": {
                   "python": "entry"
                 },
@@ -163763,21 +164013,21 @@
                 "body": [
                   {
                     "kind": "If",
-                    "line": 643,
+                    "line": 663,
                     "test": {
                       "python": "not entry.name.isdigit()"
                     },
                     "body": [
                       {
                         "kind": "Continue",
-                        "line": 644
+                        "line": 664
                       }
                     ],
                     "orelse": []
                   },
                   {
                     "kind": "Assign",
-                    "line": 645,
+                    "line": 665,
                     "targets": [
                       {
                         "python": "pid"
@@ -163789,25 +164039,25 @@
                   },
                   {
                     "kind": "Try",
-                    "line": 646,
+                    "line": 666,
                     "body": [
                       {
                         "kind": "If",
-                        "line": 647,
+                        "line": 667,
                         "test": {
                           "python": "os.getpgid(pid) != pgid"
                         },
                         "body": [
                           {
                             "kind": "Continue",
-                            "line": 648
+                            "line": 668
                           }
                         ],
                         "orelse": []
                       },
                       {
                         "kind": "Assign",
-                        "line": 649,
+                        "line": 669,
                         "targets": [
                           {
                             "python": "stat"
@@ -163819,7 +164069,7 @@
                       },
                       {
                         "kind": "Assign",
-                        "line": 650,
+                        "line": 670,
                         "targets": [
                           {
                             "python": "statm"
@@ -163831,7 +164081,7 @@
                       },
                       {
                         "kind": "AugAssign",
-                        "line": 651,
+                        "line": 671,
                         "target": {
                           "python": "total_ticks"
                         },
@@ -163844,7 +164094,7 @@
                       },
                       {
                         "kind": "AugAssign",
-                        "line": 652,
+                        "line": 672,
                         "target": {
                           "python": "total_rss"
                         },
@@ -163859,7 +164109,7 @@
                     "handlers": [
                       {
                         "kind": "ExceptHandler",
-                        "line": 653,
+                        "line": 673,
                         "type": {
                           "python": "(OSError, ProcessLookupError, ValueError, IndexError)"
                         },
@@ -163867,7 +164117,7 @@
                         "body": [
                           {
                             "kind": "Continue",
-                            "line": 654
+                            "line": 674
                           }
                         ]
                       }
@@ -163880,7 +164130,7 @@
               },
               {
                 "kind": "Return",
-                "line": 655,
+                "line": 675,
                 "value": {
                   "python": "total_rss > config.osm_child_memory_limit_bytes or total_ticks / clock_ticks > config.osm_child_cpu_seconds"
                 }
@@ -163894,7 +164144,7 @@
           },
           {
             "kind": "FunctionDef",
-            "line": 662,
+            "line": 682,
             "name": "_lease",
             "args": {
               "python": "cache_root: Path, identity: str"
@@ -163902,14 +164152,14 @@
             "body": [
               {
                 "kind": "Expr",
-                "line": 663,
+                "line": 683,
                 "value": {
                   "python": "'Hold a process-backed shared lease while a verified cache entry is in use.'"
                 }
               },
               {
                 "kind": "Import",
-                "line": 664,
+                "line": 684,
                 "names": [
                   {
                     "python": "fcntl"
@@ -163918,7 +164168,7 @@
               },
               {
                 "kind": "Import",
-                "line": 665,
+                "line": 685,
                 "names": [
                   {
                     "python": "hashlib"
@@ -163927,7 +164177,7 @@
               },
               {
                 "kind": "Assign",
-                "line": 667,
+                "line": 687,
                 "targets": [
                   {
                     "python": "directory"
@@ -163939,14 +164189,14 @@
               },
               {
                 "kind": "Expr",
-                "line": 668,
+                "line": 688,
                 "value": {
                   "python": "directory.mkdir(parents=True, exist_ok=True, mode=448)"
                 }
               },
               {
                 "kind": "Assign",
-                "line": 669,
+                "line": 689,
                 "targets": [
                   {
                     "python": "name"
@@ -163958,7 +164208,7 @@
               },
               {
                 "kind": "With",
-                "line": 670,
+                "line": 690,
                 "items": [
                   {
                     "python": "(directory / 'eviction.lock').open('a+b') as eviction_lock"
@@ -163970,39 +164220,39 @@
                 "body": [
                   {
                     "kind": "Expr",
-                    "line": 674,
+                    "line": 694,
                     "value": {
                       "python": "os.fchmod(eviction_lock.fileno(), 384)"
                     }
                   },
                   {
                     "kind": "Expr",
-                    "line": 675,
+                    "line": 695,
                     "value": {
                       "python": "os.fchmod(stream.fileno(), 384)"
                     }
                   },
                   {
                     "kind": "Expr",
-                    "line": 676,
+                    "line": 696,
                     "value": {
                       "python": "fcntl.flock(eviction_lock, fcntl.LOCK_SH)"
                     }
                   },
                   {
                     "kind": "Expr",
-                    "line": 677,
+                    "line": 697,
                     "value": {
                       "python": "fcntl.flock(stream, fcntl.LOCK_SH)"
                     }
                   },
                   {
                     "kind": "Try",
-                    "line": 678,
+                    "line": 698,
                     "body": [
                       {
                         "kind": "Expr",
-                        "line": 679,
+                        "line": 699,
                         "value": {
                           "python": "(yield)"
                         }
@@ -164013,14 +164263,14 @@
                     "finalbody": [
                       {
                         "kind": "Expr",
-                        "line": 681,
+                        "line": 701,
                         "value": {
                           "python": "fcntl.flock(stream, fcntl.LOCK_UN)"
                         }
                       },
                       {
                         "kind": "Expr",
-                        "line": 682,
+                        "line": 702,
                         "value": {
                           "python": "fcntl.flock(eviction_lock, fcntl.LOCK_UN)"
                         }
@@ -164045,7 +164295,7 @@
     },
     {
       "path": "src/warpbuster/pipeline/osm_worker.py",
-      "sha256": "c49d4cad0596cd1b367f62e270c1eb892e552ef711b381877aa19c087a94f797",
+      "sha256": "8308193e6a26326f4bbffa8e2bf8d650a2bf2e44c7af5c17786bb61c6b5f3e20",
       "description": "Linux resource boundary used by the shared OSM pipeline.",
       "symbols": [
         {
@@ -164093,19 +164343,19 @@
           "python": "handlers, orelse and finalbody are recorded in program"
         },
         {
-          "node": 41,
+          "node": 42,
           "kind": "If",
           "line": 40,
           "python": "len(payload) > config.osm_ipc_maximum_bytes"
         },
         {
-          "node": 65,
+          "node": 66,
           "kind": "Compare",
           "line": 40,
           "python": "len(payload) > config.osm_ipc_maximum_bytes"
         },
         {
-          "node": 43,
+          "node": 44,
           "kind": "ExceptHandler",
           "line": 44,
           "python": "BaseException"
@@ -164197,6 +164447,9 @@
                   },
                   {
                     "python": "execute_osm_pipeline"
+                  },
+                  {
+                    "python": "osm_failure"
                   }
                 ],
                 "level": 1
@@ -164314,7 +164567,7 @@
                     "type": {
                       "python": "BaseException"
                     },
-                    "name": null,
+                    "name": "error",
                     "body": [
                       {
                         "kind": "With",
@@ -164329,7 +164582,7 @@
                             "kind": "Expr",
                             "line": 46,
                             "value": {
-                              "python": "connection.send_bytes(pickle.dumps(('result', OSMResult(base_plan, 'unavailable', 'setup', 'resource_limit'))))"
+                              "python": "connection.send_bytes(pickle.dumps(('result', osm_failure(base_plan, 'setup', 'resource_limit', error))))"
                             }
                           }
                         ]
@@ -164398,7 +164651,7 @@
     },
     {
       "path": "src/warpbuster/pipeline/repair.py",
-      "sha256": "7e398e6c9452b68e8fc14e7630b81815a65d5405b77a23d7c912297260e3bdac",
+      "sha256": "98bb9a2ea9d3daced060b16257ff0b72ac9a8d0c8548c57347a6652dbc180d58",
       "description": "The single FIT/GPX processing sequence used by CLI and web adapters.",
       "symbols": [
         {
@@ -164562,601 +164815,601 @@
       ],
       "decision_points": [
         {
-          "node": 187,
+          "node": 188,
           "kind": "BoolOp",
           "line": 96,
           "python": "config or PipelineConfig()"
         },
         {
-          "node": 94,
+          "node": 95,
           "kind": "If",
           "line": 97,
           "python": "endpoint_hints is not None and (not isinstance(endpoint_hints, EndpointHints))"
         },
         {
-          "node": 188,
+          "node": 189,
           "kind": "BoolOp",
           "line": 97,
           "python": "endpoint_hints is not None and (not isinstance(endpoint_hints, EndpointHints))"
         },
         {
-          "node": 323,
+          "node": 324,
           "kind": "Compare",
           "line": 97,
           "python": "endpoint_hints is not None"
         },
         {
-          "node": 189,
+          "node": 190,
           "kind": "Raise",
           "line": 98,
           "python": "raise PipelineError('invalid_endpoint', 'endpoint_hints must be EndpointHints')"
         },
         {
-          "node": 95,
+          "node": 96,
           "kind": "If",
           "line": 99,
           "python": "endpoint_hints is not None and course_path is not None"
         },
         {
-          "node": 190,
+          "node": 191,
           "kind": "BoolOp",
           "line": 99,
           "python": "endpoint_hints is not None and course_path is not None"
-        },
-        {
-          "node": 327,
-          "kind": "Compare",
-          "line": 99,
-          "python": "endpoint_hints is not None"
         },
         {
           "node": 328,
           "kind": "Compare",
           "line": 99,
+          "python": "endpoint_hints is not None"
+        },
+        {
+          "node": 329,
+          "kind": "Compare",
+          "line": 99,
           "python": "course_path is not None"
         },
         {
-          "node": 191,
+          "node": 192,
           "kind": "Raise",
           "line": 100,
           "python": "raise PipelineError('invalid_endpoint', 'user endpoints require FIT-only mode')"
         },
         {
-          "node": 96,
+          "node": 97,
           "kind": "Try",
           "line": 101,
           "python": "handlers, orelse and finalbody are recorded in program"
         },
         {
-          "node": 193,
+          "node": 194,
           "kind": "ExceptHandler",
           "line": 103,
           "python": "(FitReadError, OSError, ValueError)"
         },
         {
-          "node": 333,
+          "node": 334,
           "kind": "Raise",
           "line": 104,
           "python": "raise PipelineError('invalid_fit', str(error)) from error"
         },
         {
-          "node": 97,
+          "node": 98,
           "kind": "Try",
           "line": 105,
           "python": "handlers, orelse and finalbody are recorded in program"
         },
         {
-          "node": 335,
+          "node": 336,
           "kind": "IfExp",
           "line": 106,
           "python": "course_path is not None"
         },
         {
-          "node": 548,
+          "node": 549,
           "kind": "Compare",
           "line": 106,
           "python": "course_path is not None"
         },
         {
-          "node": 195,
+          "node": 196,
           "kind": "ExceptHandler",
           "line": 107,
           "python": "(GpxCourseReadError, OSError, ValueError)"
         },
         {
-          "node": 337,
+          "node": 338,
           "kind": "Raise",
           "line": 108,
           "python": "raise PipelineError('invalid_gpx', str(error)) from error"
         },
         {
-          "node": 197,
+          "node": 198,
           "kind": "IfExp",
           "line": 110,
           "python": "course is not None or not policy.fill_missing_from_course"
         },
         {
-          "node": 339,
+          "node": 340,
           "kind": "BoolOp",
           "line": 111,
           "python": "course is not None or not policy.fill_missing_from_course"
         },
         {
-          "node": 558,
+          "node": 559,
           "kind": "Compare",
           "line": 111,
           "python": "course is not None"
         },
         {
-          "node": 99,
+          "node": 100,
           "kind": "If",
           "line": 114,
           "python": "not activity.records"
         },
         {
-          "node": 199,
+          "node": 200,
           "kind": "Raise",
           "line": 115,
           "python": "raise PipelineError('empty_activity', 'FIT contains no activity records')"
         },
         {
-          "node": 100,
+          "node": 101,
           "kind": "If",
           "line": 116,
           "python": "len(activity.records) > execution.record_limit or (course is not None and course.point_count > execution.record_limit)"
         },
         {
-          "node": 200,
+          "node": 201,
           "kind": "BoolOp",
           "line": 116,
           "python": "len(activity.records) > execution.record_limit or (course is not None and course.point_count > execution.record_limit)"
         },
         {
-          "node": 346,
+          "node": 347,
           "kind": "Compare",
           "line": 116,
           "python": "len(activity.records) > execution.record_limit"
         },
         {
-          "node": 347,
+          "node": 348,
           "kind": "BoolOp",
           "line": 117,
           "python": "course is not None and course.point_count > execution.record_limit"
         },
         {
-          "node": 573,
+          "node": 574,
           "kind": "Compare",
           "line": 117,
           "python": "course is not None"
         },
         {
-          "node": 574,
+          "node": 575,
           "kind": "Compare",
           "line": 117,
           "python": "course.point_count > execution.record_limit"
         },
         {
-          "node": 201,
+          "node": 202,
           "kind": "Raise",
           "line": 119,
           "python": "raise PipelineError('too_many_records', 'FIT/GPX exceeds the processing record limit')"
         },
         {
-          "node": 104,
-          "kind": "If",
-          "line": 131,
-          "python": "endpoint_hints is not None"
-        },
-        {
-          "node": 208,
-          "kind": "Compare",
-          "line": 131,
-          "python": "endpoint_hints is not None"
-        },
-        {
           "node": 105,
           "kind": "If",
-          "line": 133,
-          "python": "time.monotonic() - started > execution.base_plan_timeout_seconds"
+          "line": 131,
+          "python": "endpoint_hints is not None"
         },
         {
-          "node": 210,
+          "node": 209,
           "kind": "Compare",
+          "line": 131,
+          "python": "endpoint_hints is not None"
+        },
+        {
+          "node": 106,
+          "kind": "If",
           "line": 133,
           "python": "time.monotonic() - started > execution.base_plan_timeout_seconds"
         },
         {
           "node": 211,
+          "kind": "Compare",
+          "line": 133,
+          "python": "time.monotonic() - started > execution.base_plan_timeout_seconds"
+        },
+        {
+          "node": 212,
           "kind": "Raise",
           "line": 134,
           "python": "raise PipelineError('timeout', 'base repair planning exceeded its time budget')"
         },
         {
-          "node": 213,
+          "node": 214,
           "kind": "IfExp",
           "line": 136,
           "python": "course is not None"
         },
         {
-          "node": 372,
+          "node": 373,
           "kind": "Compare",
           "line": 137,
           "python": "course is not None"
         },
         {
-          "node": 107,
+          "node": 108,
           "kind": "If",
           "line": 146,
           "python": "coverage.status in {CoverageStatus.BELOW_THRESHOLD, CoverageStatus.UNAVAILABLE}"
         },
         {
-          "node": 214,
+          "node": 215,
           "kind": "Compare",
           "line": 146,
           "python": "coverage.status in {CoverageStatus.BELOW_THRESHOLD, CoverageStatus.UNAVAILABLE}"
         },
         {
-          "node": 111,
+          "node": 112,
           "kind": "If",
           "line": 168,
           "python": "remaining <= execution.publish_reserve_seconds"
         },
         {
-          "node": 223,
+          "node": 224,
           "kind": "Compare",
           "line": 168,
           "python": "remaining <= execution.publish_reserve_seconds"
         },
         {
-          "node": 226,
+          "node": 227,
           "kind": "Try",
           "line": 178,
           "python": "handlers, orelse and finalbody are recorded in program"
         },
         {
-          "node": 1089,
+          "node": 1090,
           "kind": "IfExp",
           "line": 185,
           "python": "endpoint_hints is not None"
         },
         {
-          "node": 1226,
+          "node": 1227,
           "kind": "Compare",
           "line": 185,
           "python": "endpoint_hints is not None"
         },
         {
-          "node": 401,
+          "node": 402,
           "kind": "ExceptHandler",
           "line": 187,
           "python": "Exception"
         },
         {
-          "node": 115,
+          "node": 116,
           "kind": "If",
           "line": 202,
           "python": "execution.complete_missing_altitude and dem.altitude.status is AltitudeCompletionStatus.DISABLED"
         },
         {
-          "node": 233,
+          "node": 234,
           "kind": "BoolOp",
           "line": 203,
           "python": "execution.complete_missing_altitude and dem.altitude.status is AltitudeCompletionStatus.DISABLED"
         },
         {
-          "node": 422,
+          "node": 423,
           "kind": "Compare",
           "line": 204,
           "python": "dem.altitude.status is AltitudeCompletionStatus.DISABLED"
         },
         {
-          "node": 1107,
+          "node": 1108,
           "kind": "IfExp",
           "line": 209,
           "python": "dem.status == 'not_needed'"
         },
         {
-          "node": 1237,
+          "node": 1239,
           "kind": "Compare",
           "line": 210,
           "python": "dem.status == 'not_needed'"
         },
         {
-          "node": 1240,
+          "node": 1242,
           "kind": "IfExp",
           "line": 212,
           "python": "dem.status == 'not_needed'"
         },
         {
-          "node": 1343,
+          "node": 1345,
           "kind": "Compare",
           "line": 213,
           "python": "dem.status == 'not_needed'"
         },
         {
-          "node": 117,
+          "node": 118,
           "kind": "If",
           "line": 218,
           "python": "endpoint_hints is not None and plan.endpoint_audit_json is None"
         },
         {
-          "node": 237,
+          "node": 238,
           "kind": "BoolOp",
           "line": 218,
           "python": "endpoint_hints is not None and plan.endpoint_audit_json is None"
-        },
-        {
-          "node": 429,
-          "kind": "Compare",
-          "line": 218,
-          "python": "endpoint_hints is not None"
         },
         {
           "node": 430,
           "kind": "Compare",
           "line": 218,
+          "python": "endpoint_hints is not None"
+        },
+        {
+          "node": 431,
+          "kind": "Compare",
+          "line": 218,
           "python": "plan.endpoint_audit_json is None"
         },
         {
-          "node": 118,
+          "node": 119,
           "kind": "If",
           "line": 220,
           "python": "endpoint_hints is not None and plan is not osm.plan"
         },
         {
-          "node": 239,
+          "node": 240,
           "kind": "BoolOp",
           "line": 220,
           "python": "endpoint_hints is not None and plan is not osm.plan"
-        },
-        {
-          "node": 434,
-          "kind": "Compare",
-          "line": 220,
-          "python": "endpoint_hints is not None"
         },
         {
           "node": 435,
           "kind": "Compare",
           "line": 220,
+          "python": "endpoint_hints is not None"
+        },
+        {
+          "node": 436,
+          "kind": "Compare",
+          "line": 220,
           "python": "plan is not osm.plan"
         },
         {
-          "node": 710,
+          "node": 711,
           "kind": "comprehension",
           "line": 222,
           "python": " for item in plan.interval_plans if isinstance(item, GapRepairPlan)"
         },
         {
-          "node": 951,
+          "node": 952,
           "kind": "comprehension",
           "line": 226,
           "python": " for candidate in osm.plan.interval_plans if isinstance(candidate, GapRepairPlan) and candidate.interval.gap_id not in present_ids"
         },
         {
-          "node": 1124,
+          "node": 1125,
           "kind": "BoolOp",
           "line": 227,
           "python": "isinstance(candidate, GapRepairPlan) and candidate.interval.gap_id not in present_ids"
         },
         {
-          "node": 1253,
+          "node": 1255,
           "kind": "Compare",
           "line": 227,
           "python": "candidate.interval.gap_id not in present_ids"
         },
         {
-          "node": 242,
+          "node": 243,
           "kind": "If",
           "line": 229,
           "python": "endpoint_candidates"
         },
         {
-          "node": 954,
+          "node": 955,
           "kind": "comprehension",
           "line": 230,
           "python": " for item in endpoint_candidates"
         },
         {
-          "node": 1362,
+          "node": 1364,
           "kind": "comprehension",
           "line": 241,
           "python": " for item in plan.unresolved_gaps if item.interval.gap_id not in selected_ids"
         },
         {
-          "node": 1442,
+          "node": 1444,
           "kind": "Compare",
           "line": 242,
           "python": "item.interval.gap_id not in selected_ids"
         },
         {
-          "node": 1141,
+          "node": 1142,
           "kind": "IfExp",
           "line": 250,
           "python": "endpoint_selection.has_changes and plan.unresolved_gaps"
         },
         {
-          "node": 1267,
+          "node": 1269,
           "kind": "BoolOp",
           "line": 251,
           "python": "endpoint_selection.has_changes and plan.unresolved_gaps"
         },
         {
-          "node": 1269,
+          "node": 1271,
           "kind": "IfExp",
           "line": 252,
           "python": "endpoint_selection.has_changes"
         },
         {
-          "node": 119,
+          "node": 120,
           "kind": "If",
           "line": 256,
           "python": "plan is not osm.plan"
         },
         {
-          "node": 243,
+          "node": 244,
           "kind": "Compare",
           "line": 256,
           "python": "plan is not osm.plan"
         },
         {
-          "node": 245,
+          "node": 246,
           "kind": "If",
           "line": 258,
           "python": "private_audit is not None and plan.automatic_osm_json is not None"
         },
         {
-          "node": 450,
+          "node": 451,
           "kind": "BoolOp",
           "line": 258,
           "python": "private_audit is not None and plan.automatic_osm_json is not None"
-        },
-        {
-          "node": 730,
-          "kind": "Compare",
-          "line": 258,
-          "python": "private_audit is not None"
         },
         {
           "node": 731,
           "kind": "Compare",
           "line": 258,
+          "python": "private_audit is not None"
+        },
+        {
+          "node": 732,
+          "kind": "Compare",
+          "line": 258,
           "python": "plan.automatic_osm_json is not None"
         },
         {
-          "node": 248,
+          "node": 249,
           "kind": "IfExp",
           "line": 265,
           "python": "course is not None or osm.discovery is not None"
         },
         {
-          "node": 455,
+          "node": 456,
           "kind": "BoolOp",
           "line": 266,
           "python": "course is not None or osm.discovery is not None"
         },
         {
-          "node": 740,
+          "node": 741,
           "kind": "Compare",
           "line": 266,
           "python": "course is not None"
         },
         {
-          "node": 741,
+          "node": 742,
           "kind": "Compare",
           "line": 266,
           "python": "osm.discovery is not None"
         },
         {
-          "node": 124,
+          "node": 125,
           "kind": "If",
-          "line": 272,
-          "python": "not dry_run and selection.has_changes"
-        },
-        {
-          "node": 255,
-          "kind": "BoolOp",
           "line": 272,
           "python": "not dry_run and selection.has_changes"
         },
         {
           "node": 256,
+          "kind": "BoolOp",
+          "line": 272,
+          "python": "not dry_run and selection.has_changes"
+        },
+        {
+          "node": 257,
           "kind": "Try",
           "line": 273,
           "python": "handlers, orelse and finalbody are recorded in program"
         },
         {
-          "node": 755,
+          "node": 756,
           "kind": "IfExp",
           "line": 275,
           "python": "dem.altitude.status is AltitudeCompletionStatus.PLANNED"
         },
         {
-          "node": 1001,
+          "node": 1002,
           "kind": "Compare",
           "line": 275,
           "python": "dem.altitude.status is AltitudeCompletionStatus.PLANNED"
         },
         {
-          "node": 468,
+          "node": 469,
           "kind": "Try",
           "line": 277,
           "python": "handlers, orelse and finalbody are recorded in program"
         },
         {
-          "node": 757,
+          "node": 758,
           "kind": "ExceptHandler",
           "line": 286,
           "python": "FitWriteError"
         },
         {
-          "node": 1007,
+          "node": 1008,
           "kind": "If",
-          "line": 287,
-          "python": "altitude_plan is None"
-        },
-        {
-          "node": 1168,
-          "kind": "Compare",
           "line": 287,
           "python": "altitude_plan is None"
         },
         {
           "node": 1169,
+          "kind": "Compare",
+          "line": 287,
+          "python": "altitude_plan is None"
+        },
+        {
+          "node": 1170,
           "kind": "Raise",
           "line": 288,
           "python": "raise"
         },
         {
-          "node": 758,
+          "node": 759,
           "kind": "If",
           "line": 306,
           "python": "altitude_plan is not None"
         },
         {
-          "node": 1010,
+          "node": 1011,
           "kind": "Compare",
           "line": 306,
           "python": "altitude_plan is not None"
         },
         {
-          "node": 470,
+          "node": 471,
           "kind": "If",
           "line": 312,
           "python": "not written.validation.valid or not written.post_write_verified or written.diff.unexpected_changed_field_count or (written.diff.timestamps.compared_count != written.diff.timestamps.unchanged_count) or (written.diff.sensors.compared_count - written.diff.sensors.unchanged_count != written.altitude_field_change_count)"
         },
         {
-          "node": 761,
+          "node": 762,
           "kind": "BoolOp",
           "line": 313,
           "python": "not written.validation.valid or not written.post_write_verified or written.diff.unexpected_changed_field_count or (written.diff.timestamps.compared_count != written.diff.timestamps.unchanged_count) or (written.diff.sensors.compared_count - written.diff.sensors.unchanged_count != written.altitude_field_change_count)"
         },
         {
-          "node": 1019,
+          "node": 1020,
           "kind": "Compare",
           "line": 316,
           "python": "written.diff.timestamps.compared_count != written.diff.timestamps.unchanged_count"
         },
         {
-          "node": 1020,
+          "node": 1021,
           "kind": "Compare",
           "line": 317,
           "python": "written.diff.sensors.compared_count - written.diff.sensors.unchanged_count != written.altitude_field_change_count"
         },
         {
-          "node": 762,
+          "node": 763,
           "kind": "Raise",
           "line": 320,
           "python": "raise FitWriteError('written FIT failed preservation verification')"
         },
         {
-          "node": 471,
+          "node": 472,
           "kind": "ExceptHandler",
           "line": 321,
           "python": "(FitWriteError, FitReadError, OSError, ValueError)"
         },
         {
-          "node": 764,
+          "node": 765,
           "kind": "Raise",
           "line": 322,
           "python": "raise PipelineError('repair_refused', str(error)) from error"
@@ -165458,6 +165711,9 @@
               },
               {
                 "python": "eligible_gap_count"
+              },
+              {
+                "python": "osm_failure"
               },
               {
                 "python": "run_osm_pipeline"
@@ -166142,7 +166398,7 @@
                         "type": {
                           "python": "Exception"
                         },
-                        "name": null,
+                        "name": "error",
                         "body": [
                           {
                             "kind": "Assign",
@@ -166153,7 +166409,7 @@
                               }
                             ],
                             "value": {
-                              "python": "OSMResult(base_plan, 'unavailable', 'routing', 'routing_failed')"
+                              "python": "osm_failure(base_plan, 'routing', 'routing_failed', error)"
                             }
                           }
                         ]
@@ -239109,44 +239365,10 @@
     },
     {
       "path": "web/backend/warpbuster_web/diagnostics.py",
-      "sha256": "e25a7f31d9aee7e4c53fdcd811f636baa668cdd5ebaf5459482a6439a9fc181d",
-      "description": "Bounded exception diagnostics for private local logs, never public responses.",
-      "symbols": [
-        {
-          "id": "web/backend/warpbuster_web/diagnostics.py::bounded_diagnostic",
-          "kind": "FunctionDef",
-          "line": 9,
-          "end_line": 16,
-          "description": null,
-          "decorators": [],
-          "arguments": "value",
-          "returns": null
-        },
-        {
-          "id": "web/backend/warpbuster_web/diagnostics.py::exception_diagnostic",
-          "kind": "FunctionDef",
-          "line": 19,
-          "end_line": 27,
-          "description": null,
-          "decorators": [],
-          "arguments": "error",
-          "returns": null
-        }
-      ],
-      "decision_points": [
-        {
-          "node": 11,
-          "kind": "If",
-          "line": 10,
-          "python": "not isinstance(value, dict)"
-        },
-        {
-          "node": 33,
-          "kind": "comprehension",
-          "line": 14,
-          "python": " for key, limit in DIAGNOSTIC_LIMITS.items() if isinstance(value.get(key), str)"
-        }
-      ],
+      "sha256": "1388037d11be7448f59b2dc25b1b3eb4154b4a0283b8877c23a256fe9d46579e",
+      "description": "Compatibility exports for the shared Core private-diagnostic formatter.",
+      "symbols": [],
+      "decision_points": [],
       "program": {
         "kind": "Module",
         "body": [
@@ -239154,86 +239376,41 @@
             "kind": "Expr",
             "line": 1,
             "value": {
-              "python": "'Bounded exception diagnostics for private local logs, never public responses.'"
+              "python": "'Compatibility exports for the shared Core private-diagnostic formatter.'"
             }
           },
           {
-            "kind": "Import",
+            "kind": "ImportFrom",
             "line": 3,
+            "module": "warpbuster.diagnostics",
             "names": [
               {
-                "python": "traceback"
+                "python": "DIAGNOSTIC_LIMITS as DIAGNOSTIC_LIMITS"
               }
-            ]
+            ],
+            "level": 0
           },
           {
-            "kind": "Assign",
+            "kind": "ImportFrom",
             "line": 6,
-            "targets": [
+            "module": "warpbuster.diagnostics",
+            "names": [
               {
-                "python": "DIAGNOSTIC_LIMITS"
+                "python": "bounded_diagnostic as bounded_diagnostic"
               }
             ],
-            "value": {
-              "python": "{'exception_type': 256, 'reason': 4096, 'traceback': 32768}"
-            }
+            "level": 0
           },
           {
-            "kind": "FunctionDef",
+            "kind": "ImportFrom",
             "line": 9,
-            "name": "bounded_diagnostic",
-            "args": {
-              "python": "value"
-            },
-            "body": [
+            "module": "warpbuster.diagnostics",
+            "names": [
               {
-                "kind": "If",
-                "line": 10,
-                "test": {
-                  "python": "not isinstance(value, dict)"
-                },
-                "body": [
-                  {
-                    "kind": "Return",
-                    "line": 11,
-                    "value": {
-                      "python": "{}"
-                    }
-                  }
-                ],
-                "orelse": []
-              },
-              {
-                "kind": "Return",
-                "line": 12,
-                "value": {
-                  "python": "{key: value[key][-limit:] for key, limit in DIAGNOSTIC_LIMITS.items() if isinstance(value.get(key), str)}"
-                }
+                "python": "exception_diagnostic as exception_diagnostic"
               }
             ],
-            "decorator_list": [],
-            "returns": null,
-            "type_params": []
-          },
-          {
-            "kind": "FunctionDef",
-            "line": 19,
-            "name": "exception_diagnostic",
-            "args": {
-              "python": "error"
-            },
-            "body": [
-              {
-                "kind": "Return",
-                "line": 20,
-                "value": {
-                  "python": "bounded_diagnostic({'exception_type': type(error).__name__, 'reason': str(error), 'traceback': ''.join(traceback.format_exception(error, limit=20))})"
-                }
-              }
-            ],
-            "decorator_list": [],
-            "returns": null,
-            "type_params": []
+            "level": 0
           }
         ]
       }

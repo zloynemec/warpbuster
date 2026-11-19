@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from warpbuster.config import OSMReconstructionConfig
+from warpbuster.diagnostics import bounded_diagnostic, exception_diagnostic
 from warpbuster.models.activity import ActivityData
 from warpbuster.models.integrity import IntegrityReport
 from warpbuster.models.reconstruction import OSMDryRunResult, RepairPlan
@@ -91,6 +92,25 @@ class OSMResult:
             raise ValueError("invalid OSM pipeline stage")
         if self.error_code is not None and self.error_code not in SAFE_ERROR_CODES:
             raise ValueError("invalid public OSM error code")
+
+
+def osm_failure(base_plan: RepairPlan, stage: str, code: str, error: BaseException) -> OSMResult:
+    """Keep a bounded private cause without changing the safe fallback contract."""
+    try:
+        diagnostic = exception_diagnostic(error)
+    except Exception:
+        # Even a broken exception formatter must not discard the base repair plan.
+        diagnostic = bounded_diagnostic({"exception_type": type(error).__name__})
+    return OSMResult(
+        base_plan,
+        "unavailable",
+        stage,
+        code,
+        private_audit={
+            "schema_version": 1,
+            "failure": {"stage": stage, "code": code, "diagnostic": diagnostic},
+        },
+    )
 
 
 def eligible_gap_count(
@@ -186,7 +206,7 @@ def execute_osm_pipeline(
             buffer_m=config.osm_coverage_buffer_m,
         )
     except Exception as error:
-        return OSMResult(base_plan, "unavailable", "coverage", _safe_code(error, "coverage_limit"))
+        return osm_failure(base_plan, "coverage", _safe_code(error, "coverage_limit"), error)
 
     coverage_seconds = time.monotonic() - coverage_started
     started = time.monotonic()
@@ -259,7 +279,7 @@ def execute_osm_pipeline(
                 endpoint_hints=endpoint_hints,
             )
     except Exception as error:
-        return OSMResult(base_plan, "unavailable", "routing", _safe_code(error, "routing_failed"))
+        return osm_failure(base_plan, "routing", _safe_code(error, "routing_failed"), error)
     routing_seconds = time.monotonic() - started
     decisions = _automatic_decisions(final_plan)
     endpoint_decisions = json.loads(final_plan.endpoint_audit_json or "[]")

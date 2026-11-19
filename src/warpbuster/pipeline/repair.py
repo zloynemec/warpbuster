@@ -43,7 +43,7 @@ from .coverage import (
     measure_observed_gps_coverage,
 )
 from .dem import DEMResult, run_dem_stage
-from .osm import OSMResult, eligible_gap_count, run_osm_pipeline
+from .osm import OSMResult, eligible_gap_count, osm_failure, run_osm_pipeline
 
 
 class PipelineError(Exception):
@@ -184,9 +184,9 @@ def run_repair(
                 policy=effective_policy,
                 **({"endpoint_hints": endpoint_hints} if endpoint_hints is not None else {}),
             )
-        except Exception:
+        except Exception as error:
             # Optional companion/native failures never discard the base GPX plan.
-            osm = OSMResult(base_plan, "unavailable", "routing", "routing_failed")
+            osm = osm_failure(base_plan, "routing", "routing_failed", error)
     osm_duration_seconds = time.monotonic() - osm_started
     remaining = execution.process_timeout_seconds - (time.monotonic() - started)
     dem = run_dem_stage(

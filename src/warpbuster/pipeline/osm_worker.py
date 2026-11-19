@@ -18,7 +18,7 @@ def child_main(
     endpoint_hints: Any = None,
 ) -> None:
     """Enter a new process group, enforce inherited limits and return bounded IPC."""
-    from .osm import OSMResult, execute_osm_pipeline
+    from .osm import OSMResult, execute_osm_pipeline, osm_failure
 
     try:
         os.setsid()
@@ -41,13 +41,13 @@ def child_main(
             result = OSMResult(base_plan, "unavailable", "routing", "ipc_invalid")
             payload = pickle.dumps(("result", result), protocol=pickle.HIGHEST_PROTOCOL)
         connection.send_bytes(payload)
-    except BaseException:
+    except BaseException as error:
         with suppress(BaseException):
             connection.send_bytes(
                 pickle.dumps(
                     (
                         "result",
-                        OSMResult(base_plan, "unavailable", "setup", "resource_limit"),
+                        osm_failure(base_plan, "setup", "resource_limit", error),
                     )
                 )
             )
