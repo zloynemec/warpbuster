@@ -419,8 +419,12 @@
           "then": "unresolved missing_completion_disabled для original-missing/endpoint gaps"
         },
         {
-          "when": "Record budget превышен или FIT position fields unpatchable",
-          "then": "unresolved с соответствующим reason"
+          "when": "gap.record_count > missing_completion_max_run_records",
+          "then": "unresolved search_limit_reached; общий reason, отдельного gap-record reason code нет"
+        },
+        {
+          "when": "FIT position fields unpatchable",
+          "then": "unresolved position_fields_unpatchable"
         },
         {
           "when": "Специальный coordinate-free сценарий",
@@ -449,10 +453,15 @@
           "reason": "search_limit_reached"
         },
         {
-          "when": "_LimitReached при ограниченном поиске context/path evaluations",
+          "when": "После deduplication число anchor matches > maximum_anchor_candidates: _CourseIndex.matches бросает _LimitReached, перехваченный в _reconstruct_gap",
+          "reason": "search_limit_reached"
+        },
+        {
+          "when": "Для нового uncached path evaluated_paths >= local_alignment_max_path_evaluations: _LimitReached в _reconstruct_gap",
           "reason": "search_limit_reached"
         }
-      ]
+      ],
+      "limit_semantics": "ReconstructionReason.SEARCH_LIMIT_REACHED сериализуется как search_limit_reached и объединяет разные ограничения. Условия record limit проверяются только после более ранних ordered_rules; number — zero-based индекс gap в inventory. Достижение local_alignment_max_context_records/seconds само по себе не присваивает этот reason. Новые reason codes требуют отдельной задачи по диагностике."
     },
     {
       "id": "coordinate_free_course",
@@ -684,7 +693,18 @@
           "then": "unresolved; сохранить отказ каждого attempt в audit"
         }
       ],
-      "ranking": "Observed context alignment/direction/distance evidence, completeness, route audit и named integer score bands; стабильные tie-break keys и hard gates заданы _rank_one/_decide/_order. Ranking сам не даёт write permission."
+      "ranking": "Observed context alignment/direction/distance evidence, completeness, route audit и named integer score bands; стабильные tie-break keys и hard gates заданы _rank_one/_decide/_order. Ranking сам не даёт write permission.",
+      "record_limit_reason": {
+        "when": "gap.record_count > cfg.maximum_gap_records после успешной проверки anchors/gap reasons и anchor mismatch; cfg = approximate_policy.application либо config/AutomaticOSMApplicationConfig()",
+        "reason": "search_limit_reached",
+        "audit_marker": "automatic_osm_json.decisions[].reason = gap_record_limit",
+        "confirmed_application": "apply_confirmed_osm_routes также возвращает search_limit_reached при этом record limit; его более ранние проверки anchors, gap reasons, discovery outcome и anchor mismatch имеют приоритет. Automatic marker gap_record_limit не обещается для confirmed path.",
+        "implementation": [
+          "src/warpbuster/reconstruction/automatic_osm.py::apply_automatic_osm_routes",
+          "src/warpbuster/reconstruction/osm_application.py::apply_confirmed_osm_routes"
+        ],
+        "interpretation": "Общий reason не определяет конкретный исчерпанный бюджет и не доказывает отсутствие физически допустимого маршрута. Новые GAP_RECORD_LIMIT/SEARCH_WINDOW_LIMIT не реализованы; изменение reason-code контракта — отдельная задача по диагностике."
+      }
     },
     {
       "id": "endpoint_routes",
