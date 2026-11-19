@@ -1,13 +1,13 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "kind": "warpbuster_algorithm_description",
   "language": "ru",
-  "documented_on": "2026-11-18",
+  "documented_on": "2026-11-19",
   "implementation": "implementation.json",
   "semantics": {
     "authority": "Текущее поведение определяется program в implementation.json. Этот файл объясняет назначение ветвей и связывает подсистемы; он не исполняется как новая реализация алгоритма.",
     "symbol_reference_format": "repository-relative-path::lexically.qualified.symbol",
-    "rule_order": "Массивы ordered_rules проверяются по порядку; первое применимое правило имеет приоритет, если явно не указано накопление результатов.",
+    "rule_order": "ordered_rules сохраняют порядок описанных условий и их приоритет. when/then — пояснения к коду, не исполняемый dispatcher; изменение effective policy не означает завершение стадии. Точные return/raise и порядок проверок находятся в implementation program.",
     "predicate_language": "Описание условий на русском или Python-подобные выражения; точные операторы, границы, значения и обходы находятся в соответствующем program.",
     "configuration_authority": "Все объявления, defaults, factories, профили, наследование, env/CLI override и проверки конфигурации включены в implementation.json. Значения production .env не читаются и не включаются.",
     "completeness": "Все синтаксические варианты включённого исходного кода сохранены в структурированном Python program либо дословных JS/resources. Индекс decision_points включает явные ветви, тернарные условия, short-circuit BoolOp, Compare, comprehensions, циклы, assert, raise и обработчики исключений.",
@@ -17,148 +17,970 @@
       "Переописание внутренних алгоритмов fitdecode, Garmin SDK, Valhalla, osmium, HTTP/DNS/TLS, Python и операционной системы.",
       "Гарантия полноты OSM-кандидатов, истинности выбранного маршрута или независимости FIT speed/distance от GNSS.",
       "Гарантия детерминизма сетевого окружения, времени выполнения, платформы и состояния внешнего кеша. При одинаковых входах и фиксированных зависимостях ядро использует детерминированные правила."
-    ]
+    ],
+    "graph": "entrypoints[].start задаёт начало; transitions содержит все связи стадий. kind=next — продолжение при указанном when; kind=substage — вспомогательный разбор внутри стадии-родителя с возвратом в неё. Граф описывает процесс, а не исполняет predicates и не заменяет call graph из кода. Ошибки и ранние возвраты перечислены в правилах стадий."
   },
   "invariants": [
-    {"id": "detector_is_course_independent", "rule": "GPX, OSM и DEM не участвуют в Integrity Detector. Отклонение от course само по себе не доказывает corruption.", "implementation": ["src/warpbuster/integrity/detector.py::analyze_integrity"]},
-    {"id": "immutable_source_snapshot", "rule": "Mask, gaps, anchors и доказательства строятся из исходной активности; сгенерированные координаты не становятся доказательством детектора в том же запуске.", "implementation": ["src/warpbuster/reconstruction/local.py::build_repair_plan", "src/warpbuster/reconstruction/automatic_osm.py::apply_automatic_osm_routes"]},
-    {"id": "proof_before_invalidation", "rule": "Suspicious transition или диагностический envelope не разрешают очищать все покрытые координаты. Нужны повторно проверяемый scope proof и порог invalidation confidence.", "implementation": ["src/warpbuster/reconstruction/gaps.py::coordinate_mask", "src/warpbuster/reconstruction/gaps.py::_has_scope_proof"]},
-    {"id": "missing_is_not_corrupted", "rule": "Исходно отсутствующие координаты и доказанно повреждённые координаты имеют разные состояния и основания восстановления.", "implementation": ["src/warpbuster/reconstruction/gaps.py::inventory_gaps"]},
-    {"id": "timestamps_preserved", "rule": "Writer не изменяет timestamps и не добавляет время для прохождения physical checks.", "implementation": ["src/warpbuster/fit/writer.py::_verify_written_repair"]},
-    {"id": "fit_first", "rule": "Исходный FIT патчится с сохранением сообщений, неизвестных и developer fields. GPX не является промежуточным canonical форматом FIT repair.", "implementation": ["src/warpbuster/fit/reader.py::read_fit", "src/warpbuster/fit/writer.py::_patch_fit_bytes", "src/warpbuster/fit/diff.py::diff_fit"]},
-    {"id": "confidence_policies_are_distinct", "rule": "Invalidation и применение candidate имеют отдельные пороги. LOW candidate не применяется даже при minimum_confidence=LOW. Product process/web используют MEDIUM, legacy planner/writer по умолчанию HIGH; это описание фактического кода.", "implementation": ["src/warpbuster/pipeline/config.py::RepairPolicy", "src/warpbuster/reconstruction/selection.py::select_repair_intervals"]},
-    {"id": "no_llm_in_core", "rule": "Core не вызывает AI/LLM. External acquisition и presentation отделены от доказательства corruption.", "implementation": ["src/warpbuster/pipeline/repair.py::run_repair"]}
+    {
+      "id": "detector_is_course_independent",
+      "rule": "GPX, OSM и DEM не участвуют в Integrity Detector. Отклонение от course само по себе не доказывает corruption.",
+      "implementation": [
+        "src/warpbuster/integrity/detector.py::analyze_integrity"
+      ]
+    },
+    {
+      "id": "immutable_source_snapshot",
+      "rule": "Mask, gaps, anchors и доказательства строятся из исходной активности; сгенерированные координаты не становятся доказательством детектора в том же запуске.",
+      "implementation": [
+        "src/warpbuster/reconstruction/local.py::build_repair_plan",
+        "src/warpbuster/reconstruction/automatic_osm.py::apply_automatic_osm_routes"
+      ]
+    },
+    {
+      "id": "proof_before_invalidation",
+      "rule": "Suspicious transition или диагностический envelope не разрешают очищать все покрытые координаты. Нужны повторно проверяемый scope proof и порог invalidation confidence.",
+      "implementation": [
+        "src/warpbuster/reconstruction/gaps.py::coordinate_mask",
+        "src/warpbuster/reconstruction/gaps.py::_has_scope_proof"
+      ]
+    },
+    {
+      "id": "missing_is_not_corrupted",
+      "rule": "Исходно отсутствующие координаты и доказанно повреждённые координаты имеют разные состояния и основания восстановления.",
+      "implementation": [
+        "src/warpbuster/reconstruction/gaps.py::inventory_gaps"
+      ]
+    },
+    {
+      "id": "timestamps_preserved",
+      "rule": "Writer не изменяет timestamps и не добавляет время для прохождения physical checks.",
+      "implementation": [
+        "src/warpbuster/fit/writer.py::_verify_written_repair"
+      ]
+    },
+    {
+      "id": "fit_first",
+      "rule": "Исходный FIT патчится с сохранением сообщений, неизвестных и developer fields. GPX не является промежуточным canonical форматом FIT repair.",
+      "implementation": [
+        "src/warpbuster/fit/reader.py::read_fit",
+        "src/warpbuster/fit/writer.py::_patch_fit_bytes",
+        "src/warpbuster/fit/diff.py::diff_fit"
+      ]
+    },
+    {
+      "id": "confidence_policies_are_distinct",
+      "rule": "Invalidation и применение candidate имеют отдельные пороги. LOW candidate не применяется даже при minimum_confidence=LOW. Product process/web используют MEDIUM, legacy planner/writer по умолчанию HIGH; это описание фактического кода.",
+      "implementation": [
+        "src/warpbuster/pipeline/config.py::RepairPolicy",
+        "src/warpbuster/reconstruction/selection.py::select_repair_intervals"
+      ]
+    },
+    {
+      "id": "no_llm_in_core",
+      "rule": "Core не вызывает AI/LLM. External acquisition и presentation отделены от доказательства corruption.",
+      "implementation": [
+        "src/warpbuster/pipeline/repair.py::run_repair"
+      ]
+    }
   ],
   "entrypoints": [
-    {"id": "library_repair", "implementation": ["src/warpbuster/pipeline/repair.py::run_repair"], "inputs": ["activity_path: FIT", "optional course_path: GPX", "optional output_path", "RepairPolicy", "PipelineConfig", "dry_run", "overwrite", "optional EndpointHints"], "defaults": {"policy": "DEFAULT_REPAIR_POLICY", "osm": "disabled", "dem": "disabled", "approximate_osm": false, "complete_missing_altitude": false, "isolate_osm": false}, "next": "read_inputs"},
-    {"id": "cli_process", "implementation": ["src/warpbuster/cli.py::build_parser", "src/warpbuster/cli.py::main"], "behavior": "Полный FIT-only или FIT+GPX pipeline. DEFAULT_REPAIR_POLICY, default OSM auto; approximate selection включается по умолчанию при включённом OSM. DEM mode и altitude completion выводятся из effective OSM/approximate options. --start/--finish/--loop-point только в FIT-only.", "next": "read_inputs"},
-    {"id": "cli_legacy_repair", "implementation": ["src/warpbuster/cli.py::main"], "behavior": "LEGACY_REPAIR_POLICY: fill_missing=false, invalidation=HIGH, application=HIGH. При exact osm_graph_id default application становится MEDIUM; explicit CLI flags переопределяют policy. Manager acquisition по умолчанию отключён.", "next": "read_inputs"},
-    {"id": "web_job", "implementation": ["web/backend/warpbuster_web/app.py::create_app", "web/backend/warpbuster_web/worker.py::Worker.process", "web/backend/warpbuster_web/processing.py::process_job"], "behavior": "Upload → validation/ownership/quota → queue → isolated processor → shared run_repair → allowlisted result. WebConfig defaults включают OSM auto, approximate OSM, DEM auto, altitude completion и Linux OSM isolation; env overrides проходят validation. Прямой process_job без config явно отключает optional stages.", "next": "read_inputs"},
-    {"id": "cli_inspect", "implementation": ["src/warpbuster/activity_reader.py::read_activity", "src/warpbuster/report/inspect.py::inspect_report", "src/warpbuster/cli.py::main"], "behavior": "Чтение FIT/GPX и структурный отчёт без reconstruction и записи FIT."},
-    {"id": "cli_analyze", "implementation": ["src/warpbuster/cli.py::main", "src/warpbuster/integrity/detector.py::analyze_integrity"], "behavior": "FIT/GPX → vendor-neutral activity → detector → JSON/console/optional HTML. --course только для HTML FIT и только как визуальная reference. CORRUPTED/SUSPICIOUS дают exit 1; остальные успешные analyses exit 0; argument/read/report error exit 2."},
-    {"id": "gps_csv_analysis", "implementation": ["src/warpbuster/gps/reader.py::read_locations", "src/warpbuster/gps/analysis.py::analyze_gps", "src/warpbuster/gps/export.py::trusted_gpx"], "behavior": "Trail Companion locations.csv → исходные observations → shared detector → trusted/rejected/uncertain → JSON и GPX только trusted points. CSV не превращается в восстановленный FIT. Default GPS profile running, доступен generic."},
-    {"id": "companion_apis", "implementation": ["packages/osm-manager/src/warpbuster_osm_manager/cli.py::main", "packages/osm-routing/src/warpbuster_osm_routing/cli.py::main"], "behavior": "Самостоятельные CLI/protocol operations Manager, routing, cache и DEM. Точные команды, флаги, отказы и JSON-ответы включены в program соответствующих adapters."}
+    {
+      "id": "library_repair",
+      "implementation": [
+        "src/warpbuster/pipeline/repair.py::run_repair"
+      ],
+      "inputs": [
+        "activity_path: FIT",
+        "optional course_path: GPX",
+        "optional output_path",
+        "RepairPolicy",
+        "PipelineConfig",
+        "dry_run",
+        "overwrite",
+        "optional EndpointHints"
+      ],
+      "defaults": {
+        "policy": "DEFAULT_REPAIR_POLICY",
+        "osm": "disabled",
+        "dem": "disabled",
+        "approximate_osm": false,
+        "complete_missing_altitude": false,
+        "isolate_osm": false
+      },
+      "start": "read_inputs"
+    },
+    {
+      "id": "cli_process",
+      "implementation": [
+        "src/warpbuster/cli.py::build_parser",
+        "src/warpbuster/cli.py::main"
+      ],
+      "behavior": "Полный FIT-only или FIT+GPX pipeline. DEFAULT_REPAIR_POLICY, default OSM auto; approximate selection включается по умолчанию при включённом OSM. DEM mode и altitude completion выводятся из effective OSM/approximate options. --start/--finish/--loop-point только в FIT-only.",
+      "start": "read_inputs",
+      "exit_codes": [
+        {
+          "code": 2,
+          "when": "Неверные аргументы, входы или конфигурация; PipelineError с code != repair_refused (включая timeout базового плана); ошибка HTML до записи FIT."
+        },
+        {
+          "code": 3,
+          "when": "PipelineError repair_refused, в том числе отказ FIT writer или preservation verification."
+        },
+        {
+          "code": 3,
+          "when": "FIT уже записан, но последующее создание HTML завершилось ошибкой; output FIT остаётся созданным."
+        },
+        {
+          "code": 0,
+          "when": "dry_run и (selection.has_changes или plan.status == NOT_NEEDED), после успешного создания запрошенного отчёта."
+        },
+        {
+          "code": 3,
+          "when": "dry_run, изменений нет и plan.status != NOT_NEEDED."
+        },
+        {
+          "code": 0,
+          "when": "Не dry_run, изменений нет и plan.status == NOT_NEEDED. Этот исход проверяется раньше coverage refusal, поэтому BELOW_THRESHOLD/UNAVAILABLE сами по себе не гарантируют exit 3."
+        },
+        {
+          "code": 3,
+          "when": "Не dry_run, изменений нет и plan.status != NOT_NEEDED: coverage refusal либо нет действий, прошедших confidence threshold."
+        },
+        {
+          "code": 0,
+          "when": "Выбранные изменения успешно записаны и запрошенный итоговый отчёт успешно сформирован."
+        }
+      ]
+    },
+    {
+      "id": "cli_legacy_repair",
+      "implementation": [
+        "src/warpbuster/cli.py::main"
+      ],
+      "behavior": "LEGACY_REPAIR_POLICY: fill_missing=false, invalidation=HIGH, application=HIGH. При exact osm_graph_id default application становится MEDIUM; explicit CLI flags переопределяют policy. Manager acquisition по умолчанию отключён.",
+      "start": "read_inputs",
+      "exit_codes": [
+        {
+          "code": 2,
+          "when": "Неверные аргументы, входы или конфигурация; PipelineError с code != repair_refused (включая timeout базового плана); ошибка HTML до записи FIT."
+        },
+        {
+          "code": 3,
+          "when": "PipelineError repair_refused, в том числе отказ FIT writer или preservation verification."
+        },
+        {
+          "code": 3,
+          "when": "FIT уже записан, но последующее создание HTML завершилось ошибкой; output FIT остаётся созданным."
+        },
+        {
+          "code": 0,
+          "when": "dry_run и (selection.has_changes или plan.status == NOT_NEEDED), после успешного создания запрошенного отчёта."
+        },
+        {
+          "code": 3,
+          "when": "dry_run, изменений нет и plan.status != NOT_NEEDED."
+        },
+        {
+          "code": 0,
+          "when": "Не dry_run, изменений нет и plan.status == NOT_NEEDED. Этот исход проверяется раньше coverage refusal, поэтому BELOW_THRESHOLD/UNAVAILABLE сами по себе не гарантируют exit 3."
+        },
+        {
+          "code": 3,
+          "when": "Не dry_run, изменений нет и plan.status != NOT_NEEDED: coverage refusal либо нет действий, прошедших confidence threshold."
+        },
+        {
+          "code": 0,
+          "when": "Выбранные изменения успешно записаны и запрошенный итоговый отчёт успешно сформирован."
+        }
+      ]
+    },
+    {
+      "id": "web_job",
+      "implementation": [
+        "web/backend/warpbuster_web/app.py::create_app",
+        "web/backend/warpbuster_web/worker.py::Worker.process",
+        "web/backend/warpbuster_web/processing.py::process_job"
+      ],
+      "behavior": "Upload → validation/ownership/quota → queue → isolated processor → shared run_repair → allowlisted result. WebConfig defaults включают OSM auto, approximate OSM, DEM auto, altitude completion и Linux OSM isolation; env overrides проходят validation. Прямой process_job без config явно отключает optional stages.",
+      "start": "read_inputs"
+    },
+    {
+      "id": "cli_inspect",
+      "implementation": [
+        "src/warpbuster/activity_reader.py::read_activity",
+        "src/warpbuster/report/inspect.py::inspect_report",
+        "src/warpbuster/cli.py::main"
+      ],
+      "behavior": "Чтение FIT/GPX и структурный отчёт без reconstruction и записи FIT."
+    },
+    {
+      "id": "cli_analyze",
+      "implementation": [
+        "src/warpbuster/cli.py::main",
+        "src/warpbuster/integrity/detector.py::analyze_integrity"
+      ],
+      "behavior": "FIT/GPX → vendor-neutral activity → detector → JSON/console/optional HTML. --course только для HTML FIT и только как визуальная reference. CORRUPTED/SUSPICIOUS дают exit 1; остальные успешные analyses exit 0; argument/read/report error exit 2."
+    },
+    {
+      "id": "gps_csv_analysis",
+      "implementation": [
+        "src/warpbuster/gps/reader.py::read_locations",
+        "src/warpbuster/gps/analysis.py::analyze_gps",
+        "src/warpbuster/gps/export.py::trusted_gpx"
+      ],
+      "behavior": "Trail Companion locations.csv → исходные observations → shared detector → trusted/rejected/uncertain → JSON и GPX только trusted points. CSV не превращается в восстановленный FIT. Default GPS profile running, доступен generic."
+    },
+    {
+      "id": "companion_apis",
+      "implementation": [
+        "packages/osm-manager/src/warpbuster_osm_manager/cli.py::main",
+        "packages/osm-routing/src/warpbuster_osm_routing/cli.py::main"
+      ],
+      "behavior": "Самостоятельные CLI/protocol operations Manager, routing, cache и DEM. Точные команды, флаги, отказы и JSON-ответы включены в program соответствующих adapters."
+    }
   ],
   "pipeline": [
-    {"id": "read_inputs", "implementation": ["src/warpbuster/pipeline/repair.py::run_repair", "src/warpbuster/fit/reader.py::read_fit", "src/warpbuster/gpx/course.py::read_gpx_course"], "ordered_rules": [
-      {"when": "endpoint_hints неверного типа либо одновременно задан GPX", "then": "PipelineError invalid_endpoint"},
-      {"when": "FIT/GPX не читается или не декодируется", "then": "PipelineError invalid_fit / invalid_gpx с приватной причиной"},
-      {"when": "Нет activity records", "then": "PipelineError empty_activity"},
-      {"when": "FIT records или GPX points превышают record_limit", "then": "PipelineError too_many_records"},
-      {"when": "course отсутствует", "then": "Effective fill_missing_from_course принудительно false; остальные independent/OSM возможности сохраняются"},
-      {"when": "Входы приняты", "then": "normalize → detector → base_plan; next=detect_integrity"}
-    ], "normalization": "Сохраняются raw FIT bytes, definitions, message occurrence/source refs, неизвестные поля и developer definitions. Normalized coordinates — градусы WGS84; FIT raw semicircles и field encoding остаются в preservation. Правила preferred/enhanced sensor fields, timestamps, session metadata и invalid values заданы reader helpers."},
-    {"id": "detect_integrity", "implementation": ["src/warpbuster/integrity/detector.py::analyze_integrity", "src/warpbuster/integrity/detector.py::_measure_transition", "src/warpbuster/integrity/detector.py::_baseline_stats", "src/warpbuster/integrity/detector.py::_classify_transition", "src/warpbuster/integrity/detector.py::_summarize"], "steps": ["Выбрать explicit IntegrityConfig либо профиль по normalized sport.", "Взять последовательные positioned observations внутри одинакового continuity_id.", "Вычислить geodesic distance и положительную elapsed duration.", "По измеренным скоростям вычислить median, MAD, interpolated p95 и relative threshold.", "Классифицировать transitions, затем выполнить interval detectors и независимые warnings.", "Сформировать IntegrityReport с исходными evidence и aggregate status."], "transition_rules": [
-      {"when": "timestamp отсутствует", "then": "UNKNOWN / missing_timestamp"},
-      {"when": "elapsed_seconds <= 0", "then": "UNKNOWN / non_positive_time_delta"},
-      {"when": "absolute ceiling включён AND speed >= absolute_impossible_speed_mps AND distance >= absolute_impossible_distance_m", "then": "IMPOSSIBLE"},
-      {"when": "speed >= relative threshold AND distance >= relative_suspicious_distance_m", "then": "SUSPICIOUS"},
-      {"when": "Иначе", "then": "NORMAL"}
-    ], "relative_threshold": "minimum_baseline_samples достигнут: max(floor, median*relative_speed_multiplier, median+MAD*relative_mad_multiplier); иначе floor", "summary_order": ["любой IMPOSSIBLE → CORRUPTED/HIGH", "distance-spike evidence → CORRUPTED/MEDIUM", "любой SUSPICIOUS → SUSPICIOUS/LOW", "UNKNOWN transition или missing positions → UNKNOWN/LOW", "есть NORMAL → CLEAN/HIGH при достаточной baseline, иначе CLEAN/MEDIUM", "нет transitions → UNKNOWN/LOW"], "next": "detect_intervals"},
-    {"id": "detect_intervals", "implementation": ["src/warpbuster/integrity/islands.py::detect_spoofing_islands", "src/warpbuster/integrity/one_sided.py::detect_one_sided_clusters", "src/warpbuster/integrity/odometer.py::detect_correlated_distance_spikes", "src/warpbuster/integrity/tail.py::detect_unreachable_tails"], "pass_order": [
-      {"kind": "classic_island", "rule": "Bounded поиск более позднего IMPOSSIBLE exit после IMPOSSIBLE entry; stable original outer anchors образуют физически правдоподобный direct bridge; интервалы потребляются последовательно без повторного захвата."},
-      {"kind": "one_sided_cluster", "rule": "После непарного impossible entry bounded scan проверяет positioned components, missing exit boundary, stable outer normal context, plausible bridge и отсутствие конфликта с classic islands. Одного suspicious участка недостаточно."},
-      {"kind": "signal_corroborated_island", "rule": "Положительный impossible cumulative distance step должен подтверждаться complete finite speed stream и конфликтующим displacement; неполный/reset/nonmonotonic signal не даёт такую поправку. Ограниченный positioned island получает максимум MEDIUM; для более длинного island нужна unreachable-проверка каждого point."},
-      {"kind": "unreachable_tail", "rule": "После stable original anchor и impossible entry проверяется reachability excess = distance - speed_limit*elapsed - position_error_budget. Только доказанный префикс tail инвалидируется. Первое reachable position закрывает proof; неоднозначный остаток карантинируется до stable reachable recovery либо конца continuity block. Слабый entry не получает права удалять последующий правдоподобный возврат."}
-    ], "boundedness": "Named elapsed/candidate/record caps и consumed ranges ограничивают поиск; полный all-pairs reachability не строится.", "next": "warnings"},
-    {"id": "warnings", "implementation": ["src/warpbuster/integrity/geometry.py::detect_geometry_warnings", "src/warpbuster/integrity/vertical.py::detect_vertical_warnings"], "rule": "Near-collinear geometry и excessive vertical rates сохраняются как отдельные warnings. Они не превращаются сами по себе в corruption intervals и не разрешают менять координаты.", "next": "mask_and_gaps"},
-    {"id": "mask_and_gaps", "implementation": ["src/warpbuster/reconstruction/gaps.py::coordinate_mask", "src/warpbuster/reconstruction/gaps.py::_has_scope_proof", "src/warpbuster/reconstruction/gaps.py::_has_tail_scope_proof", "src/warpbuster/reconstruction/gaps.py::inventory_gaps", "src/warpbuster/reconstruction/gaps.py::position_fields_patchable"], "ordered_rules": [
-      {"when": "Original coordinate pair отсутствует, non-finite или вне диапазона", "then": "ORIGINAL_MISSING"},
-      {"when": "Есть проверенный interval proof с confidence >= minimum_invalidation_confidence", "then": "INVALIDATED"},
-      {"when": "Иначе", "then": "PRESERVED"}
-    ], "anchor_rule": "PRESERVED + нет covering evidence + вне uncertain recovery range → anchor_eligible. Missing и invalidated никогда не становятся trusted anchors.", "gap_variants": ["internal", "prefix", "suffix", "whole_activity"], "origin_variants": "Точный набор GapOrigin и split/merge/reasons находится в модели и inventory_gaps; missing и invalidated не смешиваются неявно.", "next": "base_gpx_plan"},
-    {"id": "base_gpx_plan", "implementation": ["src/warpbuster/reconstruction/local.py::build_repair_plan", "src/warpbuster/reconstruction/local.py::_reconstruct_gap", "src/warpbuster/reconstruction/local.py::_context", "src/warpbuster/reconstruction/local.py::_options", "src/warpbuster/reconstruction/local.py::_paths"], "ordered_rules": [
-      {"when": "Исчерпан maximum_reconstruction_intervals", "then": "unresolved search_limit_reached"},
-      {"when": "У gap уже есть blocking reasons", "then": "unresolved с первым reason"},
-      {"when": "GPX отсутствует", "then": "unresolved no_course; independent invalidation и distance-spike corrections остаются в плане"},
-      {"when": "Missing completion disabled, кроме специального coordinate-free сценария", "then": "unresolved missing_completion_disabled для original-missing/endpoint gaps"},
-      {"when": "Record budget превышен или FIT position fields unpatchable", "then": "unresolved с соответствующим reason"},
-      {"when": "Специальный coordinate-free сценарий", "then": "next=coordinate_free_course"},
-      {"when": "Обычный gap", "then": "Проверить исходное время, timer pauses, необходимый local normal context, затем local course alignment"}
-    ], "alignment": ["Ищутся проекции исходных context points на GPX polyline с bounded spatial index/work limits.", "Оба направления GPX рассматриваются отдельно. Internal endpoints должны быть на одном continuous course segment и в согласованном chainage order.", "Prefix/suffix требуют контекста observed стороны и соответствующего endpoint всего GPX, не произвольного внутреннего trkseg.", "Ближайший достаточный context расширяется только для разрешения неоднозначности/недостатка информации; write scope gap не расширяется course-отклонением.", "Candidates сортируются по score; другая неэквивалентная геометрия внутри ambiguity margin даёт unresolved. Truncated search не объявляется unique.", "Каждый путь проходит timing/allocation/physical checks и получает provenance, context ranges и причины confidence."], "next": "allocate_progress"},
-    {"id": "coordinate_free_course", "implementation": ["src/warpbuster/reconstruction/local.py::_reconstruct_coordinate_free", "src/warpbuster/reconstruction/local.py::build_repair_plan"], "preconditions": ["Один WHOLE_ACTIVITY gap.", "У всех records обе normalized coordinates равны None.", "Session/lap metadata не содержат известных start/end/bounds coordinates.", "GPX содержит ровно один continuous segment.", "Clock пригоден; recorded distance profile plausible.", "Relative GPX/observed length error не превышает coordinate_free_max_distance_ratio_error с inclusive isclose границей.", "Course span и весь allocated traversal проходят physical checks."], "result": "Один полный FORWARD traversal всего GPX как явно помеченное предположение, MEDIUM. Требуется allocation RECORDED_DISTANCE; исходные timestamps/distance/speed/датчики сохраняются. Нет manufactured observed anchors и доказательства истинного пути/направления.", "next": "base_plan_status"},
-    {"id": "allocate_progress", "implementation": ["src/warpbuster/reconstruction/timing.py::timer_timeline", "src/warpbuster/reconstruction/timing.py::allocation_clock", "src/warpbuster/reconstruction/signals.py::allocate_signal_progress", "src/warpbuster/reconstruction/signals.py::qualify_distance", "src/warpbuster/reconstruction/signals.py::qualify_speed", "src/warpbuster/reconstruction/local.py::_allocate_path"], "ordered_rules": [
-      {"when": "Невалидные/nonincreasing timestamps, open timer pause, no active time, nonpositive path или excessive active traversal speed", "then": "Отказ с timing/physical reason"},
-      {"when": "Пригодный distance/speed profile показывает движение внутри полностью paused interval", "then": "pause_distance_conflict"},
-      {"when": "Recorded distance plausible, согласован с path length и проходит локальные active-time speed checks", "then": "RECORDED_DISTANCE fractions"},
-      {"when": "Integrated recorded speed plausible, согласован с path length и проходит проверки", "then": "RECORDED_SPEED fractions; trapezoid integration только active time"},
-      {"when": "Оба signals unusable либо не годятся для candidate geometry", "then": "TIMESTAMPS: uniform progress по cumulative active time, пометка active_time_estimated; timestamps не меняются"}
-    ], "geometry": "Interpolated progress следует connector → course span → connector. Изменяются только records внутри утверждённого gap; anchors сохраняются. Candidate и composed geometry проверяются до и после FIT quantization.", "distance_policy": "Mismatch с hypothesized course/OSM не доказывает повреждение FIT distance. Правило preserve_recorded_distance берётся из independent signal qualification; точная branch policy в _allocate_path и writer.", "next": "base_plan_status"},
-    {"id": "base_plan_status", "implementation": ["src/warpbuster/reconstruction/local.py::build_repair_plan"], "ordered_rules": [
-      {"when": "candidates OR invalidations OR distance_spike_evidence; unresolved gaps есть", "then": "PARTIAL"},
-      {"when": "Изменения доступны; unresolved gaps нет", "then": "READY"},
-      {"when": "Изменений нет; gaps есть", "then": "REFUSED"},
-      {"when": "Изменений нет; gaps нет", "then": "NOT_NEEDED"}
-    ], "caveat": "Статус плана описывает наличие действий; он не означает, что application confidence threshold уже пройден. Selection выполняется отдельно.", "next": "fit_only_coverage_gate"},
-    {"id": "fit_only_coverage_gate", "implementation": ["src/warpbuster/pipeline/coverage.py::measure_observed_gps_coverage", "src/warpbuster/pipeline/repair.py::run_repair"], "ordered_rules": [
-      {"when": "GPX задан", "then": "NOT_APPLICABLE"},
-      {"when": "Clock отсутствует / open pause / active time <= 0", "then": "UNAVAILABLE с invalid_record_timestamps / unresolved_timer_state / no_active_time"},
-      {"when": "FIT-only и usable timeline", "then": "Observed duration = сумма active deltas у consecutive original preserved anchor-eligible fixes одной continuity с NORMAL transition и 0 < delta <= maximum_observed_gps_interval_seconds"},
-      {"when": "100 * observed_duration / active_duration >= minimum_observed_gps_coverage_percent", "then": "PASSED"},
-      {"when": "Иначе", "then": "BELOW_THRESHOLD"}
-    ], "failure_action": "BELOW_THRESHOLD/UNAVAILABLE возвращает RepairRun до OSM/DEM/writer; invalidations и distance_spike_repairs в blocked selection очищаются, исправленный FIT не создаётся.", "next": "osm_stage"},
-    {"id": "osm_stage", "implementation": ["src/warpbuster/pipeline/osm.py::run_osm_pipeline", "src/warpbuster/pipeline/osm.py::execute_osm_pipeline", "src/warpbuster/pipeline/osm.py::run_osm_pipeline_isolated", "src/warpbuster/reconstruction/osm.py::OSMReconstructionProvider.discover", "src/warpbuster/reconstruction/osm.py::osm_gap_anchors"], "ordered_rules": [
-      {"when": "Whole-job remaining budget <= publish_reserve_seconds", "then": "OSM unavailable/setup/osm_timeout, сохранить base GPX plan"},
-      {"when": "Задан exact osm_graph_id", "then": "Offline discovery/application по этому graph, без Manager acquisition независимо от osm_mode"},
-      {"when": "OSM mode disabled", "then": "disabled"},
-      {"when": "Нет eligible internal gaps и допустимых endpoint pairs", "then": "not_needed"},
-      {"when": "Зависимости, quota, coverage, acquisition, prepare или routing не прошли", "then": "unavailable + safe stage/error_code; base plan сохраняется"},
-      {"when": "Иначе", "then": "Trusted anchor corridors → bounded Manager coverage → exact immutable snapshot → prepared graph → route discovery → Core application"}
-    ], "isolation": "Linux Web запускает bounded child/process group: IPC bytes, CPU, address-space, disk/temp/cache и wall-clock limits; phase-specific safe failures и cleanup не отменяют уже доступный base plan.", "discovery": "Internal gap требует двух immediate preserved trusted anchors; GPX candidate имеет приоритет. Missing endpoints без пользовательских hints не угадываются. Query count и candidate bounds ограничены конфигом.", "next": "automatic_osm_selection"},
-    {"id": "manager_and_routing", "implementation": ["packages/osm-manager/src/warpbuster_osm_manager/service.py::OsmManager.ensure", "packages/osm-manager/src/warpbuster_osm_manager/overpass.py::OverpassClient.fetch", "packages/osm-routing/src/warpbuster_osm_routing/graph_cache.py::GraphCache", "packages/osm-routing/src/warpbuster_osm_routing/route_service.py::RouteService.alternatives", "packages/osm-routing/src/warpbuster_osm_routing/approximate.py::discover_approximate"], "manager_rules": ["offline+refresh → invalid_input; offline cache неполон → offline_cache_miss; offline stale+require_fresh → fresh_cache_required.", "Online fetches только missing/stale cells либо весь plan при refresh; batch/request/response/XML/coverage limits обязательны.", "При OVERPASS_UNAVAILABLE допускается полный stale snapshot, только если покрытие уже complete и require_fresh=false.", "Manifest/blob/hash/locking/publication rules и retries/delays/URL constraints полностью заданы в companion program."], "routing_rules": ["Graph identity, manifest version и точная build/runtime Valhalla version проверяются до query.", "Strict negative precedence: OUTSIDE_COVERAGE → NO_SNAP → AMBIGUOUS_SNAP; no route отдельно от request/audit failure.", "Strict alternatives и approximate start/end snap-pair exploration — разные bounded ветви.", "Каждый candidate проверяется по shape/trace/edges/access/continuity/budgets до deduplication/ranking. Ferry/impassable/unsupported access и malformed payload не принимаются.", "Valhalla alternatives не являются доказательством полного перебора всех реальных путей."]},
-    {"id": "automatic_osm_selection", "implementation": ["src/warpbuster/reconstruction/automatic_osm.py::apply_automatic_osm_routes", "src/warpbuster/reconstruction/candidate_ranking.py::rank_gap_candidates", "src/warpbuster/reconstruction/approximate_contract.py::assess_gap_scope", "src/warpbuster/reconstruction/approximate_contract.py::assess_ranked_osm_candidate"], "ordered_rules": [
-      {"when": "activity/mask/gap snapshot или discovery inventory не совпали", "then": "ValueError; не применять чужую/stale candidate geometry"},
-      {"when": "GPX candidate выбран по threshold и прошёл preflight", "then": "gpx_selected / gpx_first"},
-      {"when": "Непригодные anchors, gap reasons, mismatch anchors, record limit, unpatchable fields, unresolved discovery, duplicate route IDs, HIGH application threshold или нет ranked candidates", "then": "OSM gap unresolved с конкретной причиной"},
-      {"when": "Strict automatic candidate проходит ranking, allocation, scope и writer preflight", "then": "Выбрать проверенный OSM candidate, максимум MEDIUM"},
-      {"when": "ApproximateSelectionPolicy включена и gap целиком ORIGINAL_MISSING с двумя anchors", "then": "Hard reasons не отменяются; soft reasons допускают deterministic tie-break/low-evidence selection среди preflight-accepted candidates; hypothesis явно помечается approximate"},
-      {"when": "Candidate attempt budget исчерпан / все candidates отвергнуты", "then": "unresolved; сохранить отказ каждого attempt в audit"}
-    ], "ranking": "Observed context alignment/direction/distance evidence, completeness, route audit и named integer score bands; стабильные tie-break keys и hard gates заданы _rank_one/_decide/_order. Ranking сам не даёт write permission.", "next": "endpoint_routes"},
-    {"id": "endpoint_routes", "implementation": ["src/warpbuster/reconstruction/endpoints.py::EndpointHints", "src/warpbuster/reconstruction/endpoints.py::endpoint_pairs", "src/warpbuster/reconstruction/endpoints.py::apply_endpoint_routes", "src/warpbuster/reconstruction/endpoints.py::choose_dem_endpoint_routes"], "variants": ["Нет hints: prefix/suffix остаются unresolved, если нет пригодного GPX completion.", "start: supplied start + trusted observed after-anchor для prefix.", "finish: trusted observed before-anchor + supplied finish для suffix.", "loop_point: единая явно заданная starting/finishing point согласно EndpointHints validation.", "GPX+hints и конфликтующие/невалидные hints отвергаются до pipeline.", "Observed outward normal context, endpoint allocation, route query budget и writer physical preflight обязательны; user point не считается исходным GNSS proof."], "next": "dem_stage"},
-    {"id": "dem_stage", "implementation": ["src/warpbuster/pipeline/dem.py::run_dem_stage", "src/warpbuster/pipeline/dem.py::_dem_child", "src/warpbuster/reconstruction/dem_choice.py::compare_dem_candidates", "src/warpbuster/reconstruction/altitude_completion.py::plan_altitude_completion"], "ordered_rules": [
-      {"when": "DEM disabled", "then": "disabled; 2D fallback plan неизменён"},
-      {"when": "Нет OSM discovery либо нет OSM GapRepairPlan в fallback", "then": "not_needed"},
-      {"when": "Нет бюджета, isolation/dependency/cache/sampling/resource failure", "then": "unavailable + safe error_code; сохранить проверенный 2D fallback"},
-      {"when": "Есть exact DEM snapshot либо обеспечено bounded auto/offline coverage", "then": "Повторить Core selection с DEM shape evidence, проверить identity/source/mask/gaps child result"}
-    ], "evidence": "Сравнение route/FIT altitude shape offset-neutral, с минимумом aligned samples, span, coverage и required error advantage. DEM не классифицирует исходные GNSS как corrupted и не доказывает маршрут.", "altitude_rules": ["Только selected OSM ORIGINAL_MISSING gap и действительно отсутствующая исходная высота.", "Есть любая исходная altitude stream: требуется explicit compatible EGM96 declaration для этого FIT; Web такую декларацию не делает.", "Если вся height stream отсутствует, datum provenance = no_fit_altitude_stream.", "FIT preservation и поддерживаемые стандартные fields обязательны; height-like developer fields приводят к source_unsupported.", "Existing nonmissing altitude не перезаписывается; raw DEM samples, IDs и finite values проверяются.", "При отказе writer именно на optional altitude plan выполняется retry без altitude; безопасный coordinate repair сохраняется."], "next": "selection_and_write"},
-    {"id": "selection_and_write", "implementation": ["src/warpbuster/reconstruction/selection.py::select_repair_intervals", "src/warpbuster/models/reconstruction.py::RepairSelection", "src/warpbuster/fit/writer.py::write_repaired_fit", "src/warpbuster/fit/writer.py::_validate_composed_geometry", "src/warpbuster/fit/writer.py::_verify_written_repair"], "ordered_rules": [
-      {"when": "Candidate confidence не LOW и >= application threshold", "then": "Selected; иначе skipped с candidate_available=true"},
-      {"when": "Reconstruction candidate отсутствует", "then": "Skipped / no_reconstruction_candidate; independent invalidations сохраняются отдельно"},
-      {"when": "Distance-spike proof >= threshold и не конфликтует с выбранной geometry-based distance correction", "then": "Выбрать local distance correction"},
-      {"when": "dry_run=true или selection.has_changes=false", "then": "Не вызывать FIT writer"},
-      {"when": "Есть изменения", "then": "Original bytes/source identity + writable selection + composed geometry preflight → minimal patch requests → bytes/CRC → temporary file → validation/diff/re-read → atomic publish"}
-    ], "patches": ["Selected candidate position_lat/position_long; unresolved INVALIDATED fields получают FIT invalid sentinel, а не guessed interpolation.", "Record distance корректируется только согласно independent correction/preservation policy. Исходные record speed/enhanced_speed сохраняются.", "При изменении distance могут корректироваться существующие lap/session total_distance, avg_speed и enhanced_avg_speed. Average speed = corrected_total_distance / существующий положительный total_timer_time; неизвестные или отсутствующие aggregates не угадываются.", "Если latitude/longitude отсутствуют в record definition, поддерживаемое расширение definitions выполняется явно и проверяется diff.", "Optional DEM может добавить/заполнить разрешённые altitude fields; прочие sensor fields, timestamps и unknown/developer fields сохраняются.", "Source path нельзя перезаписать output; overwrite=false не заменяет существующий destination. overwrite=true использует atomic os.replace; иначе publication через os.link."], "failure_action": "Не прошли planned structure/fields, CRC, re-read preservation, quantization или physical check → FitWriteError; shared pipeline преобразует write/read/OS/value failures в PipelineError repair_refused.", "next": "reporting"},
-    {"id": "reporting", "implementation": ["src/warpbuster/report/repair.py::repair_report", "src/warpbuster/report/gaps.py::gap_audit", "web/backend/warpbuster_web/processing.py::process_job", "web/backend/warpbuster_web/performance.py::public_performance"], "local": "Typed plan/selection/provenance, confidence, reasons, gaps, snapshots, detector evidence и FIT diff доступны в local JSON/HTML. Exact field names и serialization expressions сохранены в report program.", "web": "Public result schema_version=5 формируется явным allowlist, без raw preservation, private filenames, exception messages или приватного audit.", "web_outcome_order": ["write_result существует → repaired", "plan NOT_NEEDED и coverage не отказал → unchanged", "иначе → unresolved"], "partial": "selection.is_partial OR unresolved invalidated indices OR unresolved public gap. repaired+partial означает сохранённые проверенные изменения, а не полный успех.", "privacy": "private-processing-audit.json и optional private-osm-audit.json публикуются с mode 0600. Acquisition exception message/cause/details ограничены _PRIVATE_FAILURE_TEXT_LIMIT; public osm.error_code остаётся allowlisted safe code.", "next": "performance_and_ui"},
-    {"id": "performance_and_ui", "implementation": ["src/warpbuster/report/html.py::_activity_performance", "src/warpbuster/report/html.py::_kilometre_splits", "src/warpbuster/report/html.py::_time_weighted_heart_rate_between", "src/warpbuster/report/html.py::_sample_average_cadence_between", "src/warpbuster/report/html.py::_display_cadence", "web/backend/warpbuster_web/performance.py::public_performance"], "rules": ["Summary выбирает recorded/session/timer/elevation values по отдельным helpers; total ascent/descent из часов могут отличаться от сумм по километрам.", "Splits требуют >=2 records с finite recorded distance и timestamps, nonnegative/nondecreasing relative distance/time и total distance >0; иначе splits=[].", "Границы по recorded cumulative distance: 0, 1000, 2000, ... и конечная дистанция. Boundary time/altitude интерполируются по sample profile.", "Pace = elapsed_seconds / split_distance_m * 1000. Heart rate — time-weighted; cadence — sample average на distance window, с включением последней конечной точки.", "Для running display cadence = 2 * (cadence + допустимый fractional_cadence). Для прочих sport удвоения нет.", "Coordinate coverage в splits относится к расстоянию с координатами; это не FIT-only active-time coverage gate.", "UI таблицы округляет ascent/descent/heart rate/cadence до целых через Math.round; прочие metric formats используют ru-RU и максимум один знак. Null/nonfinite отображается как ‘—’. Исходный JSON и FIT не округляются.", "Browser map сохраняет continuity/missing breaks; отсутствующие сегменты не соединяются прямой линией.", "Coverage refusal, repaired partial, unchanged, OSM unavailable и ordinary unresolved имеют разные resultMessage ветви. Disabled/not-needed altitude message скрывается.", "Result HTML entry и run-summary module имеют version query; /assets получает Cache-Control: no-cache, /api и /res — private,no-store."], "resource_paths": ["web/dist/assets/run-summary.mjs", "web/dist/assets/fit-only.mjs", "web/dist/assets/result.mjs", "web/dist/assets/result-map.mjs", "web/dist/res/index.html"]}
+    {
+      "id": "read_inputs",
+      "implementation": [
+        "src/warpbuster/pipeline/repair.py::run_repair",
+        "src/warpbuster/fit/reader.py::read_fit",
+        "src/warpbuster/gpx/course.py::read_gpx_course"
+      ],
+      "ordered_rules": [
+        {
+          "when": "endpoint_hints неверного типа либо одновременно задан GPX",
+          "then": "PipelineError invalid_endpoint"
+        },
+        {
+          "when": "FIT/GPX не читается или не декодируется",
+          "then": "PipelineError invalid_fit / invalid_gpx с приватной причиной"
+        },
+        {
+          "when": "Нет activity records",
+          "then": "PipelineError empty_activity"
+        },
+        {
+          "when": "FIT records или GPX points превышают record_limit",
+          "then": "PipelineError too_many_records"
+        },
+        {
+          "when": "course отсутствует",
+          "then": "Effective fill_missing_from_course принудительно false; остальные independent/OSM возможности сохраняются"
+        },
+        {
+          "when": "Входы приняты",
+          "then": "Выполнить normalization и перейти к Integrity Detector; дальнейшие связи заданы transitions."
+        }
+      ],
+      "normalization": "Сохраняются raw FIT bytes, definitions, message occurrence/source refs, неизвестные поля и developer definitions. Normalized coordinates — градусы WGS84; FIT raw semicircles и field encoding остаются в preservation. Правила preferred/enhanced sensor fields, timestamps, session metadata и invalid values заданы reader helpers."
+    },
+    {
+      "id": "detect_integrity",
+      "implementation": [
+        "src/warpbuster/integrity/detector.py::analyze_integrity",
+        "src/warpbuster/integrity/detector.py::_measure_transition",
+        "src/warpbuster/integrity/detector.py::_baseline_stats",
+        "src/warpbuster/integrity/detector.py::_classify_transition",
+        "src/warpbuster/integrity/detector.py::_summarize"
+      ],
+      "steps": [
+        "Выбрать explicit IntegrityConfig либо профиль по normalized sport.",
+        "Взять последовательные positioned observations внутри одинакового continuity_id.",
+        "Вычислить geodesic distance и положительную elapsed duration.",
+        "По измеренным скоростям вычислить median, MAD, interpolated p95 и relative threshold.",
+        "Классифицировать transitions, затем выполнить interval detectors и независимые warnings.",
+        "Сформировать IntegrityReport с исходными evidence и aggregate status."
+      ],
+      "transition_rules": [
+        {
+          "when": "timestamp отсутствует",
+          "then": "UNKNOWN / missing_timestamp"
+        },
+        {
+          "when": "elapsed_seconds <= 0",
+          "then": "UNKNOWN / non_positive_time_delta"
+        },
+        {
+          "when": "absolute ceiling включён AND speed >= absolute_impossible_speed_mps AND distance >= absolute_impossible_distance_m",
+          "then": "IMPOSSIBLE"
+        },
+        {
+          "when": "speed >= relative threshold AND distance >= relative_suspicious_distance_m",
+          "then": "SUSPICIOUS"
+        },
+        {
+          "when": "Иначе",
+          "then": "NORMAL"
+        }
+      ],
+      "relative_threshold": "minimum_baseline_samples достигнут: max(floor, median*relative_speed_multiplier, median+MAD*relative_mad_multiplier); иначе floor",
+      "summary_order": [
+        "любой IMPOSSIBLE → CORRUPTED/HIGH",
+        "distance-spike evidence → CORRUPTED/MEDIUM",
+        "любой SUSPICIOUS → SUSPICIOUS/LOW",
+        "UNKNOWN transition или missing positions → UNKNOWN/LOW",
+        "есть NORMAL → CLEAN/HIGH при достаточной baseline, иначе CLEAN/MEDIUM",
+        "нет transitions → UNKNOWN/LOW"
+      ]
+    },
+    {
+      "id": "detect_intervals",
+      "implementation": [
+        "src/warpbuster/integrity/islands.py::detect_spoofing_islands",
+        "src/warpbuster/integrity/one_sided.py::detect_one_sided_clusters",
+        "src/warpbuster/integrity/odometer.py::detect_correlated_distance_spikes",
+        "src/warpbuster/integrity/tail.py::detect_unreachable_tails"
+      ],
+      "pass_order": [
+        {
+          "kind": "classic_island",
+          "rule": "Bounded поиск более позднего IMPOSSIBLE exit после IMPOSSIBLE entry; stable original outer anchors образуют физически правдоподобный direct bridge; интервалы потребляются последовательно без повторного захвата."
+        },
+        {
+          "kind": "one_sided_cluster",
+          "rule": "После непарного impossible entry bounded scan проверяет positioned components, missing exit boundary, stable outer normal context, plausible bridge и отсутствие конфликта с classic islands. Одного suspicious участка недостаточно."
+        },
+        {
+          "kind": "signal_corroborated_island",
+          "rule": "Положительный impossible cumulative distance step должен подтверждаться complete finite speed stream и конфликтующим displacement; неполный/reset/nonmonotonic signal не даёт такую поправку. Ограниченный positioned island получает максимум MEDIUM; для более длинного island нужна unreachable-проверка каждого point."
+        },
+        {
+          "kind": "unreachable_tail",
+          "rule": "После stable original anchor и impossible entry проверяется reachability excess = distance - speed_limit*elapsed - position_error_budget. Только доказанный префикс tail инвалидируется. Первое reachable position закрывает proof; неоднозначный остаток карантинируется до stable reachable recovery либо конца continuity block. Слабый entry не получает права удалять последующий правдоподобный возврат."
+        }
+      ],
+      "boundedness": "Named elapsed/candidate/record caps и consumed ranges ограничивают поиск; полный all-pairs reachability не строится."
+    },
+    {
+      "id": "warnings",
+      "implementation": [
+        "src/warpbuster/integrity/geometry.py::detect_geometry_warnings",
+        "src/warpbuster/integrity/vertical.py::detect_vertical_warnings"
+      ],
+      "rule": "Near-collinear geometry и excessive vertical rates сохраняются как отдельные warnings. Они не превращаются сами по себе в corruption intervals и не разрешают менять координаты."
+    },
+    {
+      "id": "mask_and_gaps",
+      "implementation": [
+        "src/warpbuster/reconstruction/gaps.py::coordinate_mask",
+        "src/warpbuster/reconstruction/gaps.py::_has_scope_proof",
+        "src/warpbuster/reconstruction/gaps.py::_has_tail_scope_proof",
+        "src/warpbuster/reconstruction/gaps.py::inventory_gaps",
+        "src/warpbuster/reconstruction/gaps.py::position_fields_patchable"
+      ],
+      "ordered_rules": [
+        {
+          "when": "Original coordinate pair отсутствует, non-finite или вне диапазона",
+          "then": "ORIGINAL_MISSING"
+        },
+        {
+          "when": "Есть проверенный interval proof с confidence >= minimum_invalidation_confidence",
+          "then": "INVALIDATED"
+        },
+        {
+          "when": "Иначе",
+          "then": "PRESERVED"
+        }
+      ],
+      "anchor_rule": "PRESERVED + нет covering evidence + вне uncertain recovery range → anchor_eligible. Missing и invalidated никогда не становятся trusted anchors.",
+      "gap_variants": [
+        "internal",
+        "prefix",
+        "suffix",
+        "whole_activity"
+      ],
+      "origin_variants": "Точный набор GapOrigin и split/merge/reasons находится в модели и inventory_gaps; missing и invalidated не смешиваются неявно."
+    },
+    {
+      "id": "base_gpx_plan",
+      "implementation": [
+        "src/warpbuster/reconstruction/local.py::build_repair_plan",
+        "src/warpbuster/reconstruction/local.py::_reconstruct_gap",
+        "src/warpbuster/reconstruction/local.py::_context",
+        "src/warpbuster/reconstruction/local.py::_options",
+        "src/warpbuster/reconstruction/local.py::_paths"
+      ],
+      "ordered_rules": [
+        {
+          "when": "Исчерпан maximum_reconstruction_intervals",
+          "then": "unresolved search_limit_reached"
+        },
+        {
+          "when": "У gap уже есть blocking reasons",
+          "then": "unresolved с первым reason"
+        },
+        {
+          "when": "GPX отсутствует",
+          "then": "unresolved no_course; independent invalidation и distance-spike corrections остаются в плане"
+        },
+        {
+          "when": "Missing completion disabled, кроме специального coordinate-free сценария",
+          "then": "unresolved missing_completion_disabled для original-missing/endpoint gaps"
+        },
+        {
+          "when": "Record budget превышен или FIT position fields unpatchable",
+          "then": "unresolved с соответствующим reason"
+        },
+        {
+          "when": "Специальный coordinate-free сценарий",
+          "then": "Выполнить подстадию coordinate_free_course."
+        },
+        {
+          "when": "Обычный gap",
+          "then": "Проверить исходное время, timer pauses, необходимый local normal context, затем local course alignment"
+        }
+      ],
+      "alignment": [
+        "Ищутся проекции исходных context points на GPX polyline с bounded spatial index/work limits.",
+        "Оба направления GPX рассматриваются отдельно. Internal endpoints должны быть на одном continuous course segment и в согласованном chainage order.",
+        "Prefix/suffix требуют контекста observed стороны и соответствующего endpoint всего GPX, не произвольного внутреннего trkseg.",
+        "Ближайший достаточный context расширяется только для разрешения неоднозначности/недостатка информации; write scope gap не расширяется course-отклонением.",
+        "Candidates сортируются по score; другая неэквивалентная геометрия внутри ambiguity margin даёт unresolved. Truncated search не объявляется unique.",
+        "Каждый путь проходит timing/allocation/physical checks и получает provenance, context ranges и причины confidence."
+      ],
+      "limit_reasons": [
+        {
+          "when": "number >= maximum_reconstruction_intervals",
+          "reason": "search_limit_reached"
+        },
+        {
+          "when": "gap.record_count > missing_completion_max_run_records",
+          "reason": "search_limit_reached"
+        },
+        {
+          "when": "_LimitReached при ограниченном поиске context/path evaluations",
+          "reason": "search_limit_reached"
+        }
+      ]
+    },
+    {
+      "id": "coordinate_free_course",
+      "implementation": [
+        "src/warpbuster/reconstruction/local.py::_reconstruct_coordinate_free",
+        "src/warpbuster/reconstruction/local.py::build_repair_plan"
+      ],
+      "preconditions": [
+        "Один WHOLE_ACTIVITY gap.",
+        "У всех records обе normalized coordinates равны None.",
+        "Session/lap metadata не содержат известных start/end/bounds coordinates.",
+        "GPX содержит ровно один continuous segment.",
+        "Clock пригоден; recorded distance profile plausible.",
+        "Relative GPX/observed length error не превышает coordinate_free_max_distance_ratio_error с inclusive isclose границей.",
+        "Course span и весь allocated traversal проходят physical checks."
+      ],
+      "result": "Один полный FORWARD traversal всего GPX как явно помеченное предположение, MEDIUM. Требуется allocation RECORDED_DISTANCE; исходные timestamps/distance/speed/датчики сохраняются. Нет manufactured observed anchors и доказательства истинного пути/направления."
+    },
+    {
+      "id": "allocate_progress",
+      "implementation": [
+        "src/warpbuster/reconstruction/timing.py::timer_timeline",
+        "src/warpbuster/reconstruction/timing.py::allocation_clock",
+        "src/warpbuster/reconstruction/signals.py::allocate_signal_progress",
+        "src/warpbuster/reconstruction/signals.py::qualify_distance",
+        "src/warpbuster/reconstruction/signals.py::qualify_speed",
+        "src/warpbuster/reconstruction/local.py::_allocate_path"
+      ],
+      "ordered_rules": [
+        {
+          "when": "Невалидные/nonincreasing timestamps, open timer pause, no active time, nonpositive path или excessive active traversal speed",
+          "then": "Отказ с timing/physical reason"
+        },
+        {
+          "when": "Пригодный distance/speed profile показывает движение внутри полностью paused interval",
+          "then": "pause_distance_conflict"
+        },
+        {
+          "when": "Recorded distance plausible, согласован с path length и проходит локальные active-time speed checks",
+          "then": "RECORDED_DISTANCE fractions"
+        },
+        {
+          "when": "Integrated recorded speed plausible, согласован с path length и проходит проверки",
+          "then": "RECORDED_SPEED fractions; trapezoid integration только active time"
+        },
+        {
+          "when": "Оба signals unusable либо не годятся для candidate geometry",
+          "then": "TIMESTAMPS: uniform progress по cumulative active time, пометка active_time_estimated; timestamps не меняются"
+        }
+      ],
+      "geometry": "Interpolated progress следует connector → course span → connector. Изменяются только records внутри утверждённого gap; anchors сохраняются. Candidate и composed geometry проверяются до и после FIT quantization.",
+      "distance_policy": "Mismatch с hypothesized course/OSM не доказывает повреждение FIT distance. Правило preserve_recorded_distance берётся из independent signal qualification; точная branch policy в _allocate_path и writer."
+    },
+    {
+      "id": "base_plan_status",
+      "implementation": [
+        "src/warpbuster/reconstruction/local.py::build_repair_plan"
+      ],
+      "ordered_rules": [
+        {
+          "when": "candidates OR invalidations OR distance_spike_evidence; unresolved gaps есть",
+          "then": "PARTIAL"
+        },
+        {
+          "when": "Изменения доступны; unresolved gaps нет",
+          "then": "READY"
+        },
+        {
+          "when": "Изменений нет; gaps есть",
+          "then": "REFUSED"
+        },
+        {
+          "when": "Изменений нет; gaps нет",
+          "then": "NOT_NEEDED"
+        }
+      ],
+      "caveat": "Статус плана описывает наличие действий; он не означает, что application confidence threshold уже пройден. Selection выполняется отдельно.",
+      "completion_checks": [
+        {
+          "when": "После read/detect/build_repair_plan и note_unused_endpoints elapsed от начала run_repair > execution.base_plan_timeout_seconds (default 180 s)",
+          "then": "PipelineError timeout; переход к coverage/OSM/DEM/writer не выполняется. Это проверка уже затраченного времени после планирования, не прерывающий deadline внутри planner."
+        }
+      ]
+    },
+    {
+      "id": "fit_only_coverage_gate",
+      "implementation": [
+        "src/warpbuster/pipeline/coverage.py::measure_observed_gps_coverage",
+        "src/warpbuster/pipeline/repair.py::run_repair"
+      ],
+      "ordered_rules": [
+        {
+          "when": "GPX задан",
+          "then": "NOT_APPLICABLE"
+        },
+        {
+          "when": "Clock отсутствует / open pause / active time <= 0",
+          "then": "UNAVAILABLE с invalid_record_timestamps / unresolved_timer_state / no_active_time"
+        },
+        {
+          "when": "FIT-only и usable timeline",
+          "then": "Observed duration = сумма active deltas у consecutive original preserved anchor-eligible fixes одной continuity с NORMAL transition и 0 < delta <= maximum_observed_gps_interval_seconds"
+        },
+        {
+          "when": "100 * observed_duration / active_duration >= minimum_observed_gps_coverage_percent",
+          "then": "PASSED"
+        },
+        {
+          "when": "Иначе",
+          "then": "BELOW_THRESHOLD"
+        }
+      ],
+      "failure_action": "BELOW_THRESHOLD/UNAVAILABLE возвращает RepairRun до OSM/DEM/writer; invalidations и distance_spike_repairs в blocked selection очищаются, исправленный FIT не создаётся."
+    },
+    {
+      "id": "osm_stage",
+      "implementation": [
+        "src/warpbuster/pipeline/osm.py::run_osm_pipeline",
+        "src/warpbuster/pipeline/osm.py::execute_osm_pipeline",
+        "src/warpbuster/pipeline/osm.py::run_osm_pipeline_isolated",
+        "src/warpbuster/reconstruction/osm.py::OSMReconstructionProvider.discover",
+        "src/warpbuster/reconstruction/osm.py::osm_gap_anchors"
+      ],
+      "ordered_rules": [
+        {
+          "when": "Whole-job remaining budget <= publish_reserve_seconds",
+          "then": "OSM unavailable/setup/osm_timeout, сохранить base GPX plan"
+        },
+        {
+          "when": "Задан exact osm_graph_id",
+          "then": "Offline discovery/application по этому graph, без Manager acquisition независимо от osm_mode"
+        },
+        {
+          "when": "OSM mode disabled",
+          "then": "disabled"
+        },
+        {
+          "when": "Нет eligible internal gaps и допустимых endpoint pairs",
+          "then": "not_needed"
+        },
+        {
+          "when": "Зависимости, quota, coverage, acquisition, prepare или routing не прошли",
+          "then": "unavailable + safe stage/error_code; base plan сохраняется"
+        },
+        {
+          "when": "Иначе",
+          "then": "Trusted anchor corridors → bounded Manager coverage → exact immutable snapshot → prepared graph → route discovery → Core application"
+        }
+      ],
+      "isolation": "Linux Web запускает bounded child/process group: IPC bytes, CPU, address-space, disk/temp/cache и wall-clock limits; phase-specific safe failures и cleanup не отменяют уже доступный base plan.",
+      "discovery": "Internal gap требует двух immediate preserved trusted anchors; GPX candidate имеет приоритет. Missing endpoints без пользовательских hints не угадываются. Query count и candidate bounds ограничены конфигом."
+    },
+    {
+      "id": "manager_and_routing",
+      "implementation": [
+        "packages/osm-manager/src/warpbuster_osm_manager/service.py::OsmManager.ensure",
+        "packages/osm-manager/src/warpbuster_osm_manager/overpass.py::OverpassClient.fetch",
+        "packages/osm-routing/src/warpbuster_osm_routing/graph_cache.py::GraphCache",
+        "packages/osm-routing/src/warpbuster_osm_routing/route_service.py::RouteService.alternatives",
+        "packages/osm-routing/src/warpbuster_osm_routing/approximate.py::discover_approximate"
+      ],
+      "manager_rules": [
+        "offline+refresh → invalid_input; offline cache неполон → offline_cache_miss; offline stale+require_fresh → fresh_cache_required.",
+        "Online fetches только missing/stale cells либо весь plan при refresh; batch/request/response/XML/coverage limits обязательны.",
+        "При OVERPASS_UNAVAILABLE допускается полный stale snapshot, только если покрытие уже complete и require_fresh=false.",
+        "Manifest/blob/hash/locking/publication rules и retries/delays/URL constraints полностью заданы в companion program."
+      ],
+      "routing_rules": [
+        "Graph identity, manifest version и точная build/runtime Valhalla version проверяются до query.",
+        "Strict negative precedence: OUTSIDE_COVERAGE → NO_SNAP → AMBIGUOUS_SNAP; no route отдельно от request/audit failure.",
+        "Strict alternatives и approximate start/end snap-pair exploration — разные bounded ветви.",
+        "Каждый candidate проверяется по shape/trace/edges/access/continuity/budgets до deduplication/ranking. Ferry/impassable/unsupported access и malformed payload не принимаются.",
+        "Valhalla alternatives не являются доказательством полного перебора всех реальных путей."
+      ]
+    },
+    {
+      "id": "automatic_osm_selection",
+      "implementation": [
+        "src/warpbuster/reconstruction/automatic_osm.py::apply_automatic_osm_routes",
+        "src/warpbuster/reconstruction/candidate_ranking.py::rank_gap_candidates",
+        "src/warpbuster/reconstruction/approximate_contract.py::assess_gap_scope",
+        "src/warpbuster/reconstruction/approximate_contract.py::assess_ranked_osm_candidate"
+      ],
+      "ordered_rules": [
+        {
+          "when": "activity/mask/gap snapshot или discovery inventory не совпали",
+          "then": "ValueError; не применять чужую/stale candidate geometry"
+        },
+        {
+          "when": "В plan.interval_plans несколько candidates с одинаковым interval.gap_id",
+          "then": "ValueError duplicate gap candidates; это проверка целостности плана, отдельная от per-gap duplicate route IDs."
+        },
+        {
+          "when": "GPX candidate выбран по threshold и прошёл preflight",
+          "then": "gpx_selected / gpx_first"
+        },
+        {
+          "when": "Непригодные anchors, gap reasons, mismatch anchors, record limit, unpatchable fields, unresolved discovery, duplicate route IDs, HIGH application threshold или нет ranked candidates",
+          "then": "OSM gap unresolved с конкретной причиной"
+        },
+        {
+          "when": "Strict automatic candidate проходит ranking, allocation, scope и writer preflight",
+          "then": "Выбрать проверенный OSM candidate, максимум MEDIUM"
+        },
+        {
+          "when": "ApproximateSelectionPolicy включена и gap целиком ORIGINAL_MISSING с двумя anchors",
+          "then": "Hard reasons не отменяются; soft reasons допускают deterministic tie-break/low-evidence selection среди preflight-accepted candidates; hypothesis явно помечается approximate"
+        },
+        {
+          "when": "Candidate attempt budget исчерпан / все candidates отвергнуты",
+          "then": "unresolved; сохранить отказ каждого attempt в audit"
+        }
+      ],
+      "ranking": "Observed context alignment/direction/distance evidence, completeness, route audit и named integer score bands; стабильные tie-break keys и hard gates заданы _rank_one/_decide/_order. Ranking сам не даёт write permission."
+    },
+    {
+      "id": "endpoint_routes",
+      "implementation": [
+        "src/warpbuster/reconstruction/endpoints.py::EndpointHints",
+        "src/warpbuster/reconstruction/endpoints.py::endpoint_pairs",
+        "src/warpbuster/reconstruction/endpoints.py::apply_endpoint_routes",
+        "src/warpbuster/reconstruction/endpoints.py::choose_dem_endpoint_routes"
+      ],
+      "variants": [
+        "Нет hints: prefix/suffix остаются unresolved, если нет пригодного GPX completion.",
+        "start: supplied start + trusted observed after-anchor для prefix.",
+        "finish: trusted observed before-anchor + supplied finish для suffix.",
+        "loop_point: единая явно заданная starting/finishing point согласно EndpointHints validation.",
+        "GPX+hints и конфликтующие/невалидные hints отвергаются до pipeline.",
+        "Observed outward normal context, endpoint allocation, route query budget и writer physical preflight обязательны; user point не считается исходным GNSS proof."
+      ]
+    },
+    {
+      "id": "dem_stage",
+      "implementation": [
+        "src/warpbuster/pipeline/dem.py::run_dem_stage",
+        "src/warpbuster/pipeline/dem.py::_dem_child",
+        "src/warpbuster/reconstruction/dem_choice.py::compare_dem_candidates",
+        "src/warpbuster/reconstruction/altitude_completion.py::plan_altitude_completion"
+      ],
+      "ordered_rules": [
+        {
+          "when": "DEM disabled",
+          "then": "disabled; 2D fallback plan неизменён"
+        },
+        {
+          "when": "Нет OSM discovery либо нет OSM GapRepairPlan в fallback",
+          "then": "not_needed"
+        },
+        {
+          "when": "Нет бюджета, isolation/dependency/cache/sampling/resource failure",
+          "then": "unavailable + safe error_code; сохранить проверенный 2D fallback"
+        },
+        {
+          "when": "Есть exact DEM snapshot либо обеспечено bounded auto/offline coverage",
+          "then": "Повторить Core selection с DEM shape evidence, проверить identity/source/mask/gaps child result"
+        }
+      ],
+      "evidence": "Сравнение route/FIT altitude shape offset-neutral, с минимумом aligned samples, span, coverage и required error advantage. DEM не классифицирует исходные GNSS как corrupted и не доказывает маршрут.",
+      "altitude_rules": [
+        "Только selected OSM ORIGINAL_MISSING gap и действительно отсутствующая исходная высота.",
+        "Есть любая исходная altitude stream: требуется explicit compatible EGM96 declaration для этого FIT; Web такую декларацию не делает.",
+        "Если вся height stream отсутствует, datum provenance = no_fit_altitude_stream.",
+        "FIT preservation и поддерживаемые стандартные fields обязательны; height-like developer fields приводят к source_unsupported.",
+        "Existing nonmissing altitude не перезаписывается; raw DEM samples, IDs и finite values проверяются.",
+        "При отказе writer именно на optional altitude plan выполняется retry без altitude; безопасный coordinate repair сохраняется."
+      ]
+    },
+    {
+      "id": "selection_and_write",
+      "implementation": [
+        "src/warpbuster/reconstruction/selection.py::select_repair_intervals",
+        "src/warpbuster/models/reconstruction.py::RepairSelection",
+        "src/warpbuster/fit/writer.py::write_repaired_fit",
+        "src/warpbuster/fit/writer.py::_validate_composed_geometry",
+        "src/warpbuster/fit/writer.py::_verify_written_repair"
+      ],
+      "ordered_rules": [
+        {
+          "when": "Candidate confidence не LOW и >= application threshold",
+          "then": "Selected; иначе skipped с candidate_available=true"
+        },
+        {
+          "when": "Reconstruction candidate отсутствует",
+          "then": "Skipped / no_reconstruction_candidate; independent invalidations сохраняются отдельно"
+        },
+        {
+          "when": "Distance-spike proof >= threshold и не конфликтует с выбранной geometry-based distance correction",
+          "then": "Выбрать local distance correction"
+        },
+        {
+          "when": "dry_run=true или selection.has_changes=false",
+          "then": "Не вызывать FIT writer"
+        },
+        {
+          "when": "Есть изменения",
+          "then": "Original bytes/source identity + writable selection + composed geometry preflight → minimal patch requests → bytes/CRC → temporary file → validation/diff/re-read → atomic publish"
+        }
+      ],
+      "patches": [
+        "Selected candidate position_lat/position_long; unresolved INVALIDATED fields получают FIT invalid sentinel, а не guessed interpolation.",
+        "Record distance корректируется только согласно independent correction/preservation policy. Исходные record speed/enhanced_speed сохраняются.",
+        "При изменении distance могут корректироваться существующие lap/session total_distance, avg_speed и enhanced_avg_speed. Average speed = corrected_total_distance / существующий положительный total_timer_time; неизвестные или отсутствующие aggregates не угадываются.",
+        "Если latitude/longitude отсутствуют в record definition, поддерживаемое расширение definitions выполняется явно и проверяется diff.",
+        "Optional DEM может добавить/заполнить разрешённые altitude fields; прочие sensor fields, timestamps и unknown/developer fields сохраняются.",
+        "Source path нельзя перезаписать output; overwrite=false не заменяет существующий destination. overwrite=true использует atomic os.replace; иначе publication через os.link."
+      ],
+      "failure_action": "Не прошли planned structure/fields, CRC, re-read preservation, quantization или physical check → FitWriteError; shared pipeline преобразует write/read/OS/value failures в PipelineError repair_refused."
+    },
+    {
+      "id": "reporting",
+      "implementation": [
+        "src/warpbuster/report/repair.py::repair_report",
+        "src/warpbuster/report/gaps.py::gap_audit",
+        "web/backend/warpbuster_web/processing.py::process_job",
+        "web/backend/warpbuster_web/performance.py::public_performance"
+      ],
+      "local": "Typed plan/selection/provenance, confidence, reasons, gaps, snapshots, detector evidence и FIT diff доступны в local JSON/HTML. Exact field names и serialization expressions сохранены в report program.",
+      "web": "Public result schema_version=5 формируется явным allowlist, без raw preservation, private filenames, exception messages или приватного audit.",
+      "web_outcome_order": [
+        "write_result существует → repaired",
+        "plan NOT_NEEDED и coverage не отказал → unchanged",
+        "иначе → unresolved"
+      ],
+      "partial": "selection.is_partial OR unresolved invalidated indices OR unresolved public gap. repaired+partial означает сохранённые проверенные изменения, а не полный успех.",
+      "privacy": "private-processing-audit.json и optional private-osm-audit.json публикуются с mode 0600. Acquisition exception message/cause/details ограничены _PRIVATE_FAILURE_TEXT_LIMIT; public osm.error_code остаётся allowlisted safe code."
+    },
+    {
+      "id": "performance_and_ui",
+      "implementation": [
+        "src/warpbuster/report/html.py::_activity_performance",
+        "src/warpbuster/report/html.py::_kilometre_splits",
+        "src/warpbuster/report/html.py::_time_weighted_heart_rate_between",
+        "src/warpbuster/report/html.py::_sample_average_cadence_between",
+        "src/warpbuster/report/html.py::_display_cadence",
+        "web/backend/warpbuster_web/performance.py::public_performance"
+      ],
+      "rules": [
+        "Summary выбирает recorded/session/timer/elevation values по отдельным helpers; total ascent/descent из часов могут отличаться от сумм по километрам.",
+        "Splits требуют >=2 records с finite recorded distance и timestamps, nonnegative/nondecreasing relative distance/time и total distance >0; иначе splits=[].",
+        "Границы по recorded cumulative distance: 0, 1000, 2000, ... и конечная дистанция. Boundary time/altitude интерполируются по sample profile.",
+        "Pace = elapsed_seconds / split_distance_m * 1000. Heart rate — time-weighted; cadence — sample average на distance window, с включением последней конечной точки.",
+        "Для running display cadence = 2 * (cadence + допустимый fractional_cadence). Для прочих sport удвоения нет.",
+        "Coordinate coverage в splits относится к расстоянию с координатами; это не FIT-only active-time coverage gate.",
+        "UI таблицы округляет ascent/descent/heart rate/cadence до целых через Math.round; прочие metric formats используют ru-RU и максимум один знак. Null/nonfinite отображается как ‘—’. Исходный JSON и FIT не округляются.",
+        "Browser map сохраняет continuity/missing breaks; отсутствующие сегменты не соединяются прямой линией.",
+        "Coverage refusal, repaired partial, unchanged, OSM unavailable и ordinary unresolved имеют разные resultMessage ветви. Disabled/not-needed altitude message скрывается.",
+        "Result HTML entry и run-summary module имеют version query; /assets получает Cache-Control: no-cache, /api и /res — private,no-store."
+      ],
+      "resource_paths": [
+        "web/dist/assets/run-summary.mjs",
+        "web/dist/assets/fit-only.mjs",
+        "web/dist/assets/result.mjs",
+        "web/dist/assets/result-map.mjs",
+        "web/dist/res/index.html"
+      ]
+    }
   ],
   "secondary_paths": [
-    {"id": "confirmed_osm_compatibility", "implementation": ["src/warpbuster/reconstruction/osm_application.py::osm_route_fingerprint", "src/warpbuster/reconstruction/osm_application.py::apply_confirmed_osm_routes"], "rule": "Сохранённый explicit confirmation API проверяет route/source/graph fingerprints и preflight; неподтверждённая OSM геометрия не становится write candidate. Product automatic policy — отдельный путь."},
-    {"id": "compatibility_planners", "implementation": ["src/warpbuster/reconstruction/course.py::build_course_repair_plan", "src/warpbuster/reconstruction/missing.py::build_missing_course_plan", "src/warpbuster/reconstruction/orchestration.py::merge_repair_plans"], "rule": "Имена старых planners делегируют unified local planner; missing wrapper включает completion, course wrapper его не включает. Merge API и исторические типы сохранены, но не заменяют порядок shared run_repair."},
-    {"id": "diagnostic_safety", "implementation": ["src/warpbuster/reconstruction/safety.py::assess_interval_safety"], "rule": "Диагностический/совместимый модуль включён в полный каталог; его наличие не означает вызов из product run_repair. Нельзя подменять им coordinate_mask/_has_scope_proof."},
-    {"id": "gps_point_decisions", "implementation": ["src/warpbuster/gps/analysis.py::analyze_gps", "src/warpbuster/gps/export.py::trusted_gpx"], "ordered_rules": ["HIGH detected interval → rejected/HIGH.", "Иначе interval evidence недостаточной confidence, uncertain recovery, missing/excessive horizontal accuracy или unresolved adjacent transition добавляют uncertainty reasons.", "NORMAL neighbour считается supporting только в допустимом max_gap_seconds; уже rejected neighbour не taint-ит plausible outside point.", "Нет supporting neighbour → uncertain, при необходимости long_time_gap.", "Нет uncertainty reasons → trusted/MEDIUM; иначе uncertain/LOW. Export берёт только trusted observations, не переставляет исходные seq и не соединяет непригодные разрывы." ]},
-    {"id": "web_lifecycle", "implementation": ["web/backend/warpbuster_web/store.py::Store", "web/backend/warpbuster_web/worker.py::Worker", "web/backend/warpbuster_web/refresh_results.py::main", "web/backend/warpbuster_web/admin/cleanup.py::purge_tracks", "web/backend/warpbuster_web/admin/cleanup.py::purge_osm_cache"], "rule": "Ownership, queue claims, expiry, retention, timeout termination, diagnostics, refresh ранее созданных результатов и admin dry-run/apply — отдельные adapters. Все их проверки и операционные ветви включены в program; они не меняют основания detector corruption. Privacy/session/limits не копируются из production .env в документ."},
-    {"id": "reader_and_writer_error_variants", "implementation": ["src/warpbuster/fit/compat.py::CompatibleFitReader", "src/warpbuster/fit/validate.py::validate_fit", "src/warpbuster/fit/validate.py::validate_activity", "src/warpbuster/fit/diff.py::diff_fit"], "rule": "Compressed timestamps, definitions/extensions, invalid sentinels, enhanced/native fields, unknown/developer fields, CRC/structure и source identity обрабатываются конкретными ветвями FIT-каталога. Неподдержанная semantics не угадывается и не подменяется GPX conversion."}
+    {
+      "id": "confirmed_osm_compatibility",
+      "implementation": [
+        "src/warpbuster/reconstruction/osm_application.py::osm_route_fingerprint",
+        "src/warpbuster/reconstruction/osm_application.py::apply_confirmed_osm_routes"
+      ],
+      "rule": "Сохранённый explicit confirmation API проверяет route/source/graph fingerprints и preflight; неподтверждённая OSM геометрия не становится write candidate. Product automatic policy — отдельный путь."
+    },
+    {
+      "id": "compatibility_planners",
+      "implementation": [
+        "src/warpbuster/reconstruction/course.py::build_course_repair_plan",
+        "src/warpbuster/reconstruction/missing.py::build_missing_course_plan",
+        "src/warpbuster/reconstruction/orchestration.py::merge_repair_plans"
+      ],
+      "rule": "Имена старых planners делегируют unified local planner; missing wrapper включает completion, course wrapper его не включает. Merge API и исторические типы сохранены, но не заменяют порядок shared run_repair."
+    },
+    {
+      "id": "diagnostic_safety",
+      "implementation": [
+        "src/warpbuster/reconstruction/safety.py::assess_interval_safety"
+      ],
+      "rule": "Диагностический/совместимый модуль включён в полный каталог; его наличие не означает вызов из product run_repair. Нельзя подменять им coordinate_mask/_has_scope_proof."
+    },
+    {
+      "id": "gps_point_decisions",
+      "implementation": [
+        "src/warpbuster/gps/analysis.py::analyze_gps",
+        "src/warpbuster/gps/export.py::trusted_gpx"
+      ],
+      "ordered_rules": [
+        {
+          "when": "Point покрыт detected interval с HIGH confidence",
+          "then": "rejected/HIGH."
+        },
+        {
+          "when": "Нет HIGH proof, но есть interval evidence недостаточной confidence, uncertain recovery, missing/excessive horizontal accuracy или unresolved adjacent transition",
+          "then": "Добавить соответствующие uncertainty reasons; продолжить проверку neighbour support."
+        },
+        {
+          "when": "NORMAL neighbour находится в допустимом max_gap_seconds и не rejected",
+          "then": "Он поддерживает point; rejected neighbour не taint-ит plausible outside point."
+        },
+        {
+          "when": "Нет supporting neighbour",
+          "then": "Добавить no_normal_neighbour_support и при необходимости long_time_gap; point будет uncertain."
+        },
+        {
+          "when": "Проверки завершены без HIGH rejection",
+          "then": "Без uncertainty reasons → trusted/MEDIUM; иначе uncertain/LOW."
+        }
+      ],
+      "export_rule": "Export берёт только trusted observations, не переставляет исходные seq и не соединяет непригодные разрывы."
+    },
+    {
+      "id": "web_lifecycle",
+      "implementation": [
+        "web/backend/warpbuster_web/store.py::Store",
+        "web/backend/warpbuster_web/worker.py::Worker",
+        "web/backend/warpbuster_web/refresh_results.py::main",
+        "web/backend/warpbuster_web/admin/cleanup.py::purge_tracks",
+        "web/backend/warpbuster_web/admin/cleanup.py::purge_osm_cache"
+      ],
+      "rule": "Ownership, queue claims, expiry, retention, timeout termination, diagnostics, refresh ранее созданных результатов и admin dry-run/apply — отдельные adapters. Все их проверки и операционные ветви включены в program; они не меняют основания detector corruption. Privacy/session/limits не копируются из production .env в документ."
+    },
+    {
+      "id": "reader_and_writer_error_variants",
+      "implementation": [
+        "src/warpbuster/fit/compat.py::CompatibleFitReader",
+        "src/warpbuster/fit/validate.py::validate_fit",
+        "src/warpbuster/fit/validate.py::validate_activity",
+        "src/warpbuster/fit/diff.py::diff_fit"
+      ],
+      "rule": "Compressed timestamps, definitions/extensions, invalid sentinels, enhanced/native fields, unknown/developer fields, CRC/structure и source identity обрабатываются конкретными ветвями FIT-каталога. Неподдержанная semantics не угадывается и не подменяется GPX conversion."
+    }
   ],
   "scenario_matrix": [
-    {"case": "Плавный off-course трек с plausible movement", "expected": "Course deviation не создаёт corruption; preserved coordinates не исправляются только ради совпадения с GPX."},
-    {"case": "Unknown sport/generic profile", "expected": "Absolute speed ceiling и bridge defaults отключены; relative suspicion сама по себе не получает scope proof."},
-    {"case": "Impossible entry + impossible exit + plausible outer bridge", "expected": "Classic interval; дальнейшая invalidation/application зависят от proof и отдельных confidence thresholds."},
-    {"case": "Impossible terminal jump без return", "expected": "Tail proof только для points вне physical reachability при stable context; first reachable и subsequent ambiguous tail сохраняются согласно quarantine/recovery rules."},
-    {"case": "Только исходные missing coordinates", "expected": "Не corruption. GPX/OSM completion может заполнить gap только по своему provider contract."},
-    {"case": "FIT-only coverage ниже threshold либо unavailable", "expected": "Никакого OSM/DEM/writer, в том числе invalidation-only output; unresolved refusal."},
-    {"case": "FIT без всех координат + один совместимый GPX segment + plausible recorded distance", "expected": "MEDIUM whole-course forward hypothesis при всех physical/timing checks; полное отсутствие metadata coordinates обязательно."},
-    {"case": "GPX ambiguity, invalid timestamps, open pause либо budget truncation", "expected": "Соответствующий gap unresolved; не объявлять arbitrary path unique."},
-    {"case": "OSM недоступен, но GPX candidate или независимая очистка доступны", "expected": "Сохранить base plan; записывать только прошедшие policy/writer действия и правдиво сообщать partial/failure."},
-    {"case": "Multiple acceptable OSM hypotheses + approximate opt-in + fully original-missing internal gap", "expected": "Возможен deterministic approximate choice с MEDIUM, explicit assumption audit и сохранением всех hard gates."},
-    {"case": "OSM candidate при HIGH application threshold", "expected": "MEDIUM automatic candidate не применяется."},
-    {"case": "LOW application threshold", "expected": "LOW candidates всё равно не записываются; LOW invalidation threshold запрещён."},
-    {"case": "DEM unavailable или height datum unknown", "expected": "Сохранить проверенный 2D plan; высоту не менять."},
-    {"case": "Distance/speed не согласованы с hypothesized path, independent corruption proof отсутствует", "expected": "Не считать mismatch доказательством ошибки sensor fields; allocation fallback/advisory diagnostics согласно signal policy."},
-    {"case": "Valid invalidation без пригодного replacement candidate", "expected": "При пройденном FIT-only gate writer может выпустить cleaned FIT с invalid position sentinels, без fabricated route."},
-    {"case": "dry_run", "expected": "Планирование/optional acquisition возможны; FIT writer не вызывается."},
-    {"case": "Output существует и overwrite=false либо destination равен source", "expected": "Writer refusal, исходный файл не заменяется."},
-    {"case": "Post-quantization geometry или preservation/diff invalid", "expected": "Не публиковать неподтверждённый candidate/output; отказ writer/shared pipeline."},
-    {"case": "Невалидный/malformed/over-limit FIT, GPX, CSV, HTTP upload или companion protocol", "expected": "Соответствующий reader/adapter error, безопасный public code; точные error/exit branches находятся в implementation program."}
+    {
+      "case": "Плавный off-course трек с plausible movement",
+      "expected": "Course deviation не создаёт corruption; preserved coordinates не исправляются только ради совпадения с GPX."
+    },
+    {
+      "case": "Unknown sport/generic profile",
+      "expected": "Absolute speed ceiling и bridge defaults отключены; relative suspicion сама по себе не получает scope proof."
+    },
+    {
+      "case": "Impossible entry + impossible exit + plausible outer bridge",
+      "expected": "Classic interval; дальнейшая invalidation/application зависят от proof и отдельных confidence thresholds."
+    },
+    {
+      "case": "Impossible terminal jump без return",
+      "expected": "Tail proof только для points вне physical reachability при stable context; first reachable и subsequent ambiguous tail сохраняются согласно quarantine/recovery rules."
+    },
+    {
+      "case": "Только исходные missing coordinates",
+      "expected": "Не corruption. GPX/OSM completion может заполнить gap только по своему provider contract."
+    },
+    {
+      "case": "FIT-only coverage ниже threshold либо unavailable",
+      "expected": "Никакого OSM/DEM/writer, в том числе invalidation-only output; unresolved refusal."
+    },
+    {
+      "case": "FIT без всех координат + один совместимый GPX segment + plausible recorded distance",
+      "expected": "MEDIUM whole-course forward hypothesis при всех physical/timing checks; полное отсутствие metadata coordinates обязательно."
+    },
+    {
+      "case": "GPX ambiguity, invalid timestamps, open pause либо budget truncation",
+      "expected": "Соответствующий gap unresolved; не объявлять arbitrary path unique."
+    },
+    {
+      "case": "OSM недоступен, но GPX candidate или независимая очистка доступны",
+      "expected": "Сохранить base plan; записывать только прошедшие policy/writer действия и правдиво сообщать partial/failure."
+    },
+    {
+      "case": "Multiple acceptable OSM hypotheses + approximate opt-in + fully original-missing internal gap",
+      "expected": "Возможен deterministic approximate choice с MEDIUM, explicit assumption audit и сохранением всех hard gates."
+    },
+    {
+      "case": "OSM candidate при HIGH application threshold",
+      "expected": "MEDIUM automatic candidate не применяется."
+    },
+    {
+      "case": "LOW application threshold",
+      "expected": "LOW candidates всё равно не записываются; LOW invalidation threshold запрещён."
+    },
+    {
+      "case": "DEM unavailable или height datum unknown",
+      "expected": "Сохранить проверенный 2D plan; высоту не менять."
+    },
+    {
+      "case": "Distance/speed не согласованы с hypothesized path, independent corruption proof отсутствует",
+      "expected": "Не считать mismatch доказательством ошибки sensor fields; allocation fallback/advisory diagnostics согласно signal policy."
+    },
+    {
+      "case": "Valid invalidation без пригодного replacement candidate",
+      "expected": "При пройденном FIT-only gate writer может выпустить cleaned FIT с invalid position sentinels, без fabricated route."
+    },
+    {
+      "case": "dry_run",
+      "expected": "Планирование/optional acquisition возможны; FIT writer не вызывается."
+    },
+    {
+      "case": "Output существует и overwrite=false либо destination равен source",
+      "expected": "Writer refusal, исходный файл не заменяется."
+    },
+    {
+      "case": "Post-quantization geometry или preservation/diff invalid",
+      "expected": "Не публиковать неподтверждённый candidate/output; отказ writer/shared pipeline."
+    },
+    {
+      "case": "Невалидный/malformed/over-limit FIT, GPX, CSV, HTTP upload или companion protocol",
+      "expected": "Соответствующий reader/adapter error, безопасный public code; точные error/exit branches находятся в implementation program."
+    },
+    {
+      "case": "После базового планирования превышен base_plan_timeout_seconds",
+      "expected": "PipelineError timeout до coverage и optional stages; FIT не записывается; CLI exit 2."
+    },
+    {
+      "case": "Повторяющийся gap_id среди candidates входного OSM plan",
+      "expected": "ValueError duplicate gap candidates; не путать с duplicate route IDs. Shared optional-stage boundary сохраняет base plan согласно своему обработчику ошибок."
+    },
+    {
+      "case": "Редкие нормальные GPS fixes без gaps; plan NOT_NEEDED и coverage BELOW_THRESHOLD",
+      "expected": "Shared pipeline не пишет FIT; CLI возвращает 0 из ветки NOT_NEEDED до проверки отказа coverage."
+    },
+    {
+      "case": "FIT успешно опубликован, HTML report после записи не создан",
+      "expected": "CLI exit 3 с сообщением о созданном FIT; нельзя трактовать exit 3 как гарантию отсутствия output."
+    }
   ],
   "navigation": {
     "all_thresholds_and_defaults": "implementation.modules[].symbols[].declared_fields + assigned_members + class methods in program; search Config/Policy and running/for_sport/defaults/from_environment/build_parser",
@@ -168,5 +990,127 @@
     "all_frontend_variants": "implementation.resources[] source for local assets; vendor code is an external boundary",
     "freshness": ".venv/bin/python scripts/export_algorithm.py --check",
     "regenerate": ".venv/bin/python scripts/export_algorithm.py"
-  }
+  },
+  "transitions": [
+    {
+      "from": "read_inputs",
+      "to": "detect_integrity",
+      "kind": "next",
+      "when": "Входы прочитаны и проверены."
+    },
+    {
+      "from": "detect_integrity",
+      "to": "detect_intervals",
+      "kind": "next",
+      "when": "Измерения, baseline и transition classifications готовы."
+    },
+    {
+      "from": "detect_intervals",
+      "to": "warnings",
+      "kind": "next",
+      "when": "Interval passes завершены."
+    },
+    {
+      "from": "warnings",
+      "to": "mask_and_gaps",
+      "kind": "next",
+      "when": "IntegrityReport сформирован."
+    },
+    {
+      "from": "mask_and_gaps",
+      "to": "base_gpx_plan",
+      "kind": "next",
+      "when": "Независимые coordinate mask и gap inventory готовы."
+    },
+    {
+      "from": "base_gpx_plan",
+      "to": "coordinate_free_course",
+      "kind": "substage",
+      "when": "Выполнены preconditions специального coordinate-free GPX сценария."
+    },
+    {
+      "from": "base_gpx_plan",
+      "to": "allocate_progress",
+      "kind": "substage",
+      "when": "Найден course path для обычного gap; распределить progress и проверить геометрию."
+    },
+    {
+      "from": "coordinate_free_course",
+      "to": "allocate_progress",
+      "kind": "substage",
+      "when": "Whole-course candidate распределяется через тот же allocator с дополнительными constraints."
+    },
+    {
+      "from": "base_gpx_plan",
+      "to": "base_plan_status",
+      "kind": "next",
+      "when": "Завершено рассмотрение всех gaps и возвраты подстадий."
+    },
+    {
+      "from": "base_plan_status",
+      "to": "fit_only_coverage_gate",
+      "kind": "next",
+      "when": "Base plan готов и completion_checks не завершились PipelineError timeout."
+    },
+    {
+      "from": "fit_only_coverage_gate",
+      "to": "osm_stage",
+      "kind": "next",
+      "when": "Coverage PASSED либо NOT_APPLICABLE при GPX."
+    },
+    {
+      "from": "fit_only_coverage_gate",
+      "to": "reporting",
+      "kind": "next",
+      "when": "Coverage BELOW_THRESHOLD/UNAVAILABLE: shared pipeline вернул blocked RepairRun без optional stages и записи FIT."
+    },
+    {
+      "from": "osm_stage",
+      "to": "manager_and_routing",
+      "kind": "substage",
+      "when": "Для acquisition/discovery нужны bounded snapshot/graph/query operations; exact graph пропускает acquisition."
+    },
+    {
+      "from": "osm_stage",
+      "to": "automatic_osm_selection",
+      "kind": "next",
+      "when": "Получен пригодный discovery; он применяется в рамках OSM stage."
+    },
+    {
+      "from": "osm_stage",
+      "to": "dem_stage",
+      "kind": "next",
+      "when": "OSM disabled/not_needed/unavailable: сохранить base/fallback plan и проверить необходимость DEM."
+    },
+    {
+      "from": "automatic_osm_selection",
+      "to": "endpoint_routes",
+      "kind": "next",
+      "when": "Internal-gap selection завершён; endpoints обрабатываются при наличии допустимых hints."
+    },
+    {
+      "from": "endpoint_routes",
+      "to": "dem_stage",
+      "kind": "next",
+      "when": "OSM stage завершён; нет hints означает пропуск endpoint queries."
+    },
+    {
+      "from": "dem_stage",
+      "to": "selection_and_write",
+      "kind": "next",
+      "when": "Получен validated DEM result либо сохранён 2D fallback."
+    },
+    {
+      "from": "selection_and_write",
+      "to": "reporting",
+      "kind": "next",
+      "when": "Dry-run/no changes либо успешная проверенная запись; PipelineError означает отдельный error outcome."
+    },
+    {
+      "from": "reporting",
+      "to": "performance_and_ui",
+      "kind": "next",
+      "when": "Отчёт доступен выбранному adapter; UI/performance вычисляются при запросе соответствующего отчёта."
+    }
+  ]
 }

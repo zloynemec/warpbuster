@@ -1,6 +1,11 @@
 {
   "schema_version": 1,
   "kind": "warpbuster_algorithm_implementation",
+  "generator": {
+    "path": "scripts/export_algorithm.py",
+    "python_implementation": "CPython",
+    "python_version": "3.14.7"
+  },
   "source_digest_sha256": "696053e14922be1b23ee38bb9fe5f958613deb6244fbca4e15d747ca1f9c12a6",
   "scope": {
     "python_roots": [
