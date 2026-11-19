@@ -210,7 +210,7 @@ def apply_automatic_osm_routes(
             reason = Reason.NO_TRUSTED_LOCAL_ANCHOR
         elif gap.record_count > cfg.maximum_gap_records:
             blocked = "gap_record_limit"
-            reason = Reason.SEARCH_LIMIT_REACHED
+            reason = Reason.GAP_RECORD_LIMIT
         elif not position_fields_patchable(activity, gap):
             blocked = "position_fields_unpatchable"
             reason = Reason.POSITION_FIELDS_UNPATCHABLE

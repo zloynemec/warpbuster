@@ -11,7 +11,7 @@
 
 **Статус:** актуализировано 19 ноября 2026 после проверки находок и релиза v0.3.5.
 **Исправления:** [ffc38c7 — validate algorithm documentation and CLI outcomes](https://github.com/zloynemec/warpbuster/commit/ffc38c75d8a5645e91022cd6377920a718d1ca27).
-**История:** исходное ревью от 18 ноября сохранено ниже; разделы 9–10 отражают последующее закрытие P3-1 и документационной части P2-3. Его severity, номера строк, метрики и предложенные исправления описывают состояние до релиза; текущие решения указаны в статусах находок и разделе 10; разделы 8–9 сохраняют предыдущие итоги. Пять исходных High не считаются пятью подтверждёнными блокирующими дефектами.
+**История:** исходное ревью от 18 ноября сохранено ниже; разделы 9–11 отражают последующее закрытие P3-1, документационной части P2-3 и отдельной задачи по reason codes. Его severity, номера строк, метрики и предложенные исправления описывают состояние до релиза; текущие решения указаны в статусах находок и разделе 11; разделы 8–10 сохраняют предыдущие итоги. Пять исходных High не считаются пятью подтверждёнными блокирующими дефектами.
 **Смежные материалы:** `CODE_REVIEW.md` (P2-2 закрыт в части диагностики; P2-7 и P3-4 — исторические смежные находки).
 
 ---
@@ -49,7 +49,7 @@
 | P1-5 | high | format | 247 150 строк / 7.6 МБ в одном генерируемом файле | Отклонён как обязательное исправление |
 | P2-1 | medium | flow | Не описан `base_plan_timeout_seconds` → `PipelineError("timeout")` | Исправлен |
 | P2-2 | medium | flow | Не описаны exit codes CLI (coverage refusal = 3) | Исправлен с уточнением исходной находки |
-| P2-3 | medium | flow+code | `SEARCH_LIMIT_REACHED` объединяет разные ограничения | Документационная часть исправлена; новые reason codes — отдельная задача |
+| P2-3 | medium | flow+code | `SEARCH_LIMIT_REACHED` объединяет разные ограничения | Исправлен; отдельная задача 028 разделила reason codes |
 | P2-4 | medium | flow | Не описана проверка `duplicate gap candidates → ValueError` | Исправлен |
 | P2-5 | medium | generator | Падение на отсутствующем `web/dist/assets`, протечки файлов в каталог | Исправлен в подтверждённой части |
 | P2-6 | medium | test | Проверки `flow` неполные; `read_text()` без encoding | Исправлен в согласованном объёме |
@@ -286,9 +286,9 @@ if time.monotonic() - started > execution.base_plan_timeout_seconds:
 
 ### P2-3. `SEARCH_LIMIT_REACHED` переиспользуется для трёх разных причин
 
-**Статус на 2026-11-19:** Исправлен в согласованном документационном объёме; новые reason codes — отдельная задача по диагностике.
+**Статус на 2026-11-19:** Исправлен; документационная часть и отдельная задача 028 по reason codes завершены.
 
-**Решение:** `ffc38c7`: в `base_gpx_plan.limit_reasons` явно перечислены условия, возвращающие общий `search_limit_reached`. Новые `GAP_RECORD_LIMIT`/`SEARCH_WINDOW_LIMIT` в Core не вводились. Последующее уточнение: в `flow.json` и `ALGORITHM.md` перечислены оба источника `_LimitReached`, точные операторы сравнения, порядок проверок и применение того же reason в `apply_confirmed_osm_routes`. Для automatic OSM `automatic_osm_json.decisions[].reason = gap_record_limit` при общем reconstruction reason. Лимиты контекстного окна сами по себе не означают `SEARCH_LIMIT_REACHED`. Изменение диагностического контракта вынесено в отдельную задачу; исходное предложение ввести новые коды ниже не является принятым изменением.
+**Решение:** `ffc38c7`: в `base_gpx_plan.limit_reasons` явно перечислены условия, возвращающие общий `search_limit_reached`. Новые `GAP_RECORD_LIMIT`/`SEARCH_WINDOW_LIMIT` в Core не вводились. Последующее уточнение: в `flow.json` и `ALGORITHM.md` перечислены оба источника `_LimitReached`, точные операторы сравнения, порядок проверок и применение того же reason в `apply_confirmed_osm_routes`. Для automatic OSM `automatic_osm_json.decisions[].reason = gap_record_limit` при общем reconstruction reason. Лимиты контекстного окна сами по себе не означают `SEARCH_LIMIT_REACHED`. После документационного уточнения отдельная задача 028 переиспользовала `RECONSTRUCTION_INTERVAL_LIMIT_EXCEEDED` и ввела `GAP_RECORD_LIMIT`, `ANCHOR_CANDIDATE_LIMIT`, `PATH_EVALUATION_LIMIT`. Исходное предложение о `SEARCH_WINDOW_LIMIT` уточнено: context-window cap сам по себе не является таким отказом. Legacy `SEARCH_LIMIT_REACHED` сохранён для чтения исторических данных.
 
 **Файл:** `src/warpbuster/reconstruction/local.py:242-257, 728`; `src/warpbuster/reconstruction/automatic_osm.py:211-213`; `docs/algorithm/flow.json:75`
 
@@ -506,6 +506,8 @@ HTTP-ответы `/`, `/fix`, `/faq`, `/health`. Это сведения о п�
   в разделе 9 без перезаписи состояния прежнего релиза ffc38c7.
 - 2026-11-19: закрыт согласованный документационный объём P2-3; полный перечень
   применений общего reason и граница отдельной задачи по кодам описаны в разделе 10.
+- 2026-11-19: отдельной задачей 028 разделены reason codes; совместимость и результаты
+  отражены в разделе 11 без перезаписи истории прежних решений.
 
 ---
 
@@ -549,7 +551,7 @@ Linux, поскольку product OSM isolation на macOS не поддержи
 По общему reason нельзя определить конкретный бюджет или отсутствие допустимого
 маршрута. В этих ветвях gap остаётся unresolved; последующие этапы имеют свои gates.
 
-Текущий итог: 9 находок исправлены в согласованном объёме, 1 частично исправлена
+Итог документационной задачи: 9 находок исправлены в согласованном объёме, 1 частично исправлена
 (P1-4), 3 отклонены, 1 необязательное уточнение (P3-3) отложено. Таблицы прежних
 релизов сохранены как история. Разделение reason codes остаётся отдельной задачей
 по диагностике с проверкой совместимости JSON/отчётов и callers.
@@ -557,6 +559,39 @@ Linux, поскольку product OSM isolation на macOS не поддержи
 Проверка: `scripts/export_algorithm.py --check`, существующие тесты документации,
 local matching и automatic/confirmed OSM application. Новые тесты поведения
 не добавлялись: исходники алгоритма не менялись.
+
+---
+
+## 11. Разделение reason codes, задача 028 — 2026-11-19
+
+Выполнено отдельное поручение разделить причины, ранее объединённые
+`SEARCH_LIMIT_REACHED`. Детектор, пороги, порядок guards, allocation, selection,
+FIT writer и разрешённый scope исправлений не менялись.
+
+| Условие | Текущий reconstruction reason |
+|---|---|
+| Zero-based gap index `>= maximum_reconstruction_intervals` | `reconstruction_interval_limit_exceeded` (переиспользован существующий enum) |
+| GPX/automatic OSM/confirmed OSM `record_count >` cap | `gap_record_limit` |
+| Число deduplicated anchor matches `>` cap | `anchor_candidate_limit` |
+| Новый uncached path, evaluated paths `>=` cap | `path_evaluation_limit` |
+
+Существующий `_LimitReached` передаёт reason из места исчерпания бюджета;
+context-window caps не переименованы в причины отказа. Automatic audit marker
+`gap_record_limit` сохранён. OSM дополняет previous GPX failure reasons, не стирает их.
+
+Legacy enum читается; новые ветви не выдают `search_limit_reached`.
+Core report schema 0.1 и public Web schema 5 сохраняют shape, но readers с закрытым
+списком reasons должны принять новые значения. Сохранённые отчёты не переписываются.
+Документация совместимости: `ALGORITHM.md`, машиночитаемая карта в `flow.json`.
+
+Проверки охватывают все места прежней выдачи общего reason, приоритет guards,
+точную record boundary, JSON/HTML/public Web serialization и legacy enum.
+Полный `sh scripts/test-all.sh`: 1699 Python и 34 JS теста прошли, 12 существующих
+пропусков по условиям окружения. Mypy проверил 70 файлов; Ruff и exporter check
+прошли. Отдельная задача и критерии: `tasks/028-reconstruction-limit-reasons.md`.
+
+Текущий итог: 9 находок исправлены, включая P2-3; 1 частично исправлена (P1-4),
+3 отклонены, 1 необязательное уточнение (P3-3) отложено.
 
 ---
 

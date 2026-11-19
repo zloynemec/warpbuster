@@ -433,3 +433,37 @@ def test_public_coverage_and_gap_schema_is_explicit(tmp_path, case):
     assert str(tmp_path) not in serialized
     assert "endpoint_hints" not in serialized
     assert "maximum_observed_gps_interval_seconds" not in serialized
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "reconstruction_interval_limit_exceeded",
+        "gap_record_limit",
+        "anchor_candidate_limit",
+        "path_evaluation_limit",
+    ],
+)
+def test_specific_reconstruction_limits_reach_public_report(tmp_path, monkeypatch, reason):
+    from warpbuster.models.reconstruction import ReconstructionReason, UnresolvedGap
+
+    activity, course = local_fixture(tmp_path, missing=((150, 179),))
+    (tmp_path / "original.fit").write_bytes(activity.preservation.raw_bytes)
+    (tmp_path / "course.gpx").write_bytes(course.raw_bytes)
+    build_plan = pipeline.build_repair_plan
+
+    def limited(*args, **kwargs):
+        plan = build_plan(*args, **kwargs)
+        return replace(
+            plan,
+            interval_plans=(),
+            unresolved_gaps=(UnresolvedGap(plan.gaps[0], (ReconstructionReason(reason),)),),
+        )
+
+    monkeypatch.setattr(pipeline, "build_repair_plan", limited)
+    assert not process_job(tmp_path, 100_000, config=offline_config(tmp_path))
+    report = json.loads((tmp_path / "result.json").read_text())
+    assert report["schema_version"] == 5
+    assert report["gaps"][0]["reasons"] == [reason]
+    assert not (tmp_path / "corrected.fit").exists()
+    assert (tmp_path / "original.fit").read_bytes() == activity.preservation.raw_bytes

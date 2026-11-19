@@ -108,39 +108,49 @@ exceptions определяются их semantics; explicit `try`/`except`/`fin
 Нет обещания, что каждый возможный маршрут найден, что distance/speed независимы
 от GNSS или что восстановленная geometry совпадает с фактическим движением.
 
-## Общий reason `SEARCH_LIMIT_REACHED`
+## Конкретные причины исчерпания reconstruction limits
 
-`ReconstructionReason.SEARCH_LIMIT_REACHED` сериализуется как
-`search_limit_reached`. Сейчас один код используется для нескольких ограничений:
+Новые планы различают четыре `ReconstructionReason`. Пороги и порядок guards
+сохранены; меняется диагностическое значение причины, а не разрешение на repair.
 
-| Путь | Условие | Дополнительная диагностика |
+| Путь | Условие | Reason в JSON |
 |---|---|---|
-| Базовый GPX-план | Zero-based `number >= maximum_reconstruction_intervals` | Этот gap и последующие не реконструируются в базовом плане |
-| Базовый GPX-план | `gap.record_count > missing_completion_max_run_records` | Проверка после existing gap reasons, наличия GPX и missing-completion policy |
-| Local GPX alignment | Число deduplicated anchor matches `> maximum_anchor_candidates` | `_CourseIndex.matches` бросает `_LimitReached`, перехваченный в `_reconstruct_gap` |
-| Local GPX alignment | Для нового uncached path `evaluated_paths >= local_alignment_max_path_evaluations` | Тот же `_LimitReached`; усечённый поиск не объявляется однозначным |
-| Автоматическое применение OSM | `gap.record_count > cfg.maximum_gap_records`, где `cfg` — `AutomaticOSMApplicationConfig` или `approximate_policy.application` | В `automatic_osm_json.decisions[].reason` записывается `gap_record_limit` |
-| Явно подтверждённый OSM-маршрут | `gap.record_count > OSMApplicationConfig.maximum_gap_records` | Возвращается общий reason; automatic audit marker для этого пути не обещается |
+| Базовый GPX-план | Zero-based `number >= maximum_reconstruction_intervals` | `reconstruction_interval_limit_exceeded` (существовавший enum) |
+| Базовый GPX-план | `gap.record_count > missing_completion_max_run_records` | `gap_record_limit` |
+| Local GPX alignment | Число deduplicated anchor matches `> maximum_anchor_candidates` | `anchor_candidate_limit` |
+| Local GPX alignment | Для нового uncached path `evaluated_paths >= local_alignment_max_path_evaluations` | `path_evaluation_limit` |
+| Автоматическое применение OSM | `gap.record_count > cfg.maximum_gap_records`, где `cfg` — `AutomaticOSMApplicationConfig` или `approximate_policy.application` | `gap_record_limit` |
+| Явно подтверждённый OSM-маршрут | `gap.record_count > OSMApplicationConfig.maximum_gap_records` | `gap_record_limit` |
 
+`_LimitReached` несёт конкретную причину из `_CourseIndex.matches` или проверки
+path evaluations в `_reconstruct_gap`; усечённый поиск не объявляется однозначным.
+Record limit базового плана проверяется после existing gap reasons, наличия GPX
+и missing-completion policy, а лимит числа интервалов имеет приоритет над ними.
 Для OSM более ранние проверки anchors/gap reasons и mismatch имеют приоритет;
 в confirmed path discovery outcome также проверяется до record limit. Принятый
 GPX-кандидат после preflight имеет приоритет в automatic path; в confirmed path
 наличие любого локального GPX-кандидата пропускает OSM application для этого gap.
-Условия означают реально
-достигнутые ветви, а не безусловную классификацию по одному размеру gap.
+Automatic audit сохраняет `automatic_osm_json.decisions[].reason = gap_record_limit`;
+OSM failure добавляет свой reason, не удаляя предыдущие причины базового плана.
 
 Достижение `local_alignment_max_context_records` или
 `local_alignment_max_context_seconds` ограничивает сбор контекста, но само по себе
-не присваивает `SEARCH_LIMIT_REACHED`. По одному общему reason нельзя определить
-исчерпанный бюджет или сделать вывод об отсутствии физически допустимого маршрута.
-Результат этих ветвей — unresolved gap, а не разрешение на запись непроверенного
-кандидата. Другие этапы могут затем обработать gap по своим правилам.
+не задаёт limit reason. Отказ по бюджету оставляет gap unresolved и не доказывает
+отсутствие физически допустимого маршрута; последующие этапы имеют свои guards.
+Машиночитаемые условия: `base_gpx_plan.limit_reasons`,
+`automatic_osm_selection.record_limit_reason` и
+`semantics.reconstruction_limit_compatibility` в `flow.json`.
 
-Машиночитаемые условия находятся в `base_gpx_plan.limit_reasons` и
-`automatic_osm_selection.record_limit_reason` файла `flow.json`. Разделение на
-новые reason codes (например, `GAP_RECORD_LIMIT`/`SEARCH_WINDOW_LIMIT`) требует
-отдельной задачи по диагностике с проверкой совместимости JSON, отчётов и callers;
-таких кодов в текущем контракте нет.
+### Совместимость reason codes
+
+`ReconstructionReason.SEARCH_LIMIT_REACHED = "search_limit_reached"` сохранён
+для чтения старых отчётов. Указанные ветви нового плана больше его не выдают.
+JSON/HTML используют те же строковые поля reasons: Core report schema `0.1`,
+public Web schema `5`. Словарь значений расширен: consumers с закрытым enum
+должны принять четыре конкретных reason codes из таблицы. Для прежней агрегации
+их можно сопоставлять общей категории `search_limit_reached` на стороне читателя.
+Сохранённые отчёты не мигрируются и не переписываются; по старому общему reason
+нельзя восстановить точную причину. Откат приложения не требует миграции данных.
 
 ## Приватная диагностика OSM
 
@@ -180,3 +190,6 @@ SIGKILL, segfault и отсутствие IPC-ответа могут не ос�
 - 2026-11-19: для P2-3 перечислены все текущие применения `SEARCH_LIMIT_REACHED`,
   точные границы лимитов, приоритет отказов и OSM audit marker. Новые reason codes
   оставлены отдельной задачей по диагностике; поведение алгоритма не менялось.
+- 2026-11-19: отдельная задача 028 разделяет выдачу общего reason на четыре
+  конкретных: переиспользован interval-limit enum, добавлены record/anchor/path
+  reasons. Legacy enum сохранён; пороги, порядок guards и FIT semantics прежние.

@@ -187,6 +187,12 @@ def test_unusable_osm_is_unresolved_without_mutating_base(tmp_path, fault):
     )
     assert not plan.interval_plans and plan.unresolved_gaps
     assert base.coordinate_mask == plan.coordinate_mask and base.gaps == plan.gaps
+    if fault == "records":
+        assert plan.unresolved_gaps[0].reasons == (
+            *base.unresolved_gaps[0].reasons,
+            Reason.GAP_RECORD_LIMIT,
+        )
+        assert audit(plan)["decisions"][0]["reason"] == "gap_record_limit"
 
 
 def test_approximate_connectors_and_distance_budget(tmp_path):

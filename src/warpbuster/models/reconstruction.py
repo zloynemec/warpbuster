@@ -119,7 +119,10 @@ class ReconstructionReason(StrEnum):
     PAUSE_DISTANCE_CONFLICT = "pause_distance_conflict"
     ACTIVE_TIME_TRAVERSAL_IMPLAUSIBLE = "active_time_traversal_implausible"
     CONTINUITY_BREAK = "continuity_break"
-    SEARCH_LIMIT_REACHED = "search_limit_reached"
+    SEARCH_LIMIT_REACHED = "search_limit_reached"  # Legacy reports; new plans use specific limits.
+    GAP_RECORD_LIMIT = "gap_record_limit"
+    ANCHOR_CANDIDATE_LIMIT = "anchor_candidate_limit"
+    PATH_EVALUATION_LIMIT = "path_evaluation_limit"
     POSITION_FIELDS_UNPATCHABLE = "position_fields_unpatchable"
     INDEPENDENT_CORRUPTION_PROOF = "independent_corruption_proof"
     COURSE_ASSUMPTION = "course_assumption"

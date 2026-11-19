@@ -66,9 +66,15 @@ def test_ambiguous_paths_and_course_breaks_remain_local_failures(
 
 
 @pytest.mark.parametrize(
-    "bound", ["maximum_anchor_candidates", "local_alignment_max_path_evaluations"]
+    ("bound", "reason"),
+    [
+        ("maximum_anchor_candidates", "anchor_candidate_limit"),
+        ("local_alignment_max_path_evaluations", "path_evaluation_limit"),
+    ],
 )
-def test_truncated_branch_search_never_claims_uniqueness(tmp_path: Path, bound: str) -> None:
+def test_truncated_branch_search_never_claims_uniqueness(
+    tmp_path: Path, bound: str, reason: str
+) -> None:
     activity, course = local_fixture(tmp_path, missing=((150, 179),))
     points = [(p.latitude, p.longitude, None, None) for p in course.segments[0].points]
     path = tmp_path / "duplicates.gpx"
@@ -81,7 +87,7 @@ def test_truncated_branch_search_never_claims_uniqueness(tmp_path: Path, bound: 
         fill_missing_from_course=True,
     )
     assert not plan.interval_plans
-    assert plan.unresolved_gaps[0].reasons[0].value == "search_limit_reached"
+    assert plan.unresolved_gaps[0].reasons[0].value == reason
 
 
 @pytest.mark.parametrize(
@@ -203,7 +209,15 @@ def test_timestamp_allocation_is_explicitly_estimated_and_record_cap_is_audited(
         CourseReconstructionConfig(missing_completion_max_run_records=29),
         fill_missing_from_course=True,
     )
-    assert limited.unresolved_gaps[0].reasons[0].value == "search_limit_reached"
+    assert limited.unresolved_gaps[0].reasons[0].value == "gap_record_limit"
+    boundary = build_repair_plan(
+        activity,
+        analyze_integrity(activity),
+        course,
+        CourseReconstructionConfig(missing_completion_max_run_records=30),
+        fill_missing_from_course=True,
+    )
+    assert boundary.interval_plans == plan.interval_plans
 
 
 def test_gap_planning_order_does_not_create_evidence(

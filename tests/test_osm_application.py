@@ -173,7 +173,7 @@ def test_conflicting_or_stale_confirmation_cannot_bypass_gates(tmp_path, fault):
         ("connector", "osm_connector_too_long"),
         ("invalid", "osm_geometry_invalid"),
         ("distance", "local_distance_inconsistent"),
-        ("limit", "search_limit_reached"),
+        ("limit", "gap_record_limit"),
         ("speed", "active_time_traversal_implausible"),
     ],
 )

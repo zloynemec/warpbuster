@@ -65,7 +65,9 @@ _METRES_PER_DEGREE = 111_195.0
 
 
 class _LimitReached(Exception):
-    pass
+    def __init__(self, reason: Reason) -> None:
+        super().__init__(reason.value)
+        self.reason = reason
 
 
 @dataclass(frozen=True)
@@ -169,7 +171,7 @@ class _CourseIndex:
                 continue
             distinct.append(match)
             if len(distinct) > self.config.maximum_anchor_candidates:
-                raise _LimitReached
+                raise _LimitReached(Reason.ANCHOR_CANDIDATE_LIMIT)
         result = tuple(distinct)
         self.cache[record.index] = result
         return result
@@ -240,7 +242,7 @@ def build_repair_plan(
             open_starts=timeline.open_starts,
         )
         reason = (
-            Reason.SEARCH_LIMIT_REACHED
+            Reason.RECONSTRUCTION_INTERVAL_LIMIT_EXCEEDED
             if number >= config.maximum_reconstruction_intervals
             else gap.reasons[0]
             if gap.reasons
@@ -250,7 +252,7 @@ def build_repair_plan(
             if not fill_missing_from_course
             and not coordinate_free
             and (gap.original_missing_count or gap.kind is not MissingCourseRunKind.INTERNAL)
-            else Reason.SEARCH_LIMIT_REACHED
+            else Reason.GAP_RECORD_LIMIT
             if gap.record_count > config.missing_completion_max_run_records
             else Reason.POSITION_FIELDS_UNPATCHABLE
             if not position_fields_patchable(activity, gap)
@@ -687,7 +689,7 @@ def _reconstruct_gap(
                 key = (path.before, path.after, path.direction)
                 if key not in allocations:
                     if evaluated_paths >= config.local_alignment_max_path_evaluations:
-                        raise _LimitReached
+                        raise _LimitReached(Reason.PATH_EVALUATION_LIMIT)
                     evaluated_paths += 1
                     allocations[key] = _allocate_path(
                         activity, gap, path, index, ranges, config, integrity_config, clock=clock
@@ -724,8 +726,8 @@ def _reconstruct_gap(
                 if not ambiguous:
                     return candidate
                 reason = Reason.LOCAL_COURSE_MATCH_AMBIGUOUS
-        except _LimitReached:
-            return UnresolvedGap(gap, (Reason.SEARCH_LIMIT_REACHED,), ranges)
+        except _LimitReached as error:
+            return UnresolvedGap(gap, (error.reason,), ranges)
         if window >= max(len(before), len(after)):
             break
         window = min(window + required, max(len(before), len(after)))

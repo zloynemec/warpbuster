@@ -189,7 +189,7 @@ def apply_confirmed_osm_routes(
         elif (evaluation.anchor_before, evaluation.anchor_after) != anchors:
             reason = Reason.OSM_CONFIRMATION_STALE
         elif gap.record_count > config.maximum_gap_records:
-            reason = Reason.SEARCH_LIMIT_REACHED
+            reason = Reason.GAP_RECORD_LIMIT
         elif not position_fields_patchable(activity, gap):
             reason = Reason.POSITION_FIELDS_UNPATCHABLE
         confirmed = [c for c in confirmations if c.gap_id == gap.gap_id]

@@ -134,7 +134,7 @@ def test_impossible_distance_in_original_missing_does_not_veto_qualified_speed(
     assert not candidate.preserve_recorded_distance
 
 
-@pytest.mark.parametrize("limit", [1, 2])
+@pytest.mark.parametrize("limit", [1, 2, 3])
 def test_gap_limits_keep_complete_inventory(tmp_path: Path, limit: int) -> None:
     activity, course = local_fixture(tmp_path)
     plan = build_repair_plan(
@@ -147,5 +147,25 @@ def test_gap_limits_keep_complete_inventory(tmp_path: Path, limit: int) -> None:
     assert len(plan.gaps) == 3
     assert len(plan.interval_plans) == limit
     assert all(
-        g.reasons == (ReconstructionReason.SEARCH_LIMIT_REACHED,) for g in plan.unresolved_gaps
+        g.reasons == (ReconstructionReason.RECONSTRUCTION_INTERVAL_LIMIT_EXCEEDED,)
+        for g in plan.unresolved_gaps
     )
+
+
+def test_interval_limit_precedes_gap_record_limit(tmp_path: Path) -> None:
+    activity, course = local_fixture(tmp_path)
+    plan = build_repair_plan(
+        activity,
+        analyze_integrity(activity),
+        course,
+        CourseReconstructionConfig(
+            maximum_reconstruction_intervals=1, missing_completion_max_run_records=1
+        ),
+        fill_missing_from_course=True,
+    )
+    assert not plan.interval_plans
+    assert [gap.reasons for gap in plan.unresolved_gaps] == [
+        (ReconstructionReason.GAP_RECORD_LIMIT,),
+        (ReconstructionReason.RECONSTRUCTION_INTERVAL_LIMIT_EXCEEDED,),
+        (ReconstructionReason.RECONSTRUCTION_INTERVAL_LIMIT_EXCEEDED,),
+    ]

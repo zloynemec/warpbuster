@@ -18,7 +18,19 @@
       "Гарантия полноты OSM-кандидатов, истинности выбранного маршрута или независимости FIT speed/distance от GNSS.",
       "Гарантия детерминизма сетевого окружения, времени выполнения, платформы и состояния внешнего кеша. При одинаковых входах и фиксированных зависимостях ядро использует детерминированные правила."
     ],
-    "graph": "entrypoints[].start задаёт начало; transitions содержит все связи стадий. kind=next — продолжение при указанном when; kind=substage — вспомогательный разбор внутри стадии-родителя с возвратом в неё. Граф описывает процесс, а не исполняет predicates и не заменяет call graph из кода. Ошибки и ранние возвраты перечислены в правилах стадий."
+    "graph": "entrypoints[].start задаёт начало; transitions содержит все связи стадий. kind=next — продолжение при указанном when; kind=substage — вспомогательный разбор внутри стадии-родителя с возвратом в неё. Граф описывает процесс, а не исполняет predicates и не заменяет call graph из кода. Ошибки и ранние возвраты перечислены в правилах стадий.",
+    "reconstruction_limit_compatibility": {
+      "legacy_reason": "search_limit_reached",
+      "current_reasons": [
+        "reconstruction_interval_limit_exceeded",
+        "gap_record_limit",
+        "anchor_candidate_limit",
+        "path_evaluation_limit"
+      ],
+      "migration": "Старый enum сохранён для исторических отчётов; новые plans не выдают общий reason. Читателям прежнего закрытого списка reasons нужно принять четыре конкретных значения; при старой группировке можно сопоставить их search_limit_reached без изменения исходного отчёта.",
+      "report_contract": "Core report schema 0.1 и public Web schema 5 сохраняют форму строковых reasons; меняется словарь значений, а не shape. Сохранённые отчёты не переписываются.",
+      "unchanged": "Thresholds, inclusive/exclusive comparisons, ordered guards, reconstruction selection, GNSS detection, timestamps и FIT fields не меняются."
+    }
   },
   "invariants": [
     {
@@ -404,7 +416,7 @@
       "ordered_rules": [
         {
           "when": "Исчерпан maximum_reconstruction_intervals",
-          "then": "unresolved search_limit_reached"
+          "then": "unresolved reconstruction_interval_limit_exceeded"
         },
         {
           "when": "У gap уже есть blocking reasons",
@@ -420,7 +432,7 @@
         },
         {
           "when": "gap.record_count > missing_completion_max_run_records",
-          "then": "unresolved search_limit_reached; общий reason, отдельного gap-record reason code нет"
+          "then": "unresolved gap_record_limit"
         },
         {
           "when": "FIT position fields unpatchable",
@@ -446,22 +458,22 @@
       "limit_reasons": [
         {
           "when": "number >= maximum_reconstruction_intervals",
-          "reason": "search_limit_reached"
+          "reason": "reconstruction_interval_limit_exceeded"
         },
         {
           "when": "gap.record_count > missing_completion_max_run_records",
-          "reason": "search_limit_reached"
+          "reason": "gap_record_limit"
         },
         {
           "when": "После deduplication число anchor matches > maximum_anchor_candidates: _CourseIndex.matches бросает _LimitReached, перехваченный в _reconstruct_gap",
-          "reason": "search_limit_reached"
+          "reason": "anchor_candidate_limit"
         },
         {
           "when": "Для нового uncached path evaluated_paths >= local_alignment_max_path_evaluations: _LimitReached в _reconstruct_gap",
-          "reason": "search_limit_reached"
+          "reason": "path_evaluation_limit"
         }
       ],
-      "limit_semantics": "ReconstructionReason.SEARCH_LIMIT_REACHED сериализуется как search_limit_reached и объединяет разные ограничения. Условия record limit проверяются только после более ранних ordered_rules; number — zero-based индекс gap в inventory. Достижение local_alignment_max_context_records/seconds само по себе не присваивает этот reason. Новые reason codes требуют отдельной задачи по диагностике."
+      "limit_semantics": "Четыре конкретных ReconstructionReason различают интервал, число records, anchor candidates и path evaluations. number — zero-based индекс gap в inventory; record limit проверяется после более ранних ordered_rules. _LimitReached несёт конкретный reason из места превышения бюджета. Context records/seconds caps сами по себе не задают limit reason. Legacy SEARCH_LIMIT_REACHED остаётся читаемым enum, но эти ветви больше его не выдают."
     },
     {
       "id": "coordinate_free_course",
@@ -696,14 +708,14 @@
       "ranking": "Observed context alignment/direction/distance evidence, completeness, route audit и named integer score bands; стабильные tie-break keys и hard gates заданы _rank_one/_decide/_order. Ranking сам не даёт write permission.",
       "record_limit_reason": {
         "when": "gap.record_count > cfg.maximum_gap_records после успешной проверки anchors/gap reasons и anchor mismatch; cfg = approximate_policy.application либо config/AutomaticOSMApplicationConfig()",
-        "reason": "search_limit_reached",
+        "reason": "gap_record_limit",
         "audit_marker": "automatic_osm_json.decisions[].reason = gap_record_limit",
-        "confirmed_application": "apply_confirmed_osm_routes также возвращает search_limit_reached при этом record limit; его более ранние проверки anchors, gap reasons, discovery outcome и anchor mismatch имеют приоритет. Automatic marker gap_record_limit не обещается для confirmed path.",
+        "confirmed_application": "apply_confirmed_osm_routes также возвращает gap_record_limit при maximum_gap_records; его более ранние проверки anchors, gap reasons, discovery outcome и anchor mismatch имеют приоритет. Automatic marker gap_record_limit сохраняется без переименования.",
         "implementation": [
           "src/warpbuster/reconstruction/automatic_osm.py::apply_automatic_osm_routes",
           "src/warpbuster/reconstruction/osm_application.py::apply_confirmed_osm_routes"
         ],
-        "interpretation": "Общий reason не определяет конкретный исчерпанный бюджет и не доказывает отсутствие физически допустимого маршрута. Новые GAP_RECORD_LIMIT/SEARCH_WINDOW_LIMIT не реализованы; изменение reason-code контракта — отдельная задача по диагностике."
+        "interpretation": "Record budget отказ оставляет gap unresolved и не доказывает отсутствие физически допустимого маршрута. GPX/OSM используют GAP_RECORD_LIMIT; конкретное значение бюджета зависит от конфигурации вызываемого этапа. При добавлении OSM failure сохраняются предыдущие reconstruction reasons."
       }
     },
     {
