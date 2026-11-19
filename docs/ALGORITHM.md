@@ -32,7 +32,12 @@ Dockerfile и шаблон результата. Каталог большой �
   наследование, assignments, calls, returns и raises также сохранены.
 - `decision_points` индексирует условия, циклы, inline ternaries, Boolean
   short-circuit, comparisons, comprehensions и explicit exception paths.
-  `line` указывает в исходный файл; `node` — ordinal исходного `ast.walk`.
+  `line` — номер строки исходного файла, начиная с 1. Если у AST-узла есть
+  собственный `lineno`, используется он. Для узлов без позиции, включая
+  `match_case` и `comprehension`, берётся минимальный `lineno` среди потомков;
+  если позиций нет и у них, используется 1. Это навигационный ориентир, который
+  не гарантирует строку ключевого слова `case`/`for` или начала всей конструкции.
+  `node` — ordinal исходного `ast.walk`.
   Истинная/ложная ветвь и обработка исключений читаются в `program`.
 - `symbols` содержит docstrings, аргументы, annotations, объявленные поля/defaults,
   assigned members (включая enum values) и диапазоны строк. `required=true` означает
@@ -193,3 +198,5 @@ SIGKILL, segfault и отсутствие IPC-ответа могут не ос�
 - 2026-11-19: отдельная задача 028 разделяет выдачу общего reason на четыре
   конкретных: переиспользован interval-limit enum, добавлены record/anchor/path
   reasons. Legacy enum сохранён; пороги, порядок guards и FIT semantics прежние.
+- 2026-11-19: уточнён смысл `decision_points[].line` для AST-узлов без собственной
+  позиции; P3-3 закрыт описанием существующего fallback без изменения генератора.
